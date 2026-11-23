@@ -1,2 +1,6 @@
 [build]
   publish = "site"
+
+# The admin e-mail is the public contact address already shown on the site, so it is not a secret to scan for.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "HQ_ADMIN_EMAIL"
