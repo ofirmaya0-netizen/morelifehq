@@ -11,6 +11,17 @@
   function hit(kind) { if (!C.track) return; try { navigator.sendBeacon('/api/public/hit', new Blob([JSON.stringify({ e: C.e, k: kind, utm: utm })], { type: 'application/json' })); } catch (e) {} }
   hit('view');
   var gl = document.getElementById('g-guests'); if (gl && window.MLGuests) window.MLGuests(gl, C.e, { invite: C.t });
+  var wh = document.getElementById('g-when');
+  if (wh && C.d) { // days left, counted on Istanbul's calendar
+    var today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' }), n = Math.round((Date.parse(C.d) - Date.parse(today)) / 864e5);
+    var txt = n === 0 ? 'Tonight' : n === 1 ? 'Tomorrow' : n > 1 && n <= 60 ? 'In ' + n + ' days' : '';
+    if (txt) { wh.textContent = txt; wh.hidden = false; if (n <= 1) wh.classList.add('hot'); }
+  }
+  var cta = document.getElementById('g-cta'), fm = document.getElementById('g-form');
+  if (cta && fm && 'IntersectionObserver' in window) {
+    new IntersectionObserver(function (en) { cta.classList.toggle('off', en[0].isIntersecting); }, { threshold: 0.15 }).observe(fm);
+    cta.addEventListener('click', function (ev) { ev.preventDefault(); fm.scrollIntoView({ behavior: 'smooth', block: 'start' }); var f = fm.querySelector('input'); if (f) setTimeout(function () { f.focus({ preventScroll: true }); }, 500); });
+  }
   var tix = document.getElementById('g-tix'); if (tix) tix.addEventListener('click', function () { hit('ticket'); });
   var form = document.getElementById('g-form'); if (!form) return;
   var msg = document.getElementById('g-msg'), btn = form.querySelector('button[type=submit]');
@@ -27,7 +38,8 @@
         if (!r.ok) throw new Error(r.j.error || 'Something went wrong.');
         // Measured only after the server saved the request, and once per saved request.
         if (r.j.created && typeof window.gtag === 'function') window.gtag('event', 'rsvp_submitted', { event_slug: C.slug || 'private', transaction_id: r.j.ref });
-        form.outerHTML = '<div role="status"><h2 class="g-title" style="font-size:clamp(28px,6vw,40px)">Request <span class="serif accent">received.</span></h2><p style="color:var(--mute);margin-top:10px">Thank you. This is not a confirmation yet: the More Life team reviews every request, and you will get your entry pass once your place is confirmed.</p></div>';
+        if (cta) cta.remove();
+        form.outerHTML = '<div role="status" class="g-done"><div class="g-tick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.500l4.500 4.500L19 7.500"/></svg></div><h2 class="g-title" style="font-size:clamp(28px,6vw,40px)">Request <span class="serif accent" style="display:inline">received.</span></h2><p style="color:var(--mute)">Thank you. This is not a confirmation yet: the More Life team reviews every request, and you will get your entry pass once your place is confirmed.</p></div>';
       })
       .catch(function (e) { msg.className = 'g-msg bad'; msg.textContent = e.message === 'Failed to fetch' ? 'Connection error. Your details are still here: please try again.' : e.message; btn.disabled = false; btn.textContent = 'Send request'; });
   });

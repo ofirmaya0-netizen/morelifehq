@@ -52,6 +52,8 @@ export function renderHome(pageRec, set, featured, preview) {
 }
 
 /* ---------- event + invite ---------- */
+// "Series: Name" titles put the name on its own line in the serif accent.
+const titleHtml = (t) => { const k = t.indexOf(': '); return k > 0 && k < t.length - 2 ? esc(t.slice(0, k + 1)) + ' <span class="serif accent">' + esc(t.slice(k + 2)) + '</span>' : esc(t); };
 const chip = (x) => '<span class="chip" style="cursor:default">' + esc(x) + '</span>';
 const para = (t) => esc(t).split(/\n{2,}/).map((p) => '<p>' + p.replace(/\n/g, '<br>') + '</p>').join('');
 const STATUS_NOTE = { cancelled: 'This event has been cancelled.', postponed: 'This event has been postponed. A new date will be announced.', rescheduled: 'This event has a new date.' };
@@ -66,7 +68,7 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
   const f = (id, label, type, ac, req) => '<div class="field"><label for="g-' + id + '">' + label + (req ? '' : ' <span style="opacity:.6">(optional)</span>') + '</label><input id="g-' + id + '" name="' + id + '" type="' + type + '" autocomplete="' + ac + '"' + (req ? ' required' : '') + '></div>';
   let form = '';
   if (state === 'open') {
-    form = '<form class="g-form" id="g-form" novalidate><h2 class="eyebrow" style="grid-column:1/-1">' + (invite ? 'Request your place' : 'RSVP') + '</h2>' +
+    form = '<form class="g-form" id="g-form" novalidate><h2 style="grid-column:1/-1">' + (invite ? 'Request your place' : 'RSVP') + '</h2>' +
       (e.inviteText ? '<div style="grid-column:1/-1;color:var(--mute)">' + para(e.inviteText) + '</div>' : '') +
       f('name', 'Full name', 'text', 'name', 1) + f('email', 'Email', 'email', 'email', 1) +
       (i.askPhone !== 'off' ? f('phone', 'Phone', 'tel', 'tel', i.askPhone === 'required') : '') +
@@ -78,21 +80,29 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
       '<p class="g-msg" id="g-msg" role="alert" style="grid-column:1/-1"></p><button class="btn" type="submit" style="grid-column:1/-1">Send request</button></form>';
   } else if (e.useRsvp && state !== 'off') form = '<p style="color:var(--mute)">' + (state === 'early' ? 'Requests for this event are not open yet.' : 'Requests for this event are closed.') + '</p>';
   const tickets = e.useTickets && e.ticketUrl && e.eventStatus !== 'cancelled' ? '<a class="btn" id="g-tix" href="' + esc(e.ticketUrl) + '" target="_blank" rel="noopener">Get tickets ↗</a>' : '';
-  const cfg = { e: e.id, t: invite ? token : '', slug: invite ? '' : e.slug, track: mode !== 'preview', ga, guests: i.showGuests !== false };
+  const cfg = { d: e.date || '', e: e.id, t: invite ? token : '', slug: invite ? '' : e.slug, track: mode !== 'preview', ga, guests: i.showGuests !== false };
+  const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'], dp = (e.date || '').split('-').map(Number);
+  const cal = e.date ? { mon: MON[dp[1] - 1], day: dp[2], long: new Date(Date.UTC(dp[0], dp[1] - 1, dp[2])).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) } : null;
+  const hours = [e.time, e.endDate && e.endDate !== e.date ? 'until ' + dateEn(e.endDate) + (e.endTime ? ' ' + e.endTime : '') : (e.endTime ? 'until ' + e.endTime : '')].filter(Boolean).join(' ');
+  const extra = [e.doors ? 'Doors ' + e.doors : '', e.ageLimit ? 'Age ' + e.ageLimit : ''].filter(Boolean);
   const shownTitle = invite && e.inviteTitle ? e.inviteTitle : e.title, presents = /^more life presents/i.test(shownTitle);
   return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     headTags(seo, mode === 'public' ? ld(eventJsonLd(e, set)) + '\n' : '') +
     (invite ? '<meta name="referrer" content="no-referrer">\n' : '') +
-    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">\n<link rel="stylesheet" href="/css/site.css">\n<link rel="stylesheet" href="/css/guest.css">\n</head>\n<body>\n<div class="g-wrap">\n' +
-    '<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>\n<main class="g-card" id="card">' +
-    (e.imageId ? '<img class="g-img" src="/api/public/image/' + esc(e.imageId) + '" alt="' + esc(e.imageAlt || '') + '">' : '') +
-    (presents && !(invite && e.visibility === 'private') ? '' : '<p class="eyebrow">' + (presents ? 'Private invitation' : 'More Life presents' + (invite && e.visibility === 'private' ? ' · Private invitation' : '')) + '</p>') +
-    '<h1 class="g-title">' + esc(shownTitle) + '</h1>' +
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">\n<link rel="stylesheet" href="/css/site.css">\n<link rel="stylesheet" href="/css/guest.css">\n</head>\n<body>\n' + (e.imageId ? '<div class="g-bg" aria-hidden="true" style="background-image:url(/api/public/image/' + esc(e.imageId) + ')"></div>\n' : '') + '<div class="g-wrap">\n' +
+    '<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>\n<main class="g-stage' + (e.imageId ? ' has-img' : '') + '" id="card">' +
+    (e.imageId ? '<div class="g-poster"><img class="g-img" src="/api/public/image/' + esc(e.imageId) + '" alt="' + esc(e.imageAlt || '') + '"></div>' : '') +
+    '<div class="g-body"><div class="g-top">' + (invite && e.visibility === 'private' ? '<span class="g-pill hot">Private invitation</span>' : '') + (presents ? '' : '<span class="g-pill">More Life presents</span>') + '<span class="g-pill" id="g-when" hidden></span></div>' +
+    '<h1 class="g-title">' + titleHtml(shownTitle) + '</h1>' +
     (STATUS_NOTE[e.eventStatus] ? '<p class="g-msg bad" style="font-weight:600">' + STATUS_NOTE[e.eventStatus] + '</p>' : '') +
-    (e.artist || e.support ? '<p style="font-size:20px">' + esc(e.artist) + (e.support ? '<span style="color:var(--mute)"> · with ' + esc(e.support) + '</span>' : '') + '</p>' : '') +
-    '<div class="g-meta">' + meta.map(chip).join('') + '</div>' +
+    (e.artist || e.support ? '<p class="g-lineup">' + esc(e.artist) + (e.support ? '<span style="color:var(--mute)"> · with ' + esc(e.support) + '</span>' : '') + '</p>' : '') +
+    '<div class="g-facts">' + (e.date ? '<div class="g-fact"><div class="g-cal" aria-hidden="true"><i>' + cal.mon + '</i><b>' + cal.day + '</b></div><div><b>' + esc(cal.long) + '</b><span>' + esc(hours + (hours ? ' · ' : '') + 'Istanbul time') + '</span></div></div>' : '') +
+      (e.venue || e.city ? '<div class="g-fact"><div class="g-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5a7 7 0 10-14 0C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/></svg></div><div><b>' + esc(e.venue || e.city) + '</b>' + (e.venue && e.city ? '<span>' + esc(e.city) + '</span>' : '') + '</div></div>' : '') + '</div>' +
+    (extra.length ? '<div class="g-meta">' + extra.map(chip).join('') + '</div>' : '') +
+    (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') +
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
-    tickets + form + (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') + '</main>\n' + (mode === 'public' ? '<p style="margin-top:22px"><a class="link" href="/#events">All events</a></p>\n' : '') + '</div>\n' +
+    tickets + (form ? '<div class="g-panel">' + form + '</div>' : '') + (mode === 'public' ? '<p><a class="link" href="/#events">All events</a></p>' : '') + '</div></main>\n</div>\n' +
+    (state === 'open' ? '<a class="btn g-cta" id="g-cta" href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '</a>\n' : '') +
     (mode === 'preview' ? banner('Taslak önizleme — yayında değil') : '') +
     '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guests.js" defer></script>\n<script src="/js/guest.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
 }
