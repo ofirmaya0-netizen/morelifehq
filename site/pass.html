@@ -38,16 +38,27 @@
     if (!r.ok) { card.innerHTML = '<div class="g-card"><h1 class="g-title">Pass <span class="serif accent">not valid.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p></div>'; return; }
     var p = r.j.pass, e = r.j.event, qr = qrcode(0, 'M'), where = [e.venue, e.city].filter(Boolean).join(', ');
     qr.addData(location.origin + '/pass?t=' + t); qr.make();
+    // a short pass number for the eye only: derived one-way from the key, it cannot open anything
+    var h = 5381; for (var i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) >>> 0; var no = ('0000' + (h % 1679616).toString(36).toUpperCase()).slice(-4);
+    var left = ''; if (e.date) { var n = Math.round((Date.parse(e.date) - Date.parse(new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' }))) / 864e5); left = n === 0 ? 'Tonight' : n === 1 ? 'Tomorrow' : n > 1 && n <= 60 ? 'In ' + n + ' days' : ''; }
     if (e.image) { var bg = document.getElementById('bg'); bg.style.backgroundImage = 'url(' + e.image + ')'; bg.hidden = false; }
     card.innerHTML = '<div class="tk' + (p.checkedIn ? ' used' : '') + '"><div class="tk-top">' + (e.image ? '<div class="cover" style="background-image:url(' + esc(e.image) + ')"></div>' : '') +
-      '<span class="tk-state' + (p.checkedIn ? ' used' : '') + '">' + (p.checkedIn ? 'Checked in' : 'Confirmed') + '</span><p class="eyebrow" style="text-align:left">Entry pass · More Life</p><h1>' + title(e.title) + '</h1>' +
+      '<div class="tk-bar"><span class="tk-state' + (p.checkedIn ? ' used' : '') + '">' + (p.checkedIn ? 'Checked in' : 'Confirmed') + '</span>' + (left && !p.checkedIn ? '<span class="g-pill">' + left + '</span>' : '') + '<span class="tk-no">№ ' + no + '</span></div><p class="eyebrow" style="text-align:left">Entry pass · More Life</p><h1>' + title(e.title) + '</h1>' +
       '<p class="tk-when">' + esc(date(e.date) + (e.time ? ' · ' + e.time : '')) + (where ? '<br>' + esc(where) : '') + '</p></div>' +
       '<div class="tk-stub"><p style="font-weight:600;color:#7FD1A0;position:relative">Your attendance is confirmed.</p><div class="g-qr" role="img" aria-label="QR code for entry">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + (p.checkedIn ? '<div class="tk-stamp"><b>USED</b></div>' : '') + '</div>' +
-      '<div class="tk-info"><div><span>Name</span><b>' + esc(p.name) + '</b></div><div><span>Admit</span><b>' + p.guests + '</b></div></div>' +
+      '<div class="tk-foil" aria-hidden="true"></div><div class="tk-info"><div><span>Name</span><b>' + esc(p.name) + '</b></div><div><span>Admit</span><b>' + p.guests + '</b></div></div>' +
       '<p class="tk-hint">' + (p.checkedIn ? 'This pass has already been used at the door.' : 'Show this code at the door. It is valid for this event only and can be scanned once.') + '</p></div></div>' +
       '<div class="tk-acts">' + (e.date ? '<a class="btn" id="cal" download="more-life.ics" href="#">Add to calendar</a>' : '') + (where ? '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where) + '">Directions</a>' : '') + '</div>' +
       '<section id="g-guests" class="g-guests g-panel tk-list" aria-label="Guest list" hidden></section>';
     var c = document.getElementById('cal'); if (c) c.href = URL.createObjectURL(new Blob([ics(e)], { type: 'text/calendar' }));
+    // keep the screen awake while the code is on show
+    var wake = function () { if (navigator.wakeLock && document.visibilityState === 'visible') navigator.wakeLock.request('screen').catch(function () {}); };
+    wake(); document.addEventListener('visibilitychange', wake);
+    var seen = 1; try { seen = localStorage.getItem('ml-hello-' + r.j.eventId); localStorage.setItem('ml-hello-' + r.j.eventId, '1'); } catch (x) {}
+    if (!seen && !p.checkedIn && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) { // once, the first time this pass is opened here
+      var cols = ['#E0705F', '#F2C46B', '#7FD1A0', '#6FB7E8', '#F3EEE6'];
+      for (var k = 0; k < 44; k++) { var c = document.createElement('i'); c.className = 'cf'; c.style.cssText = 'left:' + (Math.random() * 100) + 'vw;background:' + cols[k % 5] + ';--t:' + (1.8 + Math.random() * 1.8).toFixed(2) + 's;--x:' + Math.round(Math.random() * 160 - 80) + 'px;--r:' + Math.round(360 + Math.random() * 720) + 'deg;animation-delay:' + (Math.random() * .5).toFixed(2) + 's'; document.body.appendChild(c); setTimeout(function (el) { el.remove(); }, 4500, c); }
+    }
     if (r.j.eventId && window.MLGuests) window.MLGuests(document.getElementById('g-guests'), r.j.eventId, { pass: t });
   }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Connection error. Please try again.</p>'; });
 })();

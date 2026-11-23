@@ -22,6 +22,22 @@
     new IntersectionObserver(function (en) { cta.classList.toggle('off', en[0].isIntersecting); }, { threshold: 0.15 }).observe(fm);
     cta.addEventListener('click', function (ev) { ev.preventDefault(); fm.scrollIntoView({ behavior: 'smooth', block: 'start' }); var f = fm.querySelector('input'); if (f) setTimeout(function () { f.focus({ preventScroll: true }); }, 500); });
   }
+  var sh = document.getElementById('g-share');
+  if (sh) sh.addEventListener('click', function () { // the public address only: no campaign tags, never an invite key
+    var u = location.origin + location.pathname, lab = sh.querySelector('span');
+    if (navigator.share) navigator.share({ title: document.title, url: u }).catch(function () {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(u).then(function () { lab.textContent = 'Link copied'; setTimeout(function () { lab.textContent = 'Share'; }, 2000); });
+  });
+  var still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches, img = document.querySelector('.g-poster .g-img');
+  if (img && !still && matchMedia('(hover: hover)').matches) { // the poster leans toward the pointer
+    var po = img.parentNode;
+    po.addEventListener('pointermove', function (ev) { var r = po.getBoundingClientRect(), x = (ev.clientX - r.left) / r.width - .5, y = (ev.clientY - r.top) / r.height - .5; img.classList.add('live'); img.style.transform = 'rotateY(' + (x * 9).toFixed(2) + 'deg) rotateX(' + (-y * 9).toFixed(2) + 'deg) scale(1.015)'; });
+    po.addEventListener('pointerleave', function () { img.classList.remove('live'); img.style.transform = ''; });
+  }
+  if (!still && 'IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (en) { en.forEach(function (x) { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }); }, { threshold: 0.08 });
+    document.querySelectorAll('.g-desc,.g-panel').forEach(function (n) { if (n.getBoundingClientRect().top > innerHeight) { n.classList.add('rv'); io.observe(n); } });
+  }
   var tix = document.getElementById('g-tix'); if (tix) tix.addEventListener('click', function () { hit('ticket'); });
   var form = document.getElementById('g-form'); if (!form) return;
   var msg = document.getElementById('g-msg'), btn = form.querySelector('button[type=submit]');
