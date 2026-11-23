@@ -14,6 +14,7 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 | `invites/<token>` | davet anahtarı → etkinlik id |
 | `rsvps/<eventId>/<id>` | Başvuru: kişi bilgisi, durum, `passToken`, `utm`, `contactId` |
 | `rsvpEmail/<eventId>/<hash>` | Aynı e-postanın aynı etkinliğe ikinci başvurusunu engelleyen kayıt |
+| `doors/<token>` | Kapı linki anahtarı → etkinlik id (yalnızca o etkinliğin check-in listesi) |
 | `passes/<token>` | giriş kartı anahtarı → etkinlik + başvuru |
 | `checkins/<eventId>/<rsvpId>` | Giriş kaydı. **Atomik oluşturulur**: aynı kart iki cihazda okutulursa yalnızca biri yazar |
 | `contacts/<id>` | CRM kişisi |
@@ -29,3 +30,18 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 
 Şema değişiklikleri `netlify/functions/lib/migrations.mjs` içindeki sıralı listeyle uygulanır;
 her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istekte, eksik olan sürümden başlayarak çalışır.
+
+## Guest list and message fields (no migration needed; absent values use the defaults)
+- `events/<id>.wideImageId` — landscape cover (1.91:1) for WhatsApp and link previews; published with the other public fields.
+- `events/<id>.waPromo` — one-paragraph promo line for the WhatsApp invitation (operational, not shown on the site).
+- `events/<id>.invite.showGuests` — guest list on the event page; default on.
+- `rsvps/<event>/<id>.showName` — the guest ticked "show my name"; absent = not shown.
+
+## Guest automation (no migration needed; absent values use the defaults)
+- `events/<id>.dressCode`, `.listenUrl` — public; `.galleryUrl` — used in the thank-you mail only.
+- `events/<id>.invite.{reminders,thanks,referrals,selfCancel}` default on; `.autoWaitlist` default off.
+- `rsvps/<event>/<id>.refCode` + `refs/<code>` → `{eventId, rsvpId}`; `.referredBy` = rsvp id of the guest whose link was used.
+- `rsvps/<event>/<id>.offer` = `{token, at, expiresAt, expired?, passedOn?, mail?}` + `offers/<token>`; `offerTaken/<token>` is the atomic claim.
+- `rsvps/<event>/<id>.cancelledBy` = `guest` when the guest released the place; `.reminders`, `.thanks` = provider results.
+- `sent/<event>/<rsvp>/<kind>` (kind: d1, h4, thanks) — atomic claim so an automatic message is sent once.
+- Contacts get the tag `katıldı` at their first check-in.

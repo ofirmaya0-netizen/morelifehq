@@ -1,6 +1,7 @@
 # Browser checks of the HQ screens (python3 tests/ui.py). Needs Playwright + Chromium.
 import sys, os, asyncio, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+os.environ['GA4_MEASUREMENT_ID']='G-TEST12345'
 from harness import *
 from playwright.async_api import async_playwright
 SHOT=os.environ.get('SHOTS','')
@@ -33,7 +34,7 @@ async def main():
         await pg.click('#m-ok'); await pg.wait_for_selector('.pill.published'); ok('event published from UI', True)
         for t in ['public','davet','seo','gorevler','checkin']:
             await pg.goto(B+'/hq?view=etkinlik&id='+eid+'&tab='+t); await pg.wait_for_selector('#tab > *'); await pg.wait_for_timeout(250); await shot('05-tab-'+t)
-        ok('event tabs render (7)', await pg.locator('.tabs button').count()==7)
+        ok('event tabs render (8)', await pg.locator('.tabs button').count()==8)
         # guest submits via the public page in a second context
         g=await b.new_context(viewport={'width':390,'height':800}); gp=await g.new_page(); gp.on('pageerror',lambda e: errs.append('guest: '+str(e)))
         await gp.goto(B+'/events/test-night?utm_source=instagram&utm_medium=social&utm_campaign=ui-test'); await gp.fill('#g-name','Ayşe Yılmaz'); await gp.fill('#g-email','ayse@example.com'); await gp.check('#g-consent')
@@ -56,6 +57,18 @@ async def main():
         if SHOT: await mp.screenshot(path=SHOT+'/11-checkin-mobile.png')
         await mp.goto(B+'/hq?view=rsvp'); await mp.wait_for_selector('#apps .seg'); ok('mobile RSVP: no horizontal scroll', await mp.evaluate('document.documentElement.scrollWidth<=window.innerWidth'))
         if SHOT: await mp.screenshot(path=SHOT+'/12-rsvp-mobile.png')
+        # door-staff link: phone, no HQ session
+        await pg.goto(B+'/hq?view=etkinlik&id='+eid+'&tab=checkin'); await pg.wait_for_selector('[data-door=new]'); await pg.click('[data-door=new]'); await pg.wait_for_selector('[data-door=renew]'); await shot('12b-door-link')
+        durl=await pg.get_attribute('#dl [data-copy]','data-copy'); dp=await g.new_page(); dp.on('pageerror',lambda e: errs.append('door: '+str(e))); await dp.goto(B+durl); await dp.wait_for_selector('#list .item')
+        ok('door page lists the guest without contact details', 'Ayşe Yılmaz' in await dp.inner_text('#list') and 'example.com' not in await dp.content())
+        await dp.evaluate("window.__doorCheck('%s')" % tok); await dp.wait_for_selector('.door.duplicate'); ok('door page flags the already-used pass', 'Yeni giriş kaydedilmedi' in await dp.inner_text('#res'))
+        if SHOT: await dp.screenshot(path=SHOT+'/12c-door-mobile.png')
+        ok('door page: no horizontal scroll', await dp.evaluate('document.documentElement.scrollWidth<=window.innerWidth'))
+        st,_,_=C().req('/api/hq/summary',headers={'x-door':durl.split('k=')[1]}); ok('door key is not an HQ login', st==401, st)
+        # analytics consent on the public site
+        cp=await (await b.new_context(viewport={'width':1200,'height':800})).new_page(); await cp.goto(B+'/'); await cp.wait_for_selector('#ml-consent'); ok('consent banner shown, GA not loaded before choice', await cp.evaluate("typeof window.gtag")=='undefined' and await cp.locator('script[src*=googletagmanager]').count()==0)
+        await cp.click('#ml-consent [data-v=no]'); await cp.reload(); await cp.wait_for_timeout(600); ok('declined: no banner, no GA on next visit', await cp.locator('#ml-consent').count()==0 and await cp.evaluate("typeof window.gtag")=='undefined')
+        await cp.evaluate("localStorage.removeItem('ml-analytics')"); await cp.reload(); await cp.wait_for_selector('#ml-consent'); await cp.click('#ml-consent [data-v=yes]'); await cp.wait_for_timeout(300); ok('allowed: GA starts once', await cp.evaluate("typeof window.gtag")=='function' and await cp.locator('script[src*=googletagmanager]').count()==1)
         # CRM import with mapping
         open('/tmp/imp.csv','w').write('Full Name;Mail;GSM\nAyşe Y.;AYSE@example.com;\nCem Kaya;cem@example.com;0555 111 22 33\nCem Kaya;cem@example.com;\n;bad;\n')
         await pg.goto(B+'/hq?view=crm'); await pg.wait_for_selector('#csv-file', state='attached'); await pg.set_input_files('#csv-file','/tmp/imp.csv'); await pg.wait_for_selector('#mf')

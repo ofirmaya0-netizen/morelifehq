@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Check-in — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&display=swap">
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0C0A09;color:#F3EEE6;font:16px/1.45 'Inter Tight',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:640px;margin:0 auto;padding:18px 16px calc(40px + env(safe-area-inset-bottom))}
+header{display:flex;align-items:center;gap:10px;margin-bottom:14px}header img{width:30px;height:30px}h1{margin:0;font-size:20px;font-weight:600;letter-spacing:-.02em}.sub{margin:0;color:#B9B0A6;font-size:14px}
+.door{padding:26px 18px;border-radius:20px;text-align:center;border:2px solid rgba(243,238,230,.2);background:#181413;display:flex;flex-direction:column;gap:6px;align-items:center;min-height:150px;justify-content:center}
+.door .st{font-size:24px;font-weight:700}.door .who{font-size:17px;font-weight:600}.door .ex{font-size:14px;color:#B9B0A6}
+.door.ok{border-color:#7FD1A0;background:rgba(127,209,160,.1)}.door.ok .st{color:#7FD1A0}.door.duplicate{border-color:#F2C46B;background:rgba(242,196,107,.1)}.door.duplicate .st{color:#F2C46B}.door.bad{border-color:#F09A8C;background:rgba(240,154,140,.1)}.door.bad .st{color:#F09A8C}.door.wrong{border-color:#9DB8F2;background:rgba(157,184,242,.1)}.door.wrong .st{color:#9DB8F2}
+button,input{font:inherit;color:inherit}button{cursor:pointer}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 16px;border-radius:12px;border:1px solid rgba(243,238,230,.25);background:none;font-weight:600}
+.btn.pri{background:#F3EEE6;color:#0C0A09;border-color:#F3EEE6}.btn.lg{min-height:56px;font-size:17px;flex:1}
+.row{display:flex;gap:10px;align-items:center;margin:14px 0}.count{padding:8px 12px;border-radius:999px;background:rgba(243,238,230,.08);font-weight:600;font-size:14px;white-space:nowrap}
+input{width:100%;min-height:54px;padding:0 14px;border-radius:12px;border:1px solid rgba(243,238,230,.25);background:rgba(0,0,0,.3);font-size:17px}input:focus{outline:2px solid #E0705F;outline-offset:2px}
+.list{border:1px solid rgba(243,238,230,.1);border-radius:16px;background:#181413;margin-top:14px;overflow:hidden}
+.item{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px;border-bottom:1px solid rgba(243,238,230,.1)}.item:last-child{border-bottom:0}.item .m{flex:1 1 180px;min-width:0}.item b{display:block;font-size:16px}.item small{color:#B9B0A6}
+.in{color:#7FD1A0;font-weight:600;font-size:14px}video{width:100%;border-radius:16px;background:#000;display:block}video[hidden]{display:none}
+:focus-visible{outline:2px solid #E0705F;outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+<header><img src="/img/logo.svg" alt=""><div><h1 id="t">Check-in</h1><p class="sub" id="s">Yükleniyor…</p></div></header>
+<div id="app" hidden>
+<div id="res" class="door" role="status" aria-live="assertive"><span class="st">Hazır</span><span class="ex">QR okutun ya da isim arayın</span></div>
+<div class="row"><button class="btn pri lg" id="scan" type="button">QR tara</button><span class="count" id="count"></span></div>
+<video id="video" playsinline muted hidden></video>
+<label for="q" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">İsim ara</label><input id="q" type="search" autocomplete="off" placeholder="İsim ara">
+<div class="list" id="list"></div>
+</div>
+</main>
+<script>
+(function () {
+  'use strict';
+  var key = new URLSearchParams(location.search).get('k') || '', list = [], stop = null, $ = function (i) { return document.getElementById(i); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function tm(iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }) : ''; }
+  async function api(path, data) {
+    var r; try { r = await fetch('/api/door/' + path, { method: data ? 'POST' : 'GET', headers: data ? { 'x-door': key, 'content-type': 'application/json' } : { 'x-door': key }, body: data ? JSON.stringify(data) : undefined }); } catch (e) { throw new Error('Bağlantı hatası. Tekrar deneyin.'); }
+    var j = await r.json().catch(function () { return {}; }); if (!r.ok) throw new Error(j.error || 'İşlem başarısız.'); return j;
+  }
+  function draw() {
+    var t = $('q').value.trim().toLocaleLowerCase('tr'), rows = list.filter(function (x) { return !t || x.name.toLocaleLowerCase('tr').indexOf(t) > -1; }).slice(0, 80);
+    $('list').innerHTML = rows.length ? rows.map(function (x) { return '<div class="item"><div class="m"><b>' + esc(x.name) + '</b><small>' + x.guests + ' kişi</small></div>' + (x.checkedInAt ? '<span class="in">Giriş ' + tm(x.checkedInAt) + '</span><button class="btn" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div>'; }).join('') : '<div class="item"><small>' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</small></div>';
+    $('count').textContent = list.filter(function (x) { return x.checkedInAt; }).reduce(function (n, x) { return n + x.guests; }, 0) + ' / ' + list.reduce(function (n, x) { return n + x.guests; }, 0) + ' içeride';
+  }
+  var L = { ok: ['ok', 'Giriş onaylandı'], duplicate: ['duplicate', 'Daha önce kullanıldı'], invalid: ['bad', 'Geçersiz kart'], 'wrong-event': ['wrong', 'Başka etkinliğin kartı'], 'not-approved': ['bad', 'Onaylı değil'], undone: ['', 'Giriş geri alındı'] };
+  function show(r) {
+    var l = L[r.result] || ['bad', r.message], res = $('res'); res.className = 'door ' + l[0];
+    res.innerHTML = '<span class="st">' + esc(l[1]) + '</span>' + (r.rsvp ? '<span class="who">' + esc(r.rsvp.name) + ' · ' + r.rsvp.guests + ' kişi</span>' : '') + '<span class="ex">' + esc(r.result === 'duplicate' ? 'İlk giriş: ' + tm(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? tm(r.rsvp.checkedInAt) : r.result === 'undone' ? '' : r.message) + '</span>';
+    if (navigator.vibrate) navigator.vibrate(r.result === 'ok' ? 60 : [80, 60, 80]);
+    if (r.rsvp) { list = list.map(function (x) { return x.id === r.rsvp.id ? r.rsvp : x; }); draw(); }
+  }
+  async function check(d) { try { show(await api('checkin', d)); } catch (e) { $('res').className = 'door bad'; $('res').innerHTML = '<span class="st">Kaydedilemedi</span><span class="ex">' + esc(e.message) + '</span>'; } }
+  window.__doorCheck = function (text) { var m = /[?&]t=([A-Za-z0-9_-]+)/.exec(text); check({ token: m ? m[1] : String(text).trim() }); };
+  $('q').oninput = draw;
+  $('list').onclick = function (e) { var a = e.target.closest('[data-in]'), u = e.target.closest('[data-undo]'); if (a) check({ rsvpId: a.getAttribute('data-in') }); if (u) check({ rsvpId: u.getAttribute('data-undo'), undo: true }); };
+  $('scan').onclick = async function () {
+    var btn = $('scan'), video = $('video'); if (stop) { stop(); return; }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); video.srcObject = stream; video.hidden = false; await video.play(); btn.textContent = 'Taramayı durdur';
+      var on = true, last = '', at = 0, det = ('BarcodeDetector' in window) ? new BarcodeDetector({ formats: ['qr_code'] }) : null, canvas = document.createElement('canvas');
+      if (!det && !window.jsQR) await new Promise(function (ok, no) { var s = document.createElement('script'); s.src = '/js/vendor/jsQR.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); });
+      stop = function () { on = false; stream.getTracks().forEach(function (t) { t.stop(); }); video.hidden = true; btn.textContent = 'QR tara'; stop = null; };
+      (async function loop() { if (!on) return; var text = '';
+        try { if (det) { var c = await det.detect(video); if (c[0]) text = c[0].rawValue; } else if (video.videoWidth) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; var g = canvas.getContext('2d', { willReadFrequently: true }); g.drawImage(video, 0, 0); var im = g.getImageData(0, 0, canvas.width, canvas.height), o = window.jsQR(im.data, im.width, im.height); if (o) text = o.data; } } catch (x) {}
+        if (text && (text !== last || Date.now() - at > 4000)) { last = text; at = Date.now(); window.__doorCheck(text); } setTimeout(loop, 250); })();
+    } catch (e) { $('res').className = 'door bad'; $('res').innerHTML = '<span class="st">Kamera açılamadı</span><span class="ex">Kamera iznini kontrol edin ya da isim arayın.</span>'; }
+  };
+  api('list').then(function (d) { list = d.guests; $('t').textContent = d.event.title; $('s').textContent = 'Check-in · ' + (d.event.venue || ''); $('app').hidden = false; draw(); })
+    .catch(function (e) { $('s').textContent = e.message; });
+})();
+</script>
+</body>
+</html>

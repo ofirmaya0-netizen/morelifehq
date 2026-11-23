@@ -13,6 +13,12 @@
     Referrer-Policy = "no-referrer"
 
 [[headers]]
+  for = "/offer"
+  [headers.values]
+    X-Robots-Tag = "noindex"
+    Referrer-Policy = "no-referrer"
+
+[[headers]]
   for = "/pass"
   [headers.values]
     X-Robots-Tag = "noindex"

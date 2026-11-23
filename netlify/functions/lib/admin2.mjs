@@ -9,6 +9,7 @@ import { HOME_FIELDS, homeDefaults } from './render.mjs';
 import { SCHEMA_VERSION } from './migrations.mjs';
 import { SITE_HTML } from './site-html.mjs';
 import { emailStatus } from './email.mjs';
+import { waStatus, waSettings, waChannels, waSend } from './whatsapp.mjs';
 
 /* ---------- CRM ---------- */
 const C_TEXT = { name: 120, email: 200, phone: 40, instagram: 80, company: 120, source: 80, notes: 4000 };
@@ -79,7 +80,7 @@ async function contacts(req, parts, url, s) {
   const c = await s.get('contacts/' + parts[1]); if (!c) return fail(404, 'Kişi bulunamadı.');
   if (m === 'GET') {
     const evs = await all('events/'), history = [];
-    for (const e of evs) for (const r of await all('rsvps/' + e.id + '/')) if (r.contactId === c.id || (c.email && r.email === c.email)) history.push({ eventId: e.id, event: e.title, date: e.date, status: r.status, guests: r.guests, createdAt: r.createdAt, decidedAt: r.decidedAt, checkedInAt: r.checkedInAt, campaign: (r.utm && r.utm.campaign) || '' });
+    for (const e of evs) for (const r of await all('rsvps/' + e.id + '/')) if (r.contactId === c.id || (c.email && r.email === c.email)) history.push({ eventId: e.id, event: e.title, date: e.date, status: r.status, guests: r.guests, createdAt: r.createdAt, decidedAt: r.decidedAt, checkedInAt: r.checkedInAt, past: !!e.date && e.date < new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10), campaign: (r.utm && r.utm.campaign) || '' });
     return json({ contact: c, history: history.sort((a, b) => (b.date || '').localeCompare(a.date || '')) });
   }
   if (m === 'PUT') {
@@ -299,18 +300,35 @@ async function google(url) {
   return json(out);
 }
 
+/* ---------- WhatsApp (Bird) ---------- */
+async function whatsapp(req, parts, s) {
+  const m = req.method, st = waStatus(), set = await waSettings(s);
+  const tpl = (b, prev) => ({ projectId: str(b && b.projectId, 60).replace(/[^a-f0-9-]/gi, '') || '', version: str(b && b.version, 60).replace(/[^a-f0-9-]/gi, '') || '', locale: str(b && b.locale, 10) || prev.locale || 'en' });
+  if (!parts[1] && m === 'GET') { let channels = [], error = ''; if (st.connected) { try { channels = await waChannels(); } catch (e) { error = String(e.message || e); } } return json({ status: st, settings: set, channels, error, envChannel: !!process.env.BIRD_CHANNEL_ID }); }
+  if (parts[1] === 'settings' && m === 'PUT') { const b = await body(req); const n = { ...set, channelId: 'channelId' in b ? str(b.channelId, 60) : set.channelId, pass: b.pass ? tpl(b.pass, set.pass) : set.pass, invite: b.invite ? tpl(b.invite, set.invite) : set.invite }; await s.set('settings/whatsapp', n); return json({ settings: n }); }
+  if (parts[1] === 'test' && m === 'POST') {
+    if (!st.connected) return fail(409, 'WhatsApp bağlı değil.');
+    const b = await body(req), params = {}; for (const [k, v] of Object.entries(b.parameters && typeof b.parameters === 'object' ? b.parameters : {})) params[str(k, 40)] = str(v, 300);
+    const r = await waSend(s, b.to, tpl(b, {}), params);
+    return r.status === 'sent' ? json({ result: r }) : fail(502, 'Gönderilemedi: ' + (r.error || ''), { result: r });
+  }
+  return fail(404, 'Bulunamadı.');
+}
+
 /* ---------- settings ---------- */
 async function settings(s, storeNameNow) {
   const meta = (await s.get('meta/schema')) || { version: 0, applied: [] };
   return json({ store: storeNameNow, context: process.env.CONTEXT || 'local', siteUrl: SITE_URL(), schema: { version: meta.version, expected: SCHEMA_VERSION, applied: meta.applied },
-    env: Object.fromEntries(['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD', 'HQ_SESSION_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM', ...Object.values(G_ENV)].map((k) => [k, !!process.env[k]])),
+    env: Object.fromEntries(['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD', 'HQ_SESSION_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM', 'BIRD_ACCESS_KEY', 'BIRD_WORKSPACE_ID', 'BIRD_CHANNEL_ID', ...Object.values(G_ENV)].map((k) => [k, !!process.env[k]])),
     sessionKey: process.env.HQ_SESSION_SECRET && process.env.HQ_SESSION_SECRET.length >= 32 ? 'env' : 'store',
-    integrations: { email: { ...emailStatus(), note: emailStatus().connected ? 'Onaylanan misafire giriş kartı e-postası gönderilir; yeni site talepleri yöneticiye bildirilir.' : 'E-posta servisi bağlı değil. Giriş kartı bağlantısı panelden kopyalanıp paylaşılır; hiçbir e-posta gönderildi olarak işaretlenmez.' }, tickets: { connected: false, note: 'Bilet platformu bağlı değil; satış rakamı gösterilmez.' }, google: googleStatus() } });
+    legacy: { total: 12 },
+    integrations: { whatsapp: { ...waStatus(), note: waStatus().connected ? 'Onaylanan misafire giriş kartı WhatsApp’tan gönderilir (telefon numarası ve onaylı şablon varsa).' : 'WhatsApp bağlı değil.' }, email: { ...emailStatus(), note: emailStatus().connected ? 'Onaylanan misafire giriş kartı e-postası gönderilir; yeni site talepleri yöneticiye bildirilir.' : 'E-posta servisi bağlı değil. Giriş kartı bağlantısı panelden kopyalanıp paylaşılır; hiçbir e-posta gönderildi olarak işaretlenmez.' }, tickets: { connected: false, note: 'Bilet platformu bağlı değil; satış rakamı gösterilmez.' }, google: googleStatus() } });
 }
 
 export async function admin2(req, ctx, parts, url, s, h) {
   const { storeName } = await import('./store.mjs');
   if (parts[0] === 'contacts' || parts[0] === 'contacts.csv') return contacts(req, parts, url, s);
+  if (parts[0] === 'whatsapp') return whatsapp(req, parts, s);
   if (parts[0] === 'enquiries' || parts[0] === 'enquiries.csv') return enquiries(req, parts, url, s);
   if (parts[0] === 'tasks') return tasks(req, parts, s);
   if (parts[0] === 'site') return site(req, parts, s);

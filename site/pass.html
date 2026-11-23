@@ -11,25 +11,70 @@
 <link rel="stylesheet" href="/css/guest.css">
 </head>
 <body>
+<div class="g-bg" id="bg" aria-hidden="true" hidden></div>
 <div class="g-wrap">
 <a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
-<main class="g-card" id="card"><p class="eyebrow">Loading…</p></main>
+<main id="card" style="width:100%;display:flex;flex-direction:column;align-items:center"><p class="eyebrow">Loading…</p></main>
 </div>
 <script src="/js/vendor/qrcode.js"></script>
+<script src="/js/guests.js"></script>
 <script>
 (function () {
   var t = new URLSearchParams(location.search).get('t') || '', card = document.getElementById('card');
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function date(d) { if (!d) return ''; var p = d.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
+  function title(x) { var k = x.indexOf(': '); return k > 0 && k < x.length - 2 ? esc(x.slice(0, k + 1)) + ' <span class="serif accent">' + esc(x.slice(k + 2)) + '</span>' : esc(x); }
+  // Calendar file built on the device; times are Istanbul local, four hours long when no end is set.
+  function ics(e) {
+    var st = e.date.replace(/-/g, '') + 'T' + (e.time || '21:00').replace(':', '') + '00', en;
+    if (e.endTime) en = (e.endDate || e.date).replace(/-/g, '') + 'T' + e.endTime.replace(':', '') + '00';
+    else { var d = new Date(Date.UTC(+e.date.slice(0, 4), +e.date.slice(5, 7) - 1, +e.date.slice(8, 10), +(e.time || '21:00').slice(0, 2) + 4, +(e.time || '21:00').slice(3, 5))); en = d.toISOString().replace(/[-:]/g, '').slice(0, 15); }
+    if (en <= st) en = st.slice(0, 9) + '235900';
+    var x = function (v) { return String(v || '').replace(/([,;\\])/g, '\\$1').replace(/\n/g, ' '); };
+    return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//More Life//Entry pass//EN', 'BEGIN:VEVENT', 'UID:' + st + '-' + x(e.slug || 'event') + '@morelife.events', 'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z',
+      'DTSTART;TZID=Europe/Istanbul:' + st, 'DTEND;TZID=Europe/Istanbul:' + en, 'SUMMARY:' + x(e.title), 'LOCATION:' + x([e.venue, e.city].filter(Boolean).join(', ')), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  }
   fetch('/api/public/pass?t=' + encodeURIComponent(t)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (r) {
-    if (!r.ok) { card.innerHTML = '<h1 class="g-title">Pass <span class="serif accent">not valid.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p>'; return; }
-    var e = r.j.event, p = r.j.pass, qr = qrcode(0, 'M');
+    if (!r.ok) { card.innerHTML = '<div class="g-card"><h1 class="g-title">Pass <span class="serif accent">not valid.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p></div>'; return; }
+    var p = r.j.pass, e = r.j.event, qr = qrcode(0, 'M'), where = [e.venue, e.city].filter(Boolean).join(', ');
     qr.addData(location.origin + '/pass?t=' + t); qr.make();
-    card.innerHTML = '<p class="eyebrow">Entry pass · More Life</p><p style="font-size:20px;font-weight:600;color:#7FD1A0">Your attendance is confirmed.</p><h1 class="g-title">' + esc(e.title) + '</h1>' +
-      '<div class="g-meta">' + [date(e.date) + (e.time ? ' · ' + e.time : ''), [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).map(function (x) { return '<span class="chip" style="cursor:default">' + esc(x) + '</span>'; }).join('') + '</div>' +
-      '<div class="g-qr" role="img" aria-label="QR code for entry">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + '</div>' +
-      '<div class="meta"><div><span class="eyebrow">Name</span><b>' + esc(p.name) + '</b></div><div><span class="eyebrow">Guests</span><b>' + p.guests + '</b></div></div>' +
-      '<p style="color:var(--mute);font-size:14px">' + (p.checkedIn ? 'This pass has already been used at the door.' : 'Show this code at the door. It is valid for this event only and can be scanned once.') + '</p>';
+    // a short pass number for the eye only: derived one-way from the key, it cannot open anything
+    var h = 5381; for (var i = 0; i < t.length; i++) h = (h * 33 + t.charCodeAt(i)) >>> 0; var no = ('0000' + (h % 1679616).toString(36).toUpperCase()).slice(-4);
+    var left = ''; if (e.date) { var n = Math.round((Date.parse(e.date) - Date.parse(new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' }))) / 864e5); left = n === 0 ? 'Tonight' : n === 1 ? 'Tomorrow' : n > 1 && n <= 60 ? 'In ' + n + ' days' : ''; }
+    if (e.image) { var bg = document.getElementById('bg'); bg.style.backgroundImage = 'url(' + e.image + ')'; bg.hidden = false; }
+    card.innerHTML = '<div class="tk' + (p.checkedIn ? ' used' : '') + '"><div class="tk-top">' + (e.image ? '<div class="cover" style="background-image:url(' + esc(e.image) + ')"></div>' : '') +
+      '<div class="tk-bar"><span class="tk-state' + (p.checkedIn ? ' used' : '') + '">' + (p.checkedIn ? 'Checked in' : 'Confirmed') + '</span>' + (left && !p.checkedIn ? '<span class="g-pill">' + left + '</span>' : '') + '<span class="tk-no">№ ' + no + '</span></div><p class="eyebrow" style="text-align:left">Entry pass · More Life</p><h1>' + title(e.title) + '</h1>' +
+      '<p class="tk-when">' + esc(date(e.date) + (e.time ? ' · ' + e.time : '')) + (where ? '<br>' + esc(where) : '') + '</p></div>' +
+      '<div class="tk-stub"><p style="font-weight:600;color:#7FD1A0;position:relative">Your attendance is confirmed.</p><div class="g-qr" role="img" aria-label="QR code for entry">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + (p.checkedIn ? '<div class="tk-stamp"><b>USED</b></div>' : '') + '</div>' +
+      '<div class="tk-foil" aria-hidden="true"></div><div class="tk-info"><div><span>Name</span><b>' + esc(p.name) + '</b></div><div><span>Admit</span><b>' + p.guests + '</b></div></div>' +
+      '<p class="tk-hint">' + (p.checkedIn ? 'This pass has already been used at the door.' : 'Show this code at the door. It is valid for this event only and can be scanned once.') + '</p></div></div>' +
+      '<div class="tk-acts">' + (e.date ? '<a class="btn" id="cal" download="more-life.ics" href="#">Add to calendar</a>' : '') + (where ? '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where) + '">Directions</a>' : '') +
+      (p.friendUrl ? '<button class="btn wide hero" type="button" id="friend">Bring a friend</button>' : '') + (p.canCancel ? '<button class="btn wide quiet" type="button" id="cant">Can’t make it</button>' : '') + '</div>' +
+      '<section id="g-guests" class="g-guests g-panel tk-list" aria-label="Guest list" hidden></section>';
+    var c = document.getElementById('cal'); if (c) c.href = URL.createObjectURL(new Blob([ics(e)], { type: 'text/calendar' }));
+    var fr = document.getElementById('friend');
+    if (fr) fr.onclick = function () { // a personal link: requests that come through it are credited to this guest
+      var u = location.origin + p.friendUrl;
+      if (navigator.share) navigator.share({ title: e.title, text: 'Come with me: ' + e.title, url: u }).catch(function () {});
+      else if (navigator.clipboard) navigator.clipboard.writeText(u).then(function () { fr.textContent = 'Link copied'; setTimeout(function () { fr.textContent = 'Bring a friend'; }, 2200); });
+    };
+    var cn = document.getElementById('cant');
+    if (cn) cn.onclick = function () {
+      if (cn.dataset.sure !== '1') { cn.dataset.sure = '1'; cn.textContent = 'Tap again to give up your place'; cn.style.color = '#F0A79B'; setTimeout(function () { cn.dataset.sure = ''; cn.textContent = 'Can’t make it'; cn.style.color = ''; }, 5000); return; }
+      cn.disabled = true; cn.textContent = 'Cancelling…';
+      fetch('/api/public/pass', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: t, action: 'cancel' }) }).then(function (x) { return x.json().then(function (j) { if (!x.ok) throw new Error(j.error || 'Something went wrong.'); }); })
+        .then(function () { try { localStorage.removeItem('ml-pass-' + r.j.eventId); } catch (x) {} card.innerHTML = '<div class="g-card"><h1 class="g-title">Place <span class="serif accent">released.</span></h1><p style="color:var(--mute)">Thank you for letting us know. Your pass is no longer valid and your place goes to someone on the waitlist.</p></div>'; })
+        .catch(function (err) { cn.disabled = false; cn.textContent = err.message; });
+    };
+    // keep the screen awake while the code is on show
+    var wake = function () { if (navigator.wakeLock && document.visibilityState === 'visible') navigator.wakeLock.request('screen').catch(function () {}); };
+    wake(); document.addEventListener('visibilitychange', wake);
+    var seen = 1; try { seen = localStorage.getItem('ml-hello-' + r.j.eventId); localStorage.setItem('ml-hello-' + r.j.eventId, '1'); } catch (x) {}
+    if (!seen && !p.checkedIn && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) { // once, the first time this pass is opened here
+      var cols = ['#E0705F', '#F2C46B', '#7FD1A0', '#6FB7E8', '#F3EEE6'];
+      for (var k = 0; k < 44; k++) { var c = document.createElement('i'); c.className = 'cf'; c.style.cssText = 'left:' + (Math.random() * 100) + 'vw;background:' + cols[k % 5] + ';--t:' + (1.8 + Math.random() * 1.8).toFixed(2) + 's;--x:' + Math.round(Math.random() * 160 - 80) + 'px;--r:' + Math.round(360 + Math.random() * 720) + 'deg;animation-delay:' + (Math.random() * .5).toFixed(2) + 's'; document.body.appendChild(c); setTimeout(function (el) { el.remove(); }, 4500, c); }
+    }
+    if (r.j.eventId && window.MLGuests) window.MLGuests(document.getElementById('g-guests'), r.j.eventId, { pass: t });
   }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Connection error. Please try again.</p>'; });
 })();
 </script>
