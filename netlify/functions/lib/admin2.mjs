@@ -182,9 +182,9 @@ async function seo(req, parts, s, h) {
   const hv = homeView(rec), liveHome = hv.live || { ...homeDefaults(), seo: {} };
   const mk = (key, type, name, status, eff, draftEff, extra) => {
     const issues = []; lengthIssues(eff, issues);
-    return { key, type, name, url: eff.url, status, title: eff.title, description: eff.description, canonical: eff.canonical, noindex: eff.noindex, indexSetting: eff.indexSetting, ogTitle: eff.ogTitle, ogDescription: eff.ogDescription, ogImage: eff.ogImage, from: eff.from, draft: draftEff, issues, ...extra };
+    return { key, type, name, defaults: extra.defaultsEff, url: eff.url, status, title: eff.title, description: eff.description, canonical: eff.canonical, noindex: eff.noindex, indexSetting: eff.indexSetting, ogTitle: eff.ogTitle, ogDescription: eff.ogDescription, ogImage: eff.ogImage, from: eff.from, draft: draftEff, issues, ...extra, defaultsEff: undefined };
   };
-  const homeRow = mk('home', 'Ana sayfa', 'Ana sayfa', 'Yayında', homeSeo(liveHome, set), homeSeo(hv.draft, set), { dirty: hv.dirty, updatedAt: hv.publishedAt, h1: 'more life', jsonld: orgJsonLd(set), seoInput: hv.draft.seo, editor: { view: 'website' } });
+  const homeRow = mk('home', 'Ana sayfa', 'Ana sayfa', 'Yayında', homeSeo(liveHome, set), homeSeo(hv.draft, set), { defaultsEff: homeSeo({ seo: {} }, set), dirty: hv.dirty, updatedAt: hv.publishedAt, h1: 'more life', jsonld: orgJsonLd(set), seoInput: hv.draft.seo, editor: { view: 'website' } });
   if (homeRow.noindex) homeRow.issues.push({ code: 'noindex-live', level: 'error', text: 'Yayındaki ana sayfa noindex olarak ayarlı.' });
   const cta = liveHome.ctaHref || '';
   if (cta.startsWith('#') && !sections.includes(cta.slice(1)) && cta !== '#home') homeRow.issues.push({ code: 'broken-link', level: 'error', text: 'Hero CTA bağlantısı var olmayan bir bölüme gidiyor: ' + cta });
@@ -194,7 +194,7 @@ async function seo(req, parts, s, h) {
   for (const e of evs) {
     const pub = live(e), shown = pub || e, eff = eventSeo(shown, set);
     const row = mk('event:' + e.id, 'Etkinlik', e.title, e.status === 'published' ? (e.visibility === 'private' ? 'Yayında · özel davet' : 'Yayında') : 'Taslak', eff, eventSeo(e, set),
-      { dirty: isDirty(e), updatedAt: e.publishedAt || e.updatedAt, h1: shown.title, jsonld: isListed(e) ? eventJsonLd(pub, set) : null, seoInput: e.seo || {}, eventId: e.id, listed: isListed(e), editor: { view: 'etkinlik', id: e.id, tab: 'seo' } });
+      { defaultsEff: eventSeo({ ...e, seo: {} }, set), dirty: isDirty(e), updatedAt: e.publishedAt || e.updatedAt, h1: shown.title, jsonld: isListed(e) ? eventJsonLd(pub, set) : null, seoInput: e.seo || {}, eventId: e.id, listed: isListed(e), editor: { view: 'etkinlik', id: e.id, tab: 'seo' } });
     if (!isListed(e)) row.issues = row.issues.filter((i) => i.code !== 'og-image'); // not a public page: nothing to share
     if (isListed(e) && eff.indexSetting === 'noindex') row.issues.push({ code: 'noindex-live', level: 'error', text: 'Yayındaki herkese açık sayfa noindex olarak ayarlı; sitemap’e girmez.' });
     rows.push(row);

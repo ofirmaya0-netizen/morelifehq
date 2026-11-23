@@ -196,7 +196,7 @@ function loadHqEvents() {
     if (!evs.length) return;
     $('#upcoming').innerHTML = '<span class="eyebrow">Next up</span><div class="up-grid">' + evs.map(function (e) {
       var dt = e.date ? e.date.split('-').reverse().join('.') : '';
-      return '<a class="up-card" href="' + esc(e.invite) + '">' + (e.image ? '<img src="' + esc(e.image) + '" alt="" style="width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:16px">' : '') +
+      return '<a class="up-card" href="' + esc(e.url) + '">' + (e.image ? '<img src="' + esc(e.image) + '" alt="' + esc(e.imageAlt || '') + '" style="width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:16px">' : '') +
         '<span class="tix-stamp is-live">Upcoming</span><span class="row-t" style="font-size:clamp(30px,4vw,52px)">' + esc(e.title) + '</span><span style="color:var(--mute)">' + [dt + (e.time ? ' · ' + esc(e.time) : ''), esc(e.venue)].filter(Boolean).join(' · ') + '</span></a>';
     }).join('') + '</div>';
   }).catch(function () {});

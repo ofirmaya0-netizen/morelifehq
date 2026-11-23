@@ -1,0 +1,2 @@
+/* start */
+HQ.boot();
