@@ -22,8 +22,10 @@
   var cta = document.getElementById('g-cta'), fm = document.getElementById('g-form');
   if (cta && fm && 'IntersectionObserver' in window) {
     new IntersectionObserver(function (en) { cta.classList.toggle('off', en[0].isIntersecting); }, { threshold: 0.15 }).observe(fm);
-    cta.addEventListener('click', function (ev) { ev.preventDefault(); fm.scrollIntoView({ behavior: 'smooth', block: 'start' }); var f = fm.querySelector('input'); if (f) setTimeout(function () { f.focus({ preventScroll: true }); }, 500); });
   }
+  if (fm) document.querySelectorAll('[data-rsvp]').forEach(function (b) {
+    b.addEventListener('click', function (ev) { ev.preventDefault(); fm.scrollIntoView({ behavior: 'smooth', block: 'start' }); var f = fm.querySelector('input'); if (f) setTimeout(function () { f.focus({ preventScroll: true }); }, 500); });
+  });
   var sh = document.getElementById('g-share');
   if (sh) sh.addEventListener('click', function () { // the public address only: no campaign tags, never an invite key
     var u = location.origin + location.pathname, lab = sh.querySelector('span');
@@ -38,7 +40,7 @@
   }
   if (!still && 'IntersectionObserver' in window) {
     var io = new IntersectionObserver(function (en) { en.forEach(function (x) { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }); }, { threshold: 0.08 });
-    document.querySelectorAll('.g-desc,.g-panel').forEach(function (n) { if (n.getBoundingClientRect().top > innerHeight) { n.classList.add('rv'); io.observe(n); } });
+    document.querySelectorAll('.g-desc').forEach(function (n) { if (n.getBoundingClientRect().top > innerHeight) { n.classList.add('rv'); io.observe(n); } });
   }
   var tix = document.getElementById('g-tix'); if (tix) tix.addEventListener('click', function () { hit('ticket'); });
   var form = document.getElementById('g-form'); if (!form) return;
