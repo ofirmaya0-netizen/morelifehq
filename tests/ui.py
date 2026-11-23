@@ -34,7 +34,7 @@ async def main():
         await pg.click('#m-ok'); await pg.wait_for_selector('.pill.published'); ok('event published from UI', True)
         for t in ['public','davet','seo','gorevler','checkin']:
             await pg.goto(B+'/hq?view=etkinlik&id='+eid+'&tab='+t); await pg.wait_for_selector('#tab > *'); await pg.wait_for_timeout(250); await shot('05-tab-'+t)
-        ok('event tabs render (7)', await pg.locator('.tabs button').count()==7)
+        ok('event tabs render (8)', await pg.locator('.tabs button').count()==8)
         # guest submits via the public page in a second context
         g=await b.new_context(viewport={'width':390,'height':800}); gp=await g.new_page(); gp.on('pageerror',lambda e: errs.append('guest: '+str(e)))
         await gp.goto(B+'/events/test-night?utm_source=instagram&utm_medium=social&utm_campaign=ui-test'); await gp.fill('#g-name','Ayşe Yılmaz'); await gp.fill('#g-email','ayse@example.com'); await gp.check('#g-consent')

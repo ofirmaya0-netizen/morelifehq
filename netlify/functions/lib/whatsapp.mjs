@@ -34,3 +34,6 @@ export async function waSend(s, to, tpl, params) {
 }
 export const passParams = (e, r) => ({ name: r.name.split(' ')[0], event: e.title, date: [dateEn(e.date), e.time].filter(Boolean).join(' · '), venue: [e.venue, e.city].filter(Boolean).join(', '), token: r.passToken });
 export const sendPassWa = async (s, e, r) => waSend(s, r.phone, (await waSettings(s)).pass, passParams(e, r));
+// What the invitation message will say for this event. The wording mirrors the template submitted to Meta;
+// only the cover, title, date line, promo line and first name change per event.
+export const invitePreview = (e, r) => ({ image: e.wideImageId || e.imageId || '', wide: !!e.wideImageId, title: e.title, line: [dateEn(e.date), e.time, [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).join(' · '), promo: e.waPromo || '', name: r.name.split(' ')[0], button: 'Request your place', footer: 'Reply STOP to opt out' });

@@ -10,12 +10,13 @@
   // Counters carry the event id and campaign tags only: never the invite key, a name or an address.
   function hit(kind) { if (!C.track) return; try { navigator.sendBeacon('/api/public/hit', new Blob([JSON.stringify({ e: C.e, k: kind, utm: utm })], { type: 'application/json' })); } catch (e) {} }
   hit('view');
+  var gl = document.getElementById('g-guests'); if (gl && window.MLGuests) window.MLGuests(gl, C.e, { invite: C.t });
   var tix = document.getElementById('g-tix'); if (tix) tix.addEventListener('click', function () { hit('ticket'); });
   var form = document.getElementById('g-form'); if (!form) return;
   var msg = document.getElementById('g-msg'), btn = form.querySelector('button[type=submit]');
   form.addEventListener('submit', function (ev) {
     ev.preventDefault(); msg.className = 'g-msg'; msg.textContent = '';
-    var el = form.elements, data = { t: C.t, slug: C.slug, name: el.name.value, email: el.email.value, phone: el.phone ? el.phone.value : '', plus: el.plus ? el.plus.value : 0, note: el.note ? el.note.value : '', website: el.website.value, consent: el.consent.checked, utm: utm };
+    var el = form.elements, data = { t: C.t, slug: C.slug, name: el.name.value, email: el.email.value, phone: el.phone ? el.phone.value : '', plus: el.plus ? el.plus.value : 0, note: el.note ? el.note.value : '', website: el.website.value, consent: el.consent.checked, showName: !!(el.showName && el.showName.checked), utm: utm };
     if (!data.name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your name and a valid email.'; return; }
     if (el.phone && el.phone.required && !data.phone.trim()) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your phone number.'; return; }
     if (!data.consent) { msg.className = 'g-msg bad'; msg.textContent = 'Please tick the box so we can manage your attendance.'; return; }

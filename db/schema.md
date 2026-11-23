@@ -30,3 +30,9 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 
 Şema değişiklikleri `netlify/functions/lib/migrations.mjs` içindeki sıralı listeyle uygulanır;
 her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istekte, eksik olan sürümden başlayarak çalışır.
+
+## Guest list and message fields (no migration needed; absent values use the defaults)
+- `events/<id>.wideImageId` — landscape cover (1.91:1) for WhatsApp and link previews; published with the other public fields.
+- `events/<id>.waPromo` — one-paragraph promo line for the WhatsApp invitation (operational, not shown on the site).
+- `events/<id>.invite.showGuests` — guest list on the event page; default on.
+- `rsvps/<event>/<id>.showName` — the guest ticked "show my name"; absent = not shown.

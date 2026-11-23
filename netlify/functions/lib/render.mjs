@@ -74,25 +74,27 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
       (i.askNote ? '<div class="field" style="grid-column:1/-1"><label for="g-note">Note <span style="opacity:.6">(optional)</span></label><textarea id="g-note" name="note" rows="3"></textarea></div>' : '') +
       '<div style="position:absolute;left:-9999px" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>' +
       '<label class="check" for="g-consent" style="grid-column:1/-1"><input id="g-consent" name="consent" type="checkbox" required><span>More Life may use these details to manage my attendance at this event.</span></label>' +
+      (i.showGuests !== false ? '<label class="check" for="g-show" style="grid-column:1/-1"><input id="g-show" name="showName" type="checkbox"><span>Show my name on the guest list. Other confirmed guests see names; everyone else sees initials only.</span></label>' : '') +
       '<p class="g-msg" id="g-msg" role="alert" style="grid-column:1/-1"></p><button class="btn" type="submit" style="grid-column:1/-1">Send request</button></form>';
   } else if (e.useRsvp && state !== 'off') form = '<p style="color:var(--mute)">' + (state === 'early' ? 'Requests for this event are not open yet.' : 'Requests for this event are closed.') + '</p>';
   const tickets = e.useTickets && e.ticketUrl && e.eventStatus !== 'cancelled' ? '<a class="btn" id="g-tix" href="' + esc(e.ticketUrl) + '" target="_blank" rel="noopener">Get tickets ↗</a>' : '';
-  const cfg = { e: e.id, t: invite ? token : '', slug: invite ? '' : e.slug, track: mode !== 'preview', ga };
+  const cfg = { e: e.id, t: invite ? token : '', slug: invite ? '' : e.slug, track: mode !== 'preview', ga, guests: i.showGuests !== false };
+  const shownTitle = invite && e.inviteTitle ? e.inviteTitle : e.title, presents = /^more life presents/i.test(shownTitle);
   return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     headTags(seo, mode === 'public' ? ld(eventJsonLd(e, set)) + '\n' : '') +
     (invite ? '<meta name="referrer" content="no-referrer">\n' : '') +
     '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">\n<link rel="stylesheet" href="/css/site.css">\n<link rel="stylesheet" href="/css/guest.css">\n</head>\n<body>\n<div class="g-wrap">\n' +
     '<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>\n<main class="g-card" id="card">' +
     (e.imageId ? '<img class="g-img" src="/api/public/image/' + esc(e.imageId) + '" alt="' + esc(e.imageAlt || '') + '">' : '') +
-    '<p class="eyebrow">More Life presents' + (invite && e.visibility === 'private' ? ' · Private invitation' : '') + '</p>' +
-    '<h1 class="g-title">' + esc(invite && e.inviteTitle ? e.inviteTitle : e.title) + '</h1>' +
+    (presents && !(invite && e.visibility === 'private') ? '' : '<p class="eyebrow">' + (presents ? 'Private invitation' : 'More Life presents' + (invite && e.visibility === 'private' ? ' · Private invitation' : '')) + '</p>') +
+    '<h1 class="g-title">' + esc(shownTitle) + '</h1>' +
     (STATUS_NOTE[e.eventStatus] ? '<p class="g-msg bad" style="font-weight:600">' + STATUS_NOTE[e.eventStatus] + '</p>' : '') +
     (e.artist || e.support ? '<p style="font-size:20px">' + esc(e.artist) + (e.support ? '<span style="color:var(--mute)"> · with ' + esc(e.support) + '</span>' : '') + '</p>' : '') +
     '<div class="g-meta">' + meta.map(chip).join('') + '</div>' +
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
-    tickets + form + '</main>\n' + (mode === 'public' ? '<p style="margin-top:22px"><a class="link" href="/#events">All events</a></p>\n' : '') + '</div>\n' +
+    tickets + form + (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') + '</main>\n' + (mode === 'public' ? '<p style="margin-top:22px"><a class="link" href="/#events">All events</a></p>\n' : '') + '</div>\n' +
     (mode === 'preview' ? banner('Taslak önizleme — yayında değil') : '') +
-    '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guest.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
+    '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guests.js" defer></script>\n<script src="/js/guest.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
 }
 
 export const notFound = (title, text) => '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>' + esc(title) + ' — More Life</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap"><link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/guest.css"></head><body><div class="g-wrap"><a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a><main class="g-card"><h1 class="g-title">' + esc(title) + '</h1><p style="color:var(--mute)">' + esc(text) + '</p><a class="btn" href="/">Go to morelife.events</a></main></div></body></html>';

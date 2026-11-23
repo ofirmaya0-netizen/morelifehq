@@ -3,12 +3,12 @@
 import { store, all, setDeployContext, storeName } from './lib/store.mjs';
 import { missingConfig, initSecret, checkLogin, sessionCookie, clearCookie, session, sameOrigin, token, id, hash } from './lib/auth.mjs';
 import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
-import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
+import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, guestList, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
 import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
-import { emailStatus, sendPass, notifyEnquiry } from './lib/email.mjs';
-import { waStatus, sendPassWa } from './lib/whatsapp.mjs';
+import { emailStatus, sendPass, passMail, notifyEnquiry } from './lib/email.mjs';
+import { waStatus, waSettings, sendPassWa, passParams, invitePreview } from './lib/whatsapp.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
 
@@ -95,7 +95,7 @@ async function publicApi(req, ctx, parts, url) {
     if (b.consent !== true) return fail(400, 'Please tick the box so we can manage your attendance.');
     const u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
-    Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, utm, via: b.t ? 'invite' : 'event-page' });
+    Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, showName: b.showName === true, utm, via: b.t ? 'invite' : 'event-page' });
     // One request per e-mail per event: only the first writer of this key creates a guest.
     if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
     r.contactId = await upsertContactFromRsvp(s, r);
@@ -121,11 +121,21 @@ async function publicApi(req, ctx, parts, url) {
     q.notify = await notifyEnquiry(q, url.origin); if (q.notify.status !== 'off') await s.set('enquiries/' + q.id, q);
     return json({ ok: true });
   }
+  if (parts[0] === 'guests' && req.method === 'GET') {
+    const e0 = await s.get('events/' + str(url.searchParams.get('e'), 40).replace(/[^A-Za-z0-9_-]/g, '')), e = e0 && live(e0);
+    if (!e) return fail(404, 'Not found');
+    const pref = url.searchParams.get('p') ? await s.get('passes/' + str(url.searchParams.get('p'), 60)) : null;
+    const pr = pref && pref.eventId === e.id ? await s.get('rsvps/' + e.id + '/' + pref.rsvpId) : null, holder = !!pr && pr.status === 'approved';
+    // a private event's list opens only with its invite key or an entry pass
+    if (e.visibility !== 'public' && !holder && str(url.searchParams.get('t'), 60) !== e0.inviteToken) return fail(404, 'Not found');
+    if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
+    return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
+  }
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
     const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
     if (!r || !e || r.status !== 'approved') return fail(404, 'This pass is not valid.');
-    return json({ pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt }, event: guestEvent(live(e) || e) });
+    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt }, event: guestEvent(live(e) || e) });
   }
   if (parts[0] === 'hit' && req.method === 'POST') {
     const b = await body(req), kind = b.k === 'ticket' ? 'ticket' : 'view', eid = str(b.e, 40).replace(/[^A-Za-z0-9_-]/g, '');
@@ -247,6 +257,10 @@ async function adminApi(req, ctx, parts, url) {
     }
     const e = await s.get('events/' + parts[1]);
     if (!e) return fail(404, 'Etkinlik bulunamadı.');
+    if (parts[2] === 'messages' && m === 'GET') {
+      const sample = { name: 'Ada Yılmaz', email: 'ada@example.com', guests: 1, passToken: 'ornek' }, pm = passMail(e, sample, url.origin), ws = await waSettings(s);
+      return json({ email: { status: emailStatus(), pass: { subject: pm.subject, html: pm.html } }, whatsapp: { status: waStatus(), inviteReady: !!(ws.invite.projectId && ws.invite.version), passReady: !!(ws.pass.projectId && ws.pass.version), invite: invitePreview(e, sample), pass: passParams(e, sample) } });
+    }
     if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, await rsvpsOf(e.id)), changes: routeChanges(e), seo: eventSeo(e, await seoSettings(s)) });
     if (!parts[2] && m === 'PUT') {
       const r = eventInput(await body(req), e); if (r.error) return fail(400, r.error);
