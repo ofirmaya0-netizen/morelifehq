@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>A place has opened — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/guest.css">
+</head>
+<body>
+<div class="g-bg" id="bg" aria-hidden="true" hidden></div>
+<div class="g-wrap">
+<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
+<main class="g-card" id="card"><p class="eyebrow">Loading…</p></main>
+</div>
+<script>
+(function () {
+  var t = new URLSearchParams(location.search).get('t') || '', card = document.getElementById('card');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function date(d) { if (!d) return ''; var p = d.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
+  function gone(m) { card.innerHTML = '<h1 class="g-title">Offer <span class="serif accent">closed.</span></h1><p style="color:var(--mute)">' + esc(m) + '</p>'; }
+  fetch('/api/public/offer?t=' + encodeURIComponent(t)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (r) {
+    if (!r.ok) return gone(r.j.error || 'This offer is no longer available.');
+    var e = r.j.event, until = new Date(r.j.expiresAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' });
+    if (e.image) { var bg = document.getElementById('bg'); bg.style.backgroundImage = 'url(' + e.image + ')'; bg.hidden = false; }
+    card.innerHTML = '<span class="g-pill hot" style="align-self:flex-start">A place has opened</span><h1 class="g-title">' + esc(e.title) + '</h1>' +
+      '<p style="color:var(--mute)">' + esc(date(e.date) + (e.time ? ' · ' + e.time : '')) + '<br>' + esc([e.venue, e.city].filter(Boolean).join(', ')) + '</p>' +
+      '<p>' + esc(r.j.name) + ', the place is yours until <b>' + until + '</b> (Istanbul time). After that it goes to the next person on the waitlist.</p>' +
+      '<p class="g-msg bad" id="msg" role="alert"></p><button class="btn" id="go" type="button" style="justify-content:center">Confirm my place</button>';
+    document.getElementById('go').onclick = function () {
+      var b = this; b.disabled = true; b.textContent = 'Confirming…';
+      fetch('/api/public/offer', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: t }) }).then(function (x) { return x.json().then(function (j) { if (!x.ok) throw new Error(j.error || 'Something went wrong.'); return j; }); })
+        .then(function (j) { location.replace(j.pass); }).catch(function (err) { b.disabled = false; b.textContent = 'Confirm my place'; document.getElementById('msg').textContent = err.message; });
+    };
+  }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Connection error. Please try again.</p>'; });
+})();
+</script>
+</body>
+</html>

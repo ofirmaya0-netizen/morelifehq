@@ -6,12 +6,13 @@ function fileStore(dir) {
   const p = (k) => path.join(dir, encodeURIComponent(k));
   return {
     async get(k) { try { return JSON.parse(await fs.readFile(p(k), 'utf8')); } catch { return null; } },
-    async set(k, v) { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(p(k), JSON.stringify(v)); },
+    // written beside the target and renamed, so a reader never sees a half-written record (local test store only)
+    async set(k, v) { await fs.mkdir(dir, { recursive: true }); const tmp = p(k) + '.' + process.pid + '.' + Math.random().toString(36).slice(2) + '.tmp'; await fs.writeFile(tmp, JSON.stringify(v)); await fs.rename(tmp, p(k)); },
     async del(k) { try { await fs.unlink(p(k)); } catch {} },
     // Atomic create: resolves true only for the single caller that created the key.
     async create(k, v) { await fs.mkdir(dir, { recursive: true }); try { await fs.writeFile(p(k), JSON.stringify(v), { flag: 'wx' }); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } },
     async list(prefix) {
-      try { return (await fs.readdir(dir)).map(decodeURIComponent).filter((k) => k.startsWith(prefix) && !k.endsWith('.meta')); } catch { return []; }
+      try { return (await fs.readdir(dir)).map(decodeURIComponent).filter((k) => k.startsWith(prefix) && !k.endsWith('.meta') && !k.endsWith('.tmp')); } catch { return []; }
     },
     async setBin(k, buf, type) { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(p(k), buf); await fs.writeFile(p(k + '.meta'), type); },
     async getBin(k) { try { return { buf: await fs.readFile(p(k)), type: await fs.readFile(p(k + '.meta'), 'utf8') }; } catch { return null; } }

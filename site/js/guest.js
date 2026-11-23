@@ -2,6 +2,8 @@
 (function () {
   'use strict';
   var C = window.ML || {}, qs = new URLSearchParams(location.search), utm = {};
+  var ref = (qs.get('ref') || '').slice(0, 20);
+  try { if (ref) sessionStorage.setItem('ml-ref-' + C.e, ref); else ref = sessionStorage.getItem('ml-ref-' + C.e) || ''; } catch (e) {}
   ['source', 'medium', 'campaign', 'content'].forEach(function (k) { var v = qs.get('utm_' + k); if (v) utm[k] = v.slice(0, 80); });
   try { // keep the campaign for this visit only, so a later RSVP on the same tab is still attributed
     var key = 'ml-utm-' + C.e;
@@ -43,7 +45,7 @@
   var msg = document.getElementById('g-msg'), btn = form.querySelector('button[type=submit]');
   form.addEventListener('submit', function (ev) {
     ev.preventDefault(); msg.className = 'g-msg'; msg.textContent = '';
-    var el = form.elements, data = { t: C.t, slug: C.slug, name: el.name.value, email: el.email.value, phone: el.phone ? el.phone.value : '', plus: el.plus ? el.plus.value : 0, note: el.note ? el.note.value : '', website: el.website.value, consent: el.consent.checked, showName: !!(el.showName && el.showName.checked), utm: utm };
+    var el = form.elements, data = { t: C.t, slug: C.slug, name: el.name.value, email: el.email.value, phone: el.phone ? el.phone.value : '', plus: el.plus ? el.plus.value : 0, note: el.note ? el.note.value : '', website: el.website.value, consent: el.consent.checked, showName: !!(el.showName && el.showName.checked), ref: ref, utm: utm };
     if (!data.name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your name and a valid email.'; return; }
     if (el.phone && el.phone.required && !data.phone.trim()) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your phone number.'; return; }
     if (!data.consent) { msg.className = 'g-msg bad'; msg.textContent = 'Please tick the box so we can manage your attendance.'; return; }

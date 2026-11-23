@@ -112,3 +112,8 @@ button.g-pill:hover{background:rgba(243,238,230,.2)}
 @keyframes tk-foil{to{background-position:200% 0}}
 @keyframes cf-fall{to{transform:translate(var(--x),112vh) rotate(var(--r));opacity:.9}}
 @media(prefers-reduced-motion:reduce){.tk-foil{animation:none}.rv{opacity:1;transform:none;transition:none}.g-img{transition:none}}
+.g-go{margin-left:auto;flex:none;display:inline-flex;align-items:center;height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(243,238,230,.28);font-size:13px;font-weight:600;text-decoration:none;transition:background .2s}
+.g-go:hover{background:rgba(243,238,230,.12)}
+.tk-acts .wide{grid-column:1/-1}
+.tk-acts .quiet{background:transparent;border-color:transparent;color:var(--mute);height:44px;font-weight:500;text-decoration:underline;text-underline-offset:4px}
+.tk-acts .hero{background:var(--ink);color:var(--bg);border-color:var(--ink)}

@@ -48,9 +48,24 @@
       '<div class="tk-stub"><p style="font-weight:600;color:#7FD1A0;position:relative">Your attendance is confirmed.</p><div class="g-qr" role="img" aria-label="QR code for entry">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + (p.checkedIn ? '<div class="tk-stamp"><b>USED</b></div>' : '') + '</div>' +
       '<div class="tk-foil" aria-hidden="true"></div><div class="tk-info"><div><span>Name</span><b>' + esc(p.name) + '</b></div><div><span>Admit</span><b>' + p.guests + '</b></div></div>' +
       '<p class="tk-hint">' + (p.checkedIn ? 'This pass has already been used at the door.' : 'Show this code at the door. It is valid for this event only and can be scanned once.') + '</p></div></div>' +
-      '<div class="tk-acts">' + (e.date ? '<a class="btn" id="cal" download="more-life.ics" href="#">Add to calendar</a>' : '') + (where ? '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where) + '">Directions</a>' : '') + '</div>' +
+      '<div class="tk-acts">' + (e.date ? '<a class="btn" id="cal" download="more-life.ics" href="#">Add to calendar</a>' : '') + (where ? '<a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(where) + '">Directions</a>' : '') +
+      (p.friendUrl ? '<button class="btn wide hero" type="button" id="friend">Bring a friend</button>' : '') + (p.canCancel ? '<button class="btn wide quiet" type="button" id="cant">Can’t make it</button>' : '') + '</div>' +
       '<section id="g-guests" class="g-guests g-panel tk-list" aria-label="Guest list" hidden></section>';
     var c = document.getElementById('cal'); if (c) c.href = URL.createObjectURL(new Blob([ics(e)], { type: 'text/calendar' }));
+    var fr = document.getElementById('friend');
+    if (fr) fr.onclick = function () { // a personal link: requests that come through it are credited to this guest
+      var u = location.origin + p.friendUrl;
+      if (navigator.share) navigator.share({ title: e.title, text: 'Come with me: ' + e.title, url: u }).catch(function () {});
+      else if (navigator.clipboard) navigator.clipboard.writeText(u).then(function () { fr.textContent = 'Link copied'; setTimeout(function () { fr.textContent = 'Bring a friend'; }, 2200); });
+    };
+    var cn = document.getElementById('cant');
+    if (cn) cn.onclick = function () {
+      if (cn.dataset.sure !== '1') { cn.dataset.sure = '1'; cn.textContent = 'Tap again to give up your place'; cn.style.color = '#F0A79B'; setTimeout(function () { cn.dataset.sure = ''; cn.textContent = 'Can’t make it'; cn.style.color = ''; }, 5000); return; }
+      cn.disabled = true; cn.textContent = 'Cancelling…';
+      fetch('/api/public/pass', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: t, action: 'cancel' }) }).then(function (x) { return x.json().then(function (j) { if (!x.ok) throw new Error(j.error || 'Something went wrong.'); }); })
+        .then(function () { try { localStorage.removeItem('ml-pass-' + r.j.eventId); } catch (x) {} card.innerHTML = '<div class="g-card"><h1 class="g-title">Place <span class="serif accent">released.</span></h1><p style="color:var(--mute)">Thank you for letting us know. Your pass is no longer valid and your place goes to someone on the waitlist.</p></div>'; })
+        .catch(function (err) { cn.disabled = false; cn.textContent = err.message; });
+    };
     // keep the screen awake while the code is on show
     var wake = function () { if (navigator.wakeLock && document.visibilityState === 'visible') navigator.wakeLock.request('screen').catch(function () {}); };
     wake(); document.addEventListener('visibilitychange', wake);

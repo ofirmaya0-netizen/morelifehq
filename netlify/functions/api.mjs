@@ -5,6 +5,8 @@ import { missingConfig, initSecret, checkLogin, sessionCookie, clearCookie, sess
 import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
 import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, guestList, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
 import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render.mjs';
+import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.mjs';
+import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { emailStatus, sendPass, passMail, notifyEnquiry } from './lib/email.mjs';
@@ -95,9 +97,10 @@ async function publicApi(req, ctx, parts, url) {
     if (b.consent !== true) return fail(400, 'Please tick the box so we can manage your attendance.');
     const u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
-    Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, showName: b.showName === true, utm, via: b.t ? 'invite' : 'event-page' });
+    Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, showName: b.showName === true, referredBy: '', utm, via: b.t ? 'invite' : 'event-page' });
     // One request per e-mail per event: only the first writer of this key creates a guest.
     if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
+    if (b.ref) { const rf = await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')); if (rf && rf.eventId === e.id) r.referredBy = rf.rsvpId; }
     r.contactId = await upsertContactFromRsvp(s, r);
     await s.set('rsvps/' + e.id + '/' + r.id, r);
     return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16) });
@@ -135,7 +138,28 @@ async function publicApi(req, ctx, parts, url) {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
     const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
     if (!r || !e || r.status !== 'approved') return fail(404, 'This pass is not valid.');
-    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt }, event: guestEvent(live(e) || e) });
+    const le = live(e) || e, iv = e.invite || {}, open = !r.checkedInAt && (!e.date || Date.now() < Date.parse(e.date + 'T23:59:00+03:00'));
+    // the friend link is offered for public events only: a private event's invite key stays with the host
+    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt, canCancel: open && iv.selfCancel !== false, friendUrl: open && iv.referrals !== false && isListed(e) && r.refCode ? '/events/' + le.slug + '?ref=' + r.refCode : '' }, event: guestEvent(le) });
+  }
+  if (parts[0] === 'pass' && req.method === 'POST') { // the guest gives the place back
+    const b = await body(req), ref = await s.get('passes/' + str(b.t, 60));
+    const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
+    if (!r || !e || r.status !== 'approved' || b.action !== 'cancel') return fail(404, 'This pass is not valid.');
+    if (r.checkedInAt) return fail(409, 'This pass has already been used.');
+    if ((e.invite || {}).selfCancel === false) return fail(403, 'Please contact More Life to cancel.');
+    await cancelByGuest(s, e, r, url.origin);
+    return json({ ok: true });
+  }
+  if (parts[0] === 'offer') { // a waitlisted guest takes a freed place
+    const t = str(req.method === 'GET' ? url.searchParams.get('t') : (await body(req)).t, 60), ref = t && await s.get('offers/' + t);
+    const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
+    if (!r || !e || !r.offer || r.offer.token !== t || r.status !== 'waitlist') return fail(404, 'This offer is no longer available.');
+    if (r.offer.expired || Date.parse(r.offer.expiresAt) < Date.now()) return fail(410, 'This offer has expired. The place went to the next person on the waitlist.');
+    if (req.method === 'GET') return json({ name: r.name.split(' ')[0], expiresAt: r.offer.expiresAt, event: guestEvent(live(e) || e) });
+    if (req.method !== 'POST' || !(await s.create('offerTaken/' + t, { at: now() }))) return fail(409, 'This offer has already been used.');
+    await approve(s, e, r, url.origin); await s.del('offers/' + t);
+    return json({ ok: true, pass: '/pass?t=' + r.passToken });
   }
   if (parts[0] === 'hit' && req.method === 'POST') {
     const b = await body(req), kind = b.k === 'ticket' ? 'ticket' : 'view', eid = str(b.e, 40).replace(/[^A-Za-z0-9_-]/g, '');
@@ -150,11 +174,13 @@ async function publicApi(req, ctx, parts, url) {
 
 /* ---------- check-in (used by HQ and by the door link) ---------- */
 // The check-in record is created atomically: of two devices scanning the same pass, exactly one gets true.
+// Whoever walks through the door is tagged in the CRM, so the regulars are visible later.
+async function markAttended(s, r) { const c = r.contactId && await s.get('contacts/' + r.contactId); if (c && !(c.tags || []).includes('katıldı')) { c.tags = (c.tags || []).concat('katıldı'); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
 async function checkIn(s, r, undo) {
   const key = 'checkins/' + r.eventId + '/' + r.id, save = () => s.set('rsvps/' + r.eventId + '/' + r.id, r);
   if (undo) { await s.del(key); r.checkedInAt = ''; r.scanCount = 0; await save(); return { result: 'undone', rsvp: r }; }
   const at = now(), first = await s.create(key, { at });
-  if (first) { r.checkedInAt = at; r.scanCount = 1; await save(); return { result: 'ok', message: 'Giriş onaylandı.', rsvp: r }; }
+  if (first) { r.checkedInAt = at; r.scanCount = 1; await save(); await markAttended(s, r); return { result: 'ok', message: 'Giriş onaylandı.', rsvp: r }; }
   const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
   return { result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r };
 }
@@ -258,8 +284,9 @@ async function adminApi(req, ctx, parts, url) {
     const e = await s.get('events/' + parts[1]);
     if (!e) return fail(404, 'Etkinlik bulunamadı.');
     if (parts[2] === 'messages' && m === 'GET') {
-      const sample = { name: 'Ada Yılmaz', email: 'ada@example.com', guests: 1, passToken: 'ornek' }, pm = passMail(e, sample, url.origin), ws = await waSettings(s);
-      return json({ email: { status: emailStatus(), pass: { subject: pm.subject, html: pm.html } }, whatsapp: { status: waStatus(), inviteReady: !!(ws.invite.projectId && ws.invite.version), passReady: !!(ws.pass.projectId && ws.pass.version), invite: invitePreview(e, sample), pass: passParams(e, sample) } });
+      const sample = { name: 'Ada Yılmaz', email: 'ada@example.com', guests: 1, passToken: 'ornek', offer: { token: 'ornek' } }, pm = passMail(e, sample, url.origin), ws = await waSettings(s), iv = e.invite || {};
+      const pv = (key, label, on, m) => ({ key, label, on, subject: m.subject, html: m.html });
+      return json({ email: { status: emailStatus(), pass: { subject: pm.subject, html: pm.html }, all: [pv('pass', 'Giriş kartı (onayda)', true, pm), pv('d1', 'Hatırlatma: bir gün önce', iv.reminders !== false, reminderMail(e, sample, url.origin, 'd1')), pv('h4', 'Hatırlatma: son 4 saat', iv.reminders !== false, reminderMail(e, sample, url.origin, 'h4')), pv('offer', 'Bekleme listesi: yer açıldı', iv.autoWaitlist === true, offerMail(e, sample, url.origin)), pv('thanks', 'Teşekkür (ertesi gün)', iv.thanks !== false, thanksMail(e, sample, url.origin))] }, whatsapp: { status: waStatus(), inviteReady: !!(ws.invite.projectId && ws.invite.version), passReady: !!(ws.pass.projectId && ws.pass.version), invite: invitePreview(e, sample), pass: passParams(e, sample) } });
     }
     if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, await rsvpsOf(e.id)), changes: routeChanges(e), seo: eventSeo(e, await seoSettings(s)) });
     if (!parts[2] && m === 'PUT') {
@@ -306,6 +333,8 @@ async function adminApi(req, ctx, parts, url) {
     return json({ id: key, url: '/api/public/image/' + key }, 201);
   }
 
+  // The same run the schedule makes in production; here so it can be tried on a preview.
+  if (parts[0] === 'automation' && parts[1] === 'run' && m === 'POST') return json(await runSchedule(s, url.origin));
   if (parts[0] === 'rsvps.csv') {
     const e = await s.get('events/' + str(url.searchParams.get('event'), 40)); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const st = url.searchParams.get('status') || '', q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr');
@@ -316,12 +345,11 @@ async function adminApi(req, ctx, parts, url) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const rs = await rsvpsOf(e.id);
     if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: emailStatus(), whatsapp: waStatus() });
+    let freed = false;
     const decide = async (r, dec) => {
-      r.status = dec; r.decidedAt = now();
-      if (dec === 'approved' && !r.passToken) { r.passToken = token(24); await s.set('passes/' + r.passToken, { eventId: e.id, rsvpId: r.id }); }
-      // the pass is e-mailed once on approval; a failed attempt is stored as failed, never as sent
-      if (dec === 'approved' && !(r.mail && r.mail.status === 'sent')) { const m = await sendPass(live(e) || e, r, url.origin); if (m.status !== 'off') r.mail = m; }
-      if (dec === 'approved' && r.phone && !(r.wa && r.wa.status === 'sent')) { const w = await sendPassWa(s, live(e) || e, r); if (w.status !== 'off') r.wa = w; }
+      if (dec === 'approved') return approve(s, e, r, url.origin);
+      if (r.status === 'approved') freed = true;
+      r.status = dec; r.decidedAt = now(); delete r.offer;
       await s.set('rsvps/' + e.id + '/' + r.id, r);
     };
     if (parts[2] === 'bulk' && m === 'POST') {
@@ -333,6 +361,7 @@ async function adminApi(req, ctx, parts, url) {
       if (b.dryRun) return json(info);
       if (info.over && dec === 'approved' && !b.force) return fail(409, 'Kapasite aşılıyor (' + info.approvedAfter + ' / ' + e.capacity + ').', { overCapacity: true, ...info });
       for (const r of pick) await decide(r, dec);
+      if (freed) await offerNext(s, e, url.origin);
       return json({ ok: true, ...info });
     }
     const r = rs.find((x) => x.id === parts[2]); if (!r) return fail(404, 'Başvuru bulunamadı.');
@@ -354,6 +383,7 @@ async function adminApi(req, ctx, parts, url) {
       if (!RSVP_STATUS.includes(dec)) return fail(400, 'Geçersiz karar.');
       if (dec === 'approved' && r.status !== 'approved' && e.capacity && guestsOf(rs, 'approved') + r.guests > e.capacity && !b.force) return fail(409, 'Kapasite doldu (' + guestsOf(rs, 'approved') + ' / ' + e.capacity + ').', { overCapacity: true });
       await decide(r, dec);
+      if (freed) await offerNext(s, e, url.origin);
       return json({ rsvp: r });
     }
     return fail(404, 'Bulunamadı.');

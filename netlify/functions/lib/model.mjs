@@ -6,8 +6,8 @@ export const RSVP_STATUS = ['pending', 'approved', 'waitlist', 'rejected', 'canc
 
 // Fields a visitor can see. They are copied into event.live when the event is published;
 // edits stay in the draft until "Değişiklikleri yayınla".
-export const PUBLIC_FIELDS = ['slug', 'title', 'artist', 'support', 'venue', 'city', 'date', 'time', 'endDate', 'endTime', 'doors', 'ageLimit', 'description', 'imageId', 'imageAlt', 'ticketUrl', 'useTickets', 'useRsvp', 'eventStatus', 'inviteTitle', 'inviteText', 'wideImageId', 'seo'];
-const TEXT = { title: 160, artist: 160, support: 300, venue: 160, city: 80, description: 4000, imageId: 60, wideImageId: 60, waPromo: 300, imageAlt: 200, ticketUrl: 500, ageLimit: 20, inviteTitle: 160, inviteText: 1500 };
+export const PUBLIC_FIELDS = ['slug', 'title', 'artist', 'support', 'venue', 'city', 'date', 'time', 'endDate', 'endTime', 'doors', 'ageLimit', 'description', 'imageId', 'imageAlt', 'ticketUrl', 'useTickets', 'useRsvp', 'eventStatus', 'inviteTitle', 'inviteText', 'wideImageId', 'dressCode', 'listenUrl', 'seo'];
+const TEXT = { title: 160, artist: 160, support: 300, venue: 160, city: 80, description: 4000, imageId: 60, wideImageId: 60, waPromo: 300, dressCode: 120, listenUrl: 500, galleryUrl: 500, imageAlt: 200, ticketUrl: 500, ageLimit: 20, inviteTitle: 160, inviteText: 1500 };
 const SEO_TEXT = { title: 120, description: 320, canonical: 300, ogTitle: 120, ogDescription: 320, ogImageId: 60 };
 const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v), isTime = (v) => /^\d{2}:\d{2}$/.test(v), isDT = (v) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v);
 
@@ -20,7 +20,7 @@ export function seoInput(b, prev = {}) {
 }
 
 export function eventInput(b, prev = {}) {
-  const e = { ...prev, invite: { enabled: true, opensAt: '', closesAt: '', plusOnes: 0, askPhone: 'optional', askNote: true, showGuests: true, ...(prev.invite || {}) }, seo: { ...(prev.seo || {}) } };
+  const e = { ...prev, invite: { enabled: true, opensAt: '', closesAt: '', plusOnes: 0, askPhone: 'optional', askNote: true, showGuests: true, reminders: true, thanks: true, autoWaitlist: false, referrals: true, selfCancel: true, ...(prev.invite || {}) }, seo: { ...(prev.seo || {}) } };
   for (const f of Object.keys(TEXT)) if (f in b) e[f] = str(b[f], TEXT[f]);
   if ('waPromo' in b) e.waPromo = e.waPromo.replace(/\s+/g, ' ').trim(); // WhatsApp template variables cannot contain line breaks
   for (const f of ['date', 'endDate']) if (f in b) { e[f] = str(b[f], 10); if (e[f] && !isDate(e[f])) return { error: 'Tarih geçersiz.' }; }
@@ -38,13 +38,15 @@ export function eventInput(b, prev = {}) {
     if ('plusOnes' in i) t.plusOnes = int(i.plusOnes, 0, 10);
     if ('askPhone' in i) t.askPhone = ['off', 'required'].includes(i.askPhone) ? i.askPhone : 'optional';
     if ('askNote' in i) t.askNote = !!i.askNote;
-    if ('showGuests' in i) t.showGuests = !!i.showGuests;
+    for (const f of ['showGuests', 'reminders', 'thanks', 'autoWaitlist', 'referrals', 'selfCancel']) if (f in i) t[f] = !!i[f];
     if (t.opensAt && t.closesAt && t.closesAt <= t.opensAt) return { error: 'Form kapanışı açılıştan sonra olmalı.' };
   }
   if (b.seo) { const r = seoInput(b.seo, e.seo); if (r.error) return r; e.seo = r.seo; }
   if (!e.title) return { error: 'Etkinlik adı gerekli.' };
   if (!e.slug) e.slug = slugify(e.title) || 'etkinlik';
   if (e.ticketUrl && !/^https:\/\//.test(e.ticketUrl)) return { error: 'Bilet linki https:// ile başlamalı.' };
+  if (e.listenUrl && !/^https:\/\//.test(e.listenUrl)) return { error: 'Dinleme linki https:// ile başlamalı.' };
+  if (e.galleryUrl && !/^https:\/\//.test(e.galleryUrl)) return { error: 'Galeri linki https:// ile başlamalı.' };
   if (e.endDate && e.date && (e.endDate + (e.endTime || '')) < (e.date + (e.time || ''))) return { error: 'Bitiş, başlangıçtan önce olamaz.' };
   e.tz = TZ;
   if (e.useTickets == null) e.useTickets = !!e.ticketUrl;
@@ -120,7 +122,7 @@ export function eventJsonLd(e, set) {
 export const orgJsonLd = (set) => ({ '@context': 'https://schema.org', '@type': 'Organization', name: set.orgName, url: SITE_URL() + '/', logo: SITE_URL() + '/img/logo.svg', sameAs: (set.sameAs || []).filter(Boolean) });
 
 /* ---------- views of an event ---------- */
-export const guestEvent = (e) => ({ slug: e.slug, title: e.title, artist: e.artist, support: e.support, date: e.date, time: e.time, endDate: e.endDate, endTime: e.endTime, doors: e.doors, ageLimit: e.ageLimit, venue: e.venue, city: e.city, description: e.description, eventStatus: e.eventStatus,
+export const guestEvent = (e) => ({ slug: e.slug, title: e.title, artist: e.artist, support: e.support, date: e.date, time: e.time, endDate: e.endDate, endTime: e.endTime, doors: e.doors, ageLimit: e.ageLimit, venue: e.venue, city: e.city, description: e.description, eventStatus: e.eventStatus, dressCode: e.dressCode || '',
   ticketUrl: e.useTickets ? e.ticketUrl : '', image: e.imageId ? '/api/public/image/' + e.imageId : '', imageAlt: e.imageAlt || '', url: '/events/' + e.slug });
 // Guest list shown on the event page: only approved guests who ticked "show my name". Initials for everyone,
 // full names only for a visitor who holds a valid entry pass for the same event.

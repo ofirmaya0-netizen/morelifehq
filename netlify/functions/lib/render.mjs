@@ -84,7 +84,8 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
   const MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'], dp = (e.date || '').split('-').map(Number);
   const cal = e.date ? { mon: MON[dp[1] - 1], day: dp[2], long: new Date(Date.UTC(dp[0], dp[1] - 1, dp[2])).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) } : null;
   const hours = [e.time, e.endDate && e.endDate !== e.date ? 'until ' + dateEn(e.endDate) + (e.endTime ? ' ' + e.endTime : '') : (e.endTime ? 'until ' + e.endTime : '')].filter(Boolean).join(' ');
-  const extra = [e.doors ? 'Doors ' + e.doors : '', e.ageLimit ? 'Age ' + e.ageLimit : ''].filter(Boolean);
+  const extra = [e.doors ? 'Doors ' + e.doors : '', e.ageLimit ? 'Age ' + e.ageLimit : '', e.dressCode ? 'Dress code: ' + e.dressCode : ''].filter(Boolean);
+  const mapUrl = e.venue || e.city ? 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent([e.venue, e.city].filter(Boolean).join(', ')) : '';
   const shownTitle = invite && e.inviteTitle ? e.inviteTitle : e.title, presents = /^more life presents/i.test(shownTitle);
   return '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
     headTags(seo, mode === 'public' ? ld(eventJsonLd(e, set)) + '\n' : '') +
@@ -95,9 +96,9 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
     '<div class="g-body"><div class="g-top">' + (invite && e.visibility === 'private' ? '<span class="g-pill hot">Private invitation</span>' : '') + (presents ? '' : '<span class="g-pill">More Life presents</span>') + '<span class="g-pill" id="g-when" hidden></span>' + (mode === 'public' ? '<button class="g-pill g-share" id="g-share" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M5 13v5a2 2 0 002 2h10a2 2 0 002-2v-5"/></svg><span>Share</span></button>' : '') + '</div>' +
     '<h1 class="g-title">' + titleHtml(shownTitle) + '</h1>' +
     (STATUS_NOTE[e.eventStatus] ? '<p class="g-msg bad" style="font-weight:600">' + STATUS_NOTE[e.eventStatus] + '</p>' : '') +
-    (e.artist || e.support ? '<div class="g-lineup"><span>Line-up</span><b>' + esc(e.artist || e.support) + '</b>' + (e.artist && e.support ? '<i>with ' + esc(e.support) + '</i>' : '') + '</div>' : '') +
+    (e.artist || e.support ? '<div class="g-lineup"><span>Line-up</span><b>' + esc(e.artist || e.support) + '</b>' + (e.artist && e.support ? '<i>with ' + esc(e.support) + '</i>' : '') + (e.listenUrl ? '<a class="g-go" style="align-self:flex-start;margin:8px 0 0" href="' + esc(e.listenUrl) + '" target="_blank" rel="noopener">Listen ↗</a>' : '') + '</div>' : '') +
     '<div class="g-facts">' + (e.date ? '<div class="g-fact"><div class="g-cal" aria-hidden="true"><i>' + cal.mon + '</i><b>' + cal.day + '</b></div><div><b>' + esc(cal.long) + '</b><span>' + esc(hours + (hours ? ' · ' : '') + 'Istanbul time') + '</span></div></div>' : '') +
-      (e.venue || e.city ? '<div class="g-fact"><div class="g-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5a7 7 0 10-14 0C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/></svg></div><div><b>' + esc(e.venue || e.city) + '</b>' + (e.venue && e.city ? '<span>' + esc(e.city) + '</span>' : '') + '</div></div>' : '') + '</div>' +
+      (e.venue || e.city ? '<div class="g-fact"><div class="g-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5a7 7 0 10-14 0C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/></svg></div><div><b>' + esc(e.venue || e.city) + '</b>' + (e.venue && e.city ? '<span>' + esc(e.city) + '</span>' : '') + '</div><a class="g-go" href="' + esc(mapUrl) + '" target="_blank" rel="noopener">Directions</a></div>' : '') + '</div>' +
     (extra.length ? '<div class="g-meta">' + extra.map(chip).join('') + '</div>' : '') +
     (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') +
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
@@ -116,4 +117,4 @@ export function sitemap(homeIndexable, events, set) {
   for (const e of events) { const s = eventSeo(e, set); if (!s.noindex && s.canonical === s.url) urls.push({ loc: s.url, lastmod: str(e.publishedAt, 10) }); }
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map((u) => '<url><loc>' + esc(u.loc) + '</loc>' + (u.lastmod ? '<lastmod>' + u.lastmod + '</lastmod>' : '') + '</url>').join('\n') + '\n</urlset>\n';
 }
-export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';
+export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /offer\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';

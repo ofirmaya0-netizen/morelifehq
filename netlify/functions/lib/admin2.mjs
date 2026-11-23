@@ -80,7 +80,7 @@ async function contacts(req, parts, url, s) {
   const c = await s.get('contacts/' + parts[1]); if (!c) return fail(404, 'Kişi bulunamadı.');
   if (m === 'GET') {
     const evs = await all('events/'), history = [];
-    for (const e of evs) for (const r of await all('rsvps/' + e.id + '/')) if (r.contactId === c.id || (c.email && r.email === c.email)) history.push({ eventId: e.id, event: e.title, date: e.date, status: r.status, guests: r.guests, createdAt: r.createdAt, decidedAt: r.decidedAt, checkedInAt: r.checkedInAt, campaign: (r.utm && r.utm.campaign) || '' });
+    for (const e of evs) for (const r of await all('rsvps/' + e.id + '/')) if (r.contactId === c.id || (c.email && r.email === c.email)) history.push({ eventId: e.id, event: e.title, date: e.date, status: r.status, guests: r.guests, createdAt: r.createdAt, decidedAt: r.decidedAt, checkedInAt: r.checkedInAt, past: !!e.date && e.date < new Date(Date.now() + 3 * 3600 * 1000).toISOString().slice(0, 10), campaign: (r.utm && r.utm.campaign) || '' });
     return json({ contact: c, history: history.sort((a, b) => (b.date || '').localeCompare(a.date || '')) });
   }
   if (m === 'PUT') {

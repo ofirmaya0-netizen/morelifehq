@@ -36,3 +36,12 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `events/<id>.waPromo` — one-paragraph promo line for the WhatsApp invitation (operational, not shown on the site).
 - `events/<id>.invite.showGuests` — guest list on the event page; default on.
 - `rsvps/<event>/<id>.showName` — the guest ticked "show my name"; absent = not shown.
+
+## Guest automation (no migration needed; absent values use the defaults)
+- `events/<id>.dressCode`, `.listenUrl` — public; `.galleryUrl` — used in the thank-you mail only.
+- `events/<id>.invite.{reminders,thanks,referrals,selfCancel}` default on; `.autoWaitlist` default off.
+- `rsvps/<event>/<id>.refCode` + `refs/<code>` → `{eventId, rsvpId}`; `.referredBy` = rsvp id of the guest whose link was used.
+- `rsvps/<event>/<id>.offer` = `{token, at, expiresAt, expired?, passedOn?, mail?}` + `offers/<token>`; `offerTaken/<token>` is the atomic claim.
+- `rsvps/<event>/<id>.cancelledBy` = `guest` when the guest released the place; `.reminders`, `.thanks` = provider results.
+- `sent/<event>/<rsvp>/<kind>` (kind: d1, h4, thanks) — atomic claim so an automatic message is sent once.
+- Contacts get the tag `katıldı` at their first check-in.

@@ -28,6 +28,34 @@ export function passMail(e, r, origin) {
   return { subject: 'Your entry pass — ' + e.title, html, text };
 }
 export function sendPass(e, r, origin) { const m = passMail(e, r, origin); return send(r.email, m.subject, m.html, m.text); }
+const btn = (href, label) => '<a href="' + esc(href) + '" style="display:inline-block;background:#F3EEE6;color:#0E0B0A;text-decoration:none;font-weight:600;padding:14px 22px;border-radius:12px">' + label + '</a>';
+const head = (kicker, e) => '<p style="margin:0 0 6px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#C9C0B5">' + kicker + '</p><h1 style="margin:0 0 14px;font-size:30px;line-height:1.1;font-weight:500">' + esc(e.title) + '</h1>';
+const whenWhere = (e) => ({ when: [dateEn(e.date), e.time].filter(Boolean).join(' · '), where: [e.venue, e.city].filter(Boolean).join(', ') });
+const first = (r) => esc(r.name.split(' ')[0]);
+
+// kind: 'd1' (the day before) or 'h4' (a few hours before doors)
+export function reminderMail(e, r, origin, kind) {
+  const url = origin + '/pass?t=' + r.passToken, w = whenWhere(e), soon = kind === 'h4';
+  const html = shell(head(soon ? 'Tonight' : 'Tomorrow', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + (e.doors ? ' · doors ' + esc(e.doors) : '') + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' +
+    '<p style="margin:0 0 22px">Hi ' + first(r) + ', ' + (soon ? 'see you in a few hours.' : 'see you tomorrow.') + ' Have your entry pass ready at the door' + (e.dressCode ? '. Dress code: ' + esc(e.dressCode) : '') + '.</p>' + btn(url, 'Open your entry pass') +
+    '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">Plans changed? Open your pass and tap “Can’t make it” so your place can go to someone on the waitlist.</p>');
+  return { subject: (soon ? 'Tonight: ' : 'Tomorrow: ') + e.title, html, text: (soon ? 'Tonight: ' : 'Tomorrow: ') + e.title + '\n' + w.when + '\n' + w.where + '\n\nEntry pass: ' + url };
+}
+export function offerMail(e, r, origin) {
+  const url = origin + '/offer?t=' + r.offer.token, w = whenWhere(e);
+  const html = shell(head('A place has opened', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' +
+    '<p style="margin:0 0 22px">Hi ' + first(r) + ', a place has opened up and it is yours if you want it. Please confirm within 2 hours; after that it goes to the next person on the waitlist.</p>' + btn(url, 'Confirm my place'));
+  return { subject: 'A place has opened — ' + e.title, html, text: 'A place has opened: ' + e.title + '\n' + w.when + '\n' + w.where + '\n\nConfirm within 2 hours: ' + url };
+}
+export function thanksMail(e, r, origin) {
+  const html = shell(head('Thank you', e) + '<p style="margin:0 0 22px">Hi ' + first(r) + ', thank you for being there. It would not have been the same night without you.</p>' +
+    (e.galleryUrl ? btn(e.galleryUrl, 'See the photos') : btn(origin + '/#events', 'See what is next')) + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">You are receiving this because you attended this event.</p>');
+  return { subject: 'Thank you — ' + e.title, html, text: 'Thank you for being there: ' + e.title + (e.galleryUrl ? '\n\nPhotos: ' + e.galleryUrl : '\n\nWhat is next: ' + origin + '/#events') };
+}
+const out = (r, m) => send(r.email, m.subject, m.html, m.text);
+export const sendReminder = (e, r, origin, kind) => out(r, reminderMail(e, r, origin, kind));
+export const sendOffer = (e, r, origin) => out(r, offerMail(e, r, origin));
+export const sendThanks = (e, r, origin) => out(r, thanksMail(e, r, origin));
 export function notifyEnquiry(q, origin) {
   const to = process.env.HQ_NOTIFY_EMAIL || process.env.HQ_ADMIN_EMAIL; if (!to) return Promise.resolve({ status: 'off' });
   const rows = [['Tür', q.kindLabel], ['Ad', q.name], ['E-posta', q.email], ['Şirket', q.company], ['Konu', q.topic || q.service], ['Şehir', q.city], ['Tarih', q.preferredDates], ['Mekân', q.venue], ['Kapasite', q.capacity], ['Bütçe', q.budget], ['Sanatçı', q.artist], ['Mesaj', q.message]].filter((x) => x[1]);
