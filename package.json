@@ -1,0 +1,12 @@
+{
+  "name": "morelife-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-hq.mjs",
+    "dev": "node scripts/dev-server.mjs"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.2.0"
+  }
+}

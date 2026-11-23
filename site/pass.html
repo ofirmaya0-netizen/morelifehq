@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Entry pass — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/guest.css">
+</head>
+<body>
+<div class="g-wrap">
+<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
+<main class="g-card" id="card"><p class="eyebrow">Loading…</p></main>
+</div>
+<script src="/js/vendor/qrcode.js"></script>
+<script>
+(function () {
+  var t = new URLSearchParams(location.search).get('t') || '', card = document.getElementById('card');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function date(d) { if (!d) return ''; var p = d.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
+  fetch('/api/public/pass?t=' + encodeURIComponent(t)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (r) {
+    if (!r.ok) { card.innerHTML = '<h1 class="g-title">Pass <span class="serif accent">not valid.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p>'; return; }
+    var e = r.j.event, p = r.j.pass, qr = qrcode(0, 'M');
+    qr.addData(location.origin + '/pass?t=' + t); qr.make();
+    card.innerHTML = '<p class="eyebrow">Entry pass · More Life</p><h1 class="g-title">' + esc(e.title) + '</h1>' +
+      '<div class="g-meta">' + [date(e.date) + (e.time ? ' · ' + e.time : ''), [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).map(function (x) { return '<span class="chip" style="cursor:default">' + esc(x) + '</span>'; }).join('') + '</div>' +
+      '<div class="g-qr" role="img" aria-label="QR code for entry">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + '</div>' +
+      '<div class="meta"><div><span class="eyebrow">Name</span><b>' + esc(p.name) + '</b></div><div><span class="eyebrow">Guests</span><b>' + p.guests + '</b></div></div>' +
+      '<p style="color:var(--mute);font-size:14px">' + (p.checkedIn ? 'This pass has already been used at the door.' : 'Show this code at the door. It is valid for this event only and can be scanned once.') + '</p>';
+  }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Connection error. Please try again.</p>'; });
+})();
+</script>
+</body>
+</html>

@@ -188,6 +188,19 @@ function renderUpcoming() {
     : '<div class="up-empty"><div class="stack" style="gap:14px"><span class="eyebrow">Next up</span><h2 class="h2">More nights. <span class="serif accent">More Life.</span></h2><p style="color:var(--mute)">New shows are announced here first.</p>' +
       '<div style="display:flex;flex-wrap:wrap;gap:12px"><a class="btn" href="#community">Join the community</a></div></div></div>');
 }
+function loadHqEvents() {
+  var req;
+  try { req = fetch('/api/public/events'); } catch (err) { return; }
+  req.then(function (r) { return r.ok ? r.json() : { events: [] }; }).then(function (d) {
+    var evs = (d && d.events) || [];
+    if (!evs.length) return;
+    $('#upcoming').innerHTML = '<span class="eyebrow">Next up</span><div class="up-grid">' + evs.map(function (e) {
+      var dt = e.date ? e.date.split('-').reverse().join('.') : '';
+      return '<a class="up-card" href="' + esc(e.invite) + '">' + (e.image ? '<img src="' + esc(e.image) + '" alt="" style="width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:16px">' : '') +
+        '<span class="tix-stamp is-live">Upcoming</span><span class="row-t" style="font-size:clamp(30px,4vw,52px)">' + esc(e.title) + '</span><span style="color:var(--mute)">' + [dt + (e.time ? ' · ' + esc(e.time) : ''), esc(e.venue)].filter(Boolean).join(' · ') + '</span></a>';
+    }).join('') + '</div>';
+  }).catch(function () {});
+}
 function renderEvents() {
   var y = filt.year, v = filt.venue;
   var list = EVENTS.filter(function (e) { return (!y || e.date.slice(-4) === y) && (!v || e.venue === v); });
@@ -577,6 +590,7 @@ $$('form[data-form]').forEach(buildForm);
 });
 renderEvents();
 renderUpcoming();
+loadHqEvents();
 carousel();
 dragStrip();
 waves();

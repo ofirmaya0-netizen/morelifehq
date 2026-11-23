@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>More Life HQ — Giriş</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(ellipse 90% 70% at 50% 0%,#5A211D 0%,#1A0F0D 46%,#0E0B0A 82%);color:#F3EEE6;font-family:'Inter Tight',system-ui,sans-serif}
+main{width:min(400px,100%);display:flex;flex-direction:column;gap:22px;padding:32px;border-radius:26px;background:rgba(23,17,15,.9);border:1px solid rgba(243,238,230,.16)}
+img{width:54px;height:54px}
+h1{margin:0;font-size:34px;line-height:1.05;font-weight:500;letter-spacing:-.04em}
+h1 i{font-family:'Instrument Serif',Georgia,serif;font-weight:400;color:#E0705F}
+label{display:flex;flex-direction:column;gap:6px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#C9C0B5}
+input{height:52px;padding:0 14px;border-radius:12px;border:1px solid rgba(243,238,230,.35);background:rgba(14,11,10,.6);color:#F3EEE6;font:500 17px 'Inter Tight',system-ui,sans-serif}
+input:focus{outline:2px solid #E0705F;outline-offset:2px}
+button{height:54px;border:0;border-radius:14px;background:#F3EEE6;color:#0E0B0A;font:600 16px 'Inter Tight',system-ui,sans-serif;cursor:pointer}
+button[disabled]{opacity:.6}
+#msg{min-height:20px;margin:0;font-size:14px;color:#F0A79B}
+a{color:#C9C0B5;font-size:14px}
+</style>
+</head>
+<body>
+<main>
+<img src="/img/logo.svg" alt="">
+<h1>More Life <i>HQ</i></h1>
+<form id="f" style="display:flex;flex-direction:column;gap:16px" novalidate>
+<label>E-posta<input id="email" type="email" autocomplete="username" required></label>
+<label>Şifre<input id="password" type="password" autocomplete="current-password" required></label>
+<p id="msg" role="alert"></p>
+<button id="go" type="submit">Giriş yap</button>
+</form>
+<a href="/">← morelife.events</a>
+</main>
+<script>
+document.getElementById('f').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var go = document.getElementById('go'), msg = document.getElementById('msg');
+  go.disabled = true; msg.textContent = '';
+  try {
+    var r = await fetch('/api/hq/login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-hq': '1' }, body: JSON.stringify({ email: document.getElementById('email').value, password: document.getElementById('password').value }) });
+    if (r.ok) { location.reload(); return; } // same URL, so ?view=… is kept
+    msg.textContent = (await r.json()).error || 'Giriş yapılamadı.';
+  } catch (err) { msg.textContent = 'Bağlantı hatası.'; }
+  go.disabled = false;
+});
+</script>
+</body>
+</html>

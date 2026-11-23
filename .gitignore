@@ -1,4 +1,4 @@
 node_modules
 .data
-.data-blobs
 .netlify
+.data-blobs

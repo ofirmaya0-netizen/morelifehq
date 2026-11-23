@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>More Life HQ</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#0E0B0A;--ink:#F3EEE6;--mute:#C9C0B5;--dim:#8F867D;--line:rgba(243,238,230,.16);--card:#17110F;--acc:#E0705F;--ok:#7FD1A0;--warn:#F2C46B;--bad:#F0A79B}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 'Inter Tight',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p{margin:0}
+a{color:inherit}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;padding:10px 16px;background:rgba(14,11,10,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);overflow-x:auto}
+.top img{width:30px;height:30px;flex:none;margin-right:6px}
+.tab{flex:none;height:44px;padding:0 14px;border:0;border-radius:11px;background:none;font-weight:500;cursor:pointer;white-space:nowrap}
+.tab:hover{background:rgba(243,238,230,.08)}
+.tab[aria-current=page]{background:rgba(243,238,230,.16)}
+.top .sp{flex:1}
+main{max-width:1180px;margin:0 auto;padding:24px 16px 96px}
+.h1{font-size:clamp(30px,4vw,44px);line-height:1.05;font-weight:500;letter-spacing:-.04em}
+.h1 i{font-family:'Instrument Serif',Georgia,serif;font-weight:400;color:var(--acc)}
+.head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:12px;border:1px solid rgba(243,238,230,.4);background:none;font-weight:600;font-size:15px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.btn:hover{background:rgba(243,238,230,.08)}
+.btn.pri{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.btn.pri:hover{background:#fff}
+.btn.sm{min-height:44px;padding:0 12px;font-size:14px}
+.btn.ok{border-color:var(--ok);color:var(--ok)}.btn.bad{border-color:var(--bad);color:var(--bad)}.btn.warn{border-color:var(--warn);color:var(--warn)}
+.btn[disabled]{opacity:.5;cursor:default}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.card{display:flex;flex-direction:column;gap:10px;padding:20px;border-radius:20px;background:var(--card);border:1px solid rgba(243,238,230,.1)}
+button.card{text-align:left;cursor:pointer}
+button.card:hover{border-color:rgba(243,238,230,.45)}
+.num{font-size:48px;line-height:1;font-weight:500;letter-spacing:-.04em}
+.eye{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.mute{color:var(--mute)}.small{font-size:14px}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.list{display:flex;flex-direction:column;gap:10px}
+.item{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;padding:16px;border-radius:16px;background:var(--card);border:1px solid rgba(243,238,230,.1)}
+.item .main{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:4px}
+.item b{font-size:18px;font-weight:600}
+.pill{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);font-size:12px;font-weight:600;white-space:nowrap}
+.pill.published,.pill.approved,.pill.done{border-color:var(--ok);color:var(--ok)}
+.pill.draft,.pill.pending,.pill.todo{border-color:var(--warn);color:var(--warn)}
+.pill.archived,.pill.rejected{border-color:var(--dim);color:var(--dim)}
+.pill.waitlist,.pill.doing,.pill.private{border-color:var(--acc);color:var(--acc)}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.f{display:flex;flex-direction:column;gap:6px}
+.f.full{grid-column:1/-1}
+.f label,.f legend{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+input,select,textarea{min-height:48px;padding:10px 12px;border-radius:12px;border:1px solid rgba(243,238,230,.3);background:rgba(14,11,10,.6);width:100%}
+select option{background:#17110F}
+textarea{min-height:96px;resize:vertical}
+.panel{padding:20px;border-radius:20px;background:var(--card);border:1px solid rgba(243,238,230,.14);margin-bottom:20px}
+.msg{min-height:22px;font-size:14px}
+.msg.bad{color:var(--bad)}.msg.ok{color:var(--ok)}
+.thumb{width:72px;height:72px;border-radius:12px;object-fit:cover;background:#2A1F1C;flex:none}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);font-weight:500}
+.scroll{overflow-x:auto}
+.door-result{padding:24px;border-radius:20px;text-align:center;font-size:22px;font-weight:600;border:2px solid var(--line)}
+.door-result.ok{border-color:var(--ok);color:var(--ok)}
+.door-result.duplicate{border-color:var(--warn);color:var(--warn)}
+.door-result.bad{border-color:var(--bad);color:var(--bad)}
+.door-result small{display:block;margin-top:6px;font-size:15px;font-weight:500;color:var(--ink)}
+video{width:100%;max-width:420px;border-radius:16px;background:#000;display:block;margin:0 auto}
+video[hidden]{display:none}
+.big{min-height:56px;font-size:18px}
+@media (max-width:700px){.item .acts{width:100%}.item .acts .btn{flex:1}}
+</style>
+</head>
+<body>
+<header class="top">
+<img src="/img/logo.svg" alt="">
+<nav id="tabs" class="row" style="flex-wrap:nowrap;gap:2px" aria-label="HQ"></nav>
+<span class="sp"></span>
+<a class="tab" href="/" style="display:flex;align-items:center;text-decoration:none">Site ↗</a>
+<button class="tab" id="logout" type="button">Çıkış</button>
+</header>
+<main id="main"></main>
+<script src="/js/vendor/qrcode.js"></script>
+<script>
+(function () {
+'use strict';
+var VIEWS = [['ozet', 'Özet'], ['etkinlikler', 'Etkinlikler'], ['rsvp', 'Davet & RSVP'], ['kapi', 'Kapı'], ['crm', 'CRM'], ['gorevler', 'Görevler']];
+var STATUS = { draft: 'Taslak', published: 'Yayında', archived: 'Arşiv', pending: 'Bekliyor', approved: 'Onaylı', rejected: 'Reddedildi', waitlist: 'Bekleme listesi', todo: 'Yapılacak', doing: 'Sürüyor', done: 'Bitti', 'public': 'Herkese açık', 'private': 'Özel davetli' };
+var main = document.getElementById('main'), scanStop = null;
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function q() { return new URLSearchParams(location.search); }
+function go(view, extra) { var p = new URLSearchParams(extra || {}); p.set('view', view); history.pushState(null, '', '/hq?' + p.toString()); render(); }
+function fmtDate(d) { if (!d) return 'Tarih yok'; var p = d.split('-'); return p[2] + '.' + p[1] + '.' + p[0]; }
+function fmtTime(iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''; }
+function pill(s) { return '<span class="pill ' + esc(s) + '">' + esc(STATUS[s] || s) + '</span>'; }
+async function api(path, method, data) {
+  var r = await fetch('/api/hq/' + path, { method: method || 'GET', headers: data ? { 'content-type': 'application/json', 'x-hq': '1' } : { 'x-hq': '1' }, body: data ? JSON.stringify(data) : undefined });
+  if (r.status === 401) { location.reload(); throw new Error('Giriş gerekli'); }
+  var j = await r.json().catch(function () { return {}; });
+  if (!r.ok) { var e = new Error(j.error || 'İşlem başarısız.'); e.data = j; throw e; }
+  return j;
+}
+function inviteUrl(e) { return location.origin + '/invite?t=' + e.inviteToken; }
+function copy(text, btn) {
+  function done() { var o = btn.textContent; btn.textContent = 'Kopyalandı'; setTimeout(function () { btn.textContent = o; }, 1500); }
+  try { navigator.clipboard.writeText(text).then(done, function () { window.prompt('Kopyalayın:', text); }); } catch (e) { window.prompt('Kopyalayın:', text); }
+}
+function tabs(view) {
+  document.getElementById('tabs').innerHTML = VIEWS.map(function (v) { return '<button class="tab" type="button" data-v="' + v[0] + '"' + (v[0] === view ? ' aria-current="page"' : '') + '>' + v[1] + '</button>'; }).join('');
+}
+document.getElementById('tabs').addEventListener('click', function (e) { var b = e.target.closest('[data-v]'); if (b) go(b.getAttribute('data-v')); });
+document.getElementById('logout').addEventListener('click', async function () { await api('logout', 'POST', {}); location.href = '/hq'; });
+window.addEventListener('popstate', render);
+function loading() { main.innerHTML = '<p class="mute">Yükleniyor…</p>'; }
+function failed(err) { main.innerHTML = '<p class="msg bad" role="alert">' + esc(err.message) + '</p>'; }
+function eventSelect(events, cur, id) {
+  return '<select id="' + id + '">' + events.map(function (e) { return '<option value="' + e.id + '"' + (e.id === cur ? ' selected' : '') + '>' + esc(e.title) + ' · ' + fmtDate(e.date) + '</option>'; }).join('') + '</select>';
+}
+
+/* ---------- Özet ---------- */
+async function vOzet() {
+  var s = await api('summary');
+  main.innerHTML = '<div class="head"><h1 class="h1">More Life <i>HQ</i></h1></div><div class="grid" style="margin-bottom:28px">' +
+    [['etkinlikler', s.upcoming.length, 'Yaklaşan etkinlik'], ['rsvp', s.pendingRsvps, 'Bekleyen RSVP'], ['kapi', s.approvedGuests, 'Onaylanan misafir'], ['gorevler', s.openTasks, 'Açık görev']].map(function (c) {
+      return '<button class="card" type="button" data-go="' + c[0] + '"><span class="num">' + c[1] + '</span><span class="eye">' + c[2] + '</span></button>';
+    }).join('') + '</div><h2 class="eye" style="margin-bottom:12px">Yaklaşan etkinlikler</h2><div class="list">' +
+    (s.upcoming.length ? s.upcoming.map(function (e) {
+      return '<div class="item"><div class="main"><b>' + esc(e.title) + '</b><span class="mute small">' + fmtDate(e.date) + ' · ' + esc(e.venue) + '</span></div><div class="row acts">' +
+        '<button class="btn sm" data-go="rsvp" data-ev="' + e.id + '">' + e.pending + ' bekleyen</button><button class="btn sm" data-go="kapi" data-ev="' + e.id + '">' + e.approved + (e.capacity ? ' / ' + e.capacity : '') + ' onaylı</button></div></div>';
+    }).join('') : '<p class="mute">Yayında yaklaşan etkinlik yok.</p>') + '</div>';
+}
+
+/* ---------- Etkinlikler ---------- */
+var E_FIELDS = [['title', 'Etkinlik adı', 'text', 'full'], ['artist', 'Sanatçı', 'text'], ['venue', 'Mekân', 'text'], ['city', 'Şehir', 'text'], ['date', 'Tarih', 'date'], ['time', 'Saat', 'time'], ['capacity', 'Kapasite', 'number'], ['ticketUrl', 'Bilet linki', 'url', 'full']];
+function eventForm(e) {
+  e = e || { visibility: 'public' };
+  return '<form class="panel" id="ef"><div class="head" style="margin-bottom:14px"><h2 style="font-size:22px">' + (e.id ? 'Etkinliği düzenle' : 'Yeni etkinlik') + '</h2><button class="btn sm" type="button" id="ef-x">Kapat</button></div><div class="form">' +
+    E_FIELDS.map(function (f) { return '<div class="f' + (f[3] ? ' full' : '') + '"><label for="ef-' + f[0] + '">' + f[1] + '</label><input id="ef-' + f[0] + '" type="' + f[2] + '" value="' + esc(e[f[0]] || '') + '"' + (f[0] === 'title' ? ' required' : '') + (f[2] === 'number' ? ' min="0" inputmode="numeric"' : '') + '></div>'; }).join('') +
+    '<div class="f"><label for="ef-visibility">Erişim</label><select id="ef-visibility"><option value="public"' + (e.visibility !== 'private' ? ' selected' : '') + '>Herkese açık (sitede listelenir)</option><option value="private"' + (e.visibility === 'private' ? ' selected' : '') + '>Özel davetli (yalnızca davet linkiyle)</option></select></div>' +
+    '<div class="f"><label for="ef-img">Görsel</label><div class="row">' + (e.imageId ? '<img class="thumb" id="ef-prev" src="/api/public/image/' + esc(e.imageId) + '" alt="">' : '') + '<input id="ef-img" type="file" accept="image/jpeg,image/png,image/webp"></div></div>' +
+    '<div class="f full"><label for="ef-description">Açıklama</label><textarea id="ef-description">' + esc(e.description || '') + '</textarea></div></div>' +
+    '<p class="msg bad" id="ef-msg" role="alert"></p><div class="row"><button class="btn pri" type="submit">' + (e.id ? 'Kaydet' : 'Taslak olarak kaydet') + '</button></div></form>';
+}
+function shrink(file) {
+  return new Promise(function (res, rej) {
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function () {
+      var k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+      res(c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = function () { rej(new Error('Görsel okunamadı.')); };
+    img.src = url;
+  });
+}
+async function vEtkinlikler() {
+  var d = await api('events'), editing = q().get('edit');
+  var cur = editing && editing !== 'new' ? d.events.filter(function (e) { return e.id === editing; })[0] : null;
+  main.innerHTML = '<div class="head"><h1 class="h1">Etkinlikler</h1><button class="btn pri" data-go="etkinlikler" data-edit="new">Yeni etkinlik</button></div>' +
+    (editing ? eventForm(cur) : '') + '<div class="list">' + (d.events.length ? d.events.map(function (e) {
+      var acts = '<button class="btn sm" data-go="etkinlikler" data-edit="' + e.id + '">Düzenle</button><button class="btn sm" data-go="rsvp" data-ev="' + e.id + '">Başvurular (' + e.counts.pending + ')</button><button class="btn sm" data-go="kapi" data-ev="' + e.id + '">Giriş listesi</button>' +
+        (e.status === 'published' ? '<a class="btn sm" href="' + esc(inviteUrl(e)) + '" target="_blank" rel="noopener">Davet ↗</a><button class="btn sm" data-copy="' + esc(inviteUrl(e)) + '">Linki kopyala</button>' : '') +
+        (e.status === 'draft' ? '<button class="btn sm ok" data-st="published" data-id="' + e.id + '">Yayınla</button>' : '') +
+        (e.status === 'published' ? '<button class="btn sm" data-st="draft" data-id="' + e.id + '">Taslağa al</button>' : '') +
+        (e.status !== 'archived' ? '<button class="btn sm" data-st="archived" data-id="' + e.id + '">Arşivle</button>' : '<button class="btn sm" data-st="draft" data-id="' + e.id + '">Arşivden çıkar</button>');
+      return '<div class="item">' + (e.imageId ? '<img class="thumb" src="/api/public/image/' + esc(e.imageId) + '" alt="">' : '') + '<div class="main"><div class="row"><b>' + esc(e.title) + '</b>' + pill(e.status) + pill(e.visibility) + '</div>' +
+        '<span class="mute small">' + fmtDate(e.date) + (e.time ? ' ' + esc(e.time) : '') + ' · ' + esc(e.venue || 'Mekân yok') + (e.artist ? ' · ' + esc(e.artist) : '') + '</span>' +
+        '<span class="mute small">' + e.counts.approved + (e.capacity ? ' / ' + e.capacity : '') + ' onaylı · ' + e.counts.pending + ' bekleyen · ' + e.counts.waitlist + ' bekleme listesi · ' + e.counts.checkedIn + ' giriş</span></div><div class="row acts">' + acts + '</div></div>';
+    }).join('') : '<p class="mute">Henüz etkinlik yok.</p>') + '</div><p class="msg bad" id="ev-msg" role="alert"></p>';
+  var f = document.getElementById('ef');
+  if (f) {
+    document.getElementById('ef-x').onclick = function () { go('etkinlikler'); };
+    f.onsubmit = async function (ev) {
+      ev.preventDefault(); var msg = document.getElementById('ef-msg'); msg.textContent = '';
+      try {
+        var data = { visibility: document.getElementById('ef-visibility').value, description: document.getElementById('ef-description').value };
+        E_FIELDS.forEach(function (x) { data[x[0]] = document.getElementById('ef-' + x[0]).value; });
+        var file = document.getElementById('ef-img').files[0];
+        if (file) data.imageId = (await api('images', 'POST', { dataUrl: await shrink(file) })).id;
+        await api(cur ? 'events/' + cur.id : 'events', cur ? 'PUT' : 'POST', data);
+        go('etkinlikler');
+      } catch (err) { msg.textContent = err.message; }
+    };
+  }
+}
+
+/* ---------- Davet & RSVP ---------- */
+async function vRsvp() {
+  var d = await api('events'), evs = d.events.filter(function (e) { return e.status !== 'archived'; });
+  if (!evs.length) { main.innerHTML = '<div class="head"><h1 class="h1">Davet & RSVP</h1></div><p class="mute">Önce bir etkinlik oluşturun.</p><p style="margin-top:14px"><button class="btn pri" data-go="etkinlikler" data-edit="new">Yeni etkinlik</button></p>'; return; }
+  var want = q().get('event'), ev = evs.filter(function (e) { return e.id === want; })[0] || evs.filter(function (e) { return e.counts.pending; })[0] || evs[0];
+  var r = await api('rsvps/' + ev.id), filter = q().get('durum') || 'pending';
+  var counts = {}; ['pending', 'approved', 'waitlist', 'rejected'].forEach(function (s) { counts[s] = r.rsvps.filter(function (x) { return x.status === s; }).length; });
+  var rows = r.rsvps.filter(function (x) { return x.status === filter; });
+  var used = r.rsvps.filter(function (x) { return x.status === 'approved'; }).reduce(function (n, x) { return n + x.guests; }, 0);
+  main.innerHTML = '<div class="head"><h1 class="h1">Davet & RSVP</h1><div style="min-width:240px">' + eventSelect(evs, ev.id, 'rs-ev') + '</div></div>' +
+    '<div class="panel"><div class="row" style="justify-content:space-between"><div><div class="row"><b style="font-size:20px">' + esc(ev.title) + '</b>' + pill(ev.status) + pill(ev.visibility) + '</div><p class="mute small">' + used + (ev.capacity ? ' / ' + ev.capacity : '') + ' onaylı misafir</p></div><div class="row">' +
+    (ev.status === 'published' ? '<a class="btn sm" href="' + esc(inviteUrl(ev)) + '" target="_blank" rel="noopener">Davet sayfası ↗</a><button class="btn sm" data-copy="' + esc(inviteUrl(ev)) + '">Davet linkini kopyala</button>' : '<span class="mute small">Davet linki etkinlik yayınlanınca açılır.</span>') +
+    '<a class="btn sm" href="/api/hq/rsvps.csv?event=' + ev.id + '">CSV indir</a><button class="btn sm" data-go="kapi" data-ev="' + ev.id + '">Giriş listesi</button></div></div></div>' +
+    '<div class="row" style="margin-bottom:14px">' + ['pending', 'approved', 'waitlist', 'rejected'].map(function (s) { return '<button class="btn sm' + (s === filter ? ' pri' : '') + '" data-go="rsvp" data-ev="' + ev.id + '" data-durum="' + s + '">' + STATUS[s] + ' (' + counts[s] + ')</button>'; }).join('') + '</div>' +
+    '<p class="msg bad" id="rs-msg" role="alert"></p><div class="list">' + (rows.length ? rows.map(function (x) {
+      var b = function (dec, label, cls) { return x.status === dec ? '' : '<button class="btn sm ' + cls + '" data-dec="' + dec + '" data-id="' + x.id + '">' + label + '</button>'; };
+      return '<div class="item"><div class="main"><div class="row"><b>' + esc(x.name) + '</b><span class="pill">' + x.guests + ' kişi</span>' + (x.checkedInAt ? '<span class="pill approved">Giriş ' + fmtTime(x.checkedInAt) + '</span>' : '') + '</div>' +
+        '<span class="mute small">' + esc(x.email) + (x.phone ? ' · ' + esc(x.phone) : '') + (x.instagram ? ' · ' + esc(x.instagram) : '') + ' · ' + fmtTime(x.createdAt) + '</span>' + (x.note ? '<span class="small">' + esc(x.note) + '</span>' : '') + '</div><div class="row acts">' +
+        b('approved', 'Onayla', 'ok') + b('waitlist', 'Bekleme listesi', 'warn') + b('rejected', 'Reddet', 'bad') +
+        (x.status === 'approved' ? '<a class="btn sm" href="/pass?t=' + esc(x.passToken) + '" target="_blank" rel="noopener">QR kartı ↗</a><button class="btn sm" data-copy="' + esc(location.origin + '/pass?t=' + x.passToken) + '">Kart linki</button>' : '') + '</div></div>';
+    }).join('') : '<p class="mute">Bu durumda başvuru yok.</p>') + '</div>';
+  document.getElementById('rs-ev').onchange = function () { go('rsvp', { event: this.value }); };
+  main.onclick = async function (e) {
+    var b = e.target.closest('[data-dec]'); if (!b) return;
+    var msg = document.getElementById('rs-msg'); msg.textContent = ''; b.disabled = true;
+    async function send(force) { await api('rsvps/' + ev.id + '/' + b.getAttribute('data-id') + '/decision', 'POST', { decision: b.getAttribute('data-dec'), force: force }); }
+    try { await send(false); render(); }
+    catch (err) {
+      if (err.data && err.data.overCapacity && window.confirm(err.message + ' Yine de onaylansın mı?')) { try { await send(true); render(); return; } catch (e2) { err = e2; } }
+      msg.textContent = err.message; b.disabled = false;
+    }
+  };
+}
+
+/* ---------- Kapı ---------- */
+async function vKapi() {
+  var d = await api('events'), evs = d.events.filter(function (e) { return e.status === 'published'; });
+  if (!evs.length) { main.innerHTML = '<div class="head"><h1 class="h1">Kapı</h1></div><p class="mute">Yayında etkinlik yok.</p>'; return; }
+  var ev = evs.filter(function (e) { return e.id === q().get('event'); })[0] || evs[0];
+  var list = (await api('rsvps/' + ev.id)).rsvps.filter(function (x) { return x.status === 'approved'; });
+  main.innerHTML = '<div class="head"><h1 class="h1">Kapı</h1><div style="min-width:240px">' + eventSelect(evs, ev.id, 'k-ev') + '</div></div>' +
+    '<div id="k-res" class="door-result" role="status" aria-live="assertive">QR okutun ya da isim arayın</div>' +
+    '<div class="row" style="margin:14px 0"><button class="btn pri big" id="k-scan" type="button" style="flex:1">QR tara</button><span class="pill" id="k-count"></span></div>' +
+    '<video id="k-video" playsinline muted hidden></video>' +
+    '<div class="f" style="margin:14px 0"><label for="k-q">İsim, e-posta veya telefon</label><input class="big" id="k-q" type="search" autocomplete="off"></div><div class="list" id="k-list"></div>';
+  var res = document.getElementById('k-res'), qEl = document.getElementById('k-q');
+  function count() { var inn = list.filter(function (x) { return x.checkedInAt; }); document.getElementById('k-count').textContent = inn.reduce(function (n, x) { return n + x.guests; }, 0) + ' / ' + list.reduce(function (n, x) { return n + x.guests; }, 0) + ' içeride'; }
+  function draw() {
+    var t = qEl.value.trim().toLocaleLowerCase('tr');
+    var rows = list.filter(function (x) { return !t || (x.name + ' ' + x.email + ' ' + x.phone).toLocaleLowerCase('tr').indexOf(t) > -1; }).slice(0, 60);
+    document.getElementById('k-list').innerHTML = rows.length ? rows.map(function (x) {
+      return '<div class="item"><div class="main"><b>' + esc(x.name) + '</b><span class="mute small">' + x.guests + ' kişi · ' + esc(x.email) + '</span></div><div class="row acts">' +
+        (x.checkedInAt ? '<span class="pill approved">Giriş ' + fmtTime(x.checkedInAt) + '</span><button class="btn sm" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri big" data-in="' + x.id + '">Giriş yap</button>') + '</div></div>';
+    }).join('') : '<p class="mute">Eşleşen onaylı misafir yok.</p>';
+    count();
+  }
+  function show(r) {
+    var cls = r.result === 'ok' ? 'ok' : r.result === 'duplicate' ? 'duplicate' : r.result === 'undone' ? '' : 'bad';
+    res.className = 'door-result ' + cls;
+    res.innerHTML = esc(r.result === 'undone' ? 'Giriş geri alındı.' : r.message) + (r.rsvp ? '<small>' + esc(r.rsvp.name) + ' · ' + r.rsvp.guests + ' kişi' + (r.result === 'duplicate' ? ' · ilk giriş ' + fmtTime(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma' : '') + '</small>' : '');
+    if (r.rsvp) { list = list.map(function (x) { return x.id === r.rsvp.id ? r.rsvp : x; }); draw(); }
+  }
+  async function check(data) { data.eventId = ev.id; try { show(await api('checkin', 'POST', data)); } catch (err) { res.className = 'door-result bad'; res.textContent = err.message; } }
+  qEl.oninput = draw; draw();
+  document.getElementById('k-ev').onchange = function () { go('kapi', { event: this.value }); };
+  document.getElementById('k-list').onclick = function (e) {
+    var a = e.target.closest('[data-in]'), u = e.target.closest('[data-undo]');
+    if (a) check({ rsvpId: a.getAttribute('data-in') });
+    if (u) check({ rsvpId: u.getAttribute('data-undo'), undo: true });
+  };
+  window.__hqCheck = function (text) { var m = /[?&]t=([A-Za-z0-9_-]+)/.exec(text); check({ token: m ? m[1] : String(text).trim() }); };
+  var video = document.getElementById('k-video'), btn = document.getElementById('k-scan');
+  btn.onclick = async function () {
+    if (scanStop) { scanStop(); return; }
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      video.srcObject = stream; video.hidden = false; await video.play(); btn.textContent = 'Taramayı durdur';
+      var live = true, last = '', lastAt = 0, det = ('BarcodeDetector' in window) ? new BarcodeDetector({ formats: ['qr_code'] }) : null, canvas = document.createElement('canvas');
+      if (!det && !window.jsQR) { await new Promise(function (ok, no) { var s = document.createElement('script'); s.src = '/js/vendor/jsQR.js'; s.onload = ok; s.onerror = no; document.head.appendChild(s); }); }
+      scanStop = function () { live = false; stream.getTracks().forEach(function (t) { t.stop(); }); video.hidden = true; btn.textContent = 'QR tara'; scanStop = null; };
+      (async function loop() {
+        if (!live) return;
+        var text = '';
+        try {
+          if (det) { var c = await det.detect(video); if (c[0]) text = c[0].rawValue; }
+          else if (video.videoWidth) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; var g = canvas.getContext('2d', { willReadFrequently: true }); g.drawImage(video, 0, 0); var im = g.getImageData(0, 0, canvas.width, canvas.height); var o = window.jsQR(im.data, im.width, im.height); if (o) text = o.data; }
+        } catch (e) {}
+        if (text && (text !== last || Date.now() - lastAt > 4000)) { last = text; lastAt = Date.now(); window.__hqCheck(text); }
+        setTimeout(loop, 250);
+      })();
+    } catch (err) { res.className = 'door-result bad'; res.textContent = 'Kamera açılamadı. İsim arayarak giriş yapabilirsiniz.'; }
+  };
+}
+
+/* ---------- CRM ---------- */
+var C_FIELDS = [['name', 'İsim', 'text'], ['email', 'E-posta', 'email'], ['phone', 'Telefon', 'tel'], ['instagram', 'Instagram', 'text'], ['company', 'Şirket / mekân', 'text'], ['tags', 'Etiketler (virgülle)', 'text']];
+function parseCsv(text) {
+  var rows = [], row = [], cur = '', inq = false, sep = (text.split('\n')[0].split(';').length > text.split('\n')[0].split(',').length) ? ';' : ',';
+  text = text.replace(/^﻿/, '');
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (inq) { if (c === '"' && text[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') inq = false; else cur += c; }
+    else if (c === '"') inq = true;
+    else if (c === sep) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); cur = ''; if (row.some(function (x) { return x.trim(); })) rows.push(row); row = []; }
+    else cur += c;
+  }
+  row.push(cur); if (row.some(function (x) { return x.trim(); })) rows.push(row);
+  return rows;
+}
+var CSV_MAP = { name: ['name', 'isim', 'ad', 'ad soyad', 'full name', 'adsoyad'], email: ['email', 'e-posta', 'eposta', 'e-mail', 'mail'], phone: ['phone', 'telefon', 'tel', 'gsm'], instagram: ['instagram', 'ig'], company: ['company', 'şirket', 'sirket', 'mekan', 'mekân', 'firma'], tags: ['tags', 'etiket', 'etiketler'], notes: ['notes', 'not', 'notlar'] };
+async function vCrm() {
+  var d = await api('contacts'), sel = q().get('kisi'), detail = sel && sel !== 'new' ? await api('contacts/' + sel) : null, term = q().get('ara') || '', tag = q().get('etiket') || '';
+  var allTags = []; d.contacts.forEach(function (c) { (c.tags || []).forEach(function (t) { if (allTags.indexOf(t) < 0) allTags.push(t); }); });
+  var c0 = detail ? detail.contact : {};
+  var form = sel ? '<form class="panel" id="cf"><div class="head" style="margin-bottom:14px"><h2 style="font-size:22px">' + (detail ? esc(c0.name) : 'Yeni kişi') + '</h2><button class="btn sm" type="button" id="cf-x">Kapat</button></div><div class="form">' +
+    C_FIELDS.map(function (f) { var v = f[0] === 'tags' ? (c0.tags || []).join(', ') : (c0[f[0]] || ''); return '<div class="f"><label for="cf-' + f[0] + '">' + f[1] + '</label><input id="cf-' + f[0] + '" type="' + f[2] + '" value="' + esc(v) + '"></div>'; }).join('') +
+    '<div class="f full"><label for="cf-notes">Notlar</label><textarea id="cf-notes">' + esc(c0.notes || '') + '</textarea></div></div><p class="msg bad" id="cf-msg" role="alert"></p><button class="btn pri" type="submit">Kaydet</button>' +
+    (detail ? '<h3 class="eye" style="margin:22px 0 10px">Etkinlik geçmişi</h3>' + (detail.history.length ? '<div class="scroll"><table><thead><tr><th>Etkinlik</th><th>Tarih</th><th>Durum</th><th>Kişi</th><th>Giriş</th></tr></thead><tbody>' + detail.history.map(function (h) { return '<tr><td>' + esc(h.event) + '</td><td>' + fmtDate(h.date) + '</td><td>' + pill(h.status) + '</td><td>' + h.guests + '</td><td>' + (h.checkedInAt ? fmtTime(h.checkedInAt) : '—') + '</td></tr>'; }).join('') + '</tbody></table></div>' : '<p class="mute small">Henüz etkinlik geçmişi yok.</p>') : '') + '</form>' : '';
+  var t = term.toLocaleLowerCase('tr');
+  var rows = d.contacts.filter(function (c) { return (!t || [c.name, c.email, c.phone, c.instagram, c.company, (c.tags || []).join(' '), c.notes].join(' ').toLocaleLowerCase('tr').indexOf(t) > -1) && (!tag || (c.tags || []).indexOf(tag) > -1); });
+  main.innerHTML = '<div class="head"><h1 class="h1">CRM</h1><div class="row"><button class="btn pri" data-go="crm" data-kisi="new">Kişi ekle</button><label class="btn" for="csv-file">CSV içe aktar</label><input id="csv-file" type="file" accept=".csv,text/csv" style="position:absolute;width:1px;height:1px;min-height:0;padding:0;opacity:0"></div></div>' +
+    '<div id="imp"></div>' + form +
+    '<div class="row" style="margin-bottom:14px"><div style="flex:1 1 240px"><label class="eye" for="c-q" style="display:block;margin-bottom:6px">Ara</label><input id="c-q" type="search" value="' + esc(term) + '"></div><div style="flex:0 1 220px"><label class="eye" for="c-tag" style="display:block;margin-bottom:6px">Etiket</label><select id="c-tag"><option value="">Tümü</option>' + allTags.sort().map(function (x) { return '<option' + (x === tag ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></div></div>' +
+    '<p class="mute small" style="margin-bottom:10px">' + rows.length + ' / ' + d.contacts.length + ' kişi</p><div class="list">' + (rows.length ? rows.slice(0, 300).map(function (c) {
+      return '<div class="item"><div class="main"><b>' + esc(c.name) + '</b><span class="mute small">' + [c.email, c.phone, c.instagram, c.company].filter(Boolean).map(esc).join(' · ') + '</span><div class="row">' + (c.tags || []).map(function (x) { return '<span class="pill">' + esc(x) + '</span>'; }).join('') + '</div></div><div class="row acts"><button class="btn sm" data-go="crm" data-kisi="' + c.id + '">Aç</button></div></div>';
+    }).join('') : '<p class="mute">Kişi bulunamadı.</p>') + '</div>';
+  var qEl = document.getElementById('c-q'), timer;
+  qEl.oninput = function () { clearTimeout(timer); timer = setTimeout(function () { var p = {}; if (qEl.value) p.ara = qEl.value; if (tag) p.etiket = tag; history.replaceState(null, '', '/hq?' + new URLSearchParams(Object.assign({ view: 'crm' }, p))); vCrm().then(function () { var n = document.getElementById('c-q'); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
+  document.getElementById('c-tag').onchange = function () { var p = {}; if (term) p.ara = term; if (this.value) p.etiket = this.value; go('crm', p); };
+  var f = document.getElementById('cf');
+  if (f) {
+    document.getElementById('cf-x').onclick = function () { go('crm'); };
+    f.onsubmit = async function (e) {
+      e.preventDefault(); var data = { notes: document.getElementById('cf-notes').value };
+      C_FIELDS.forEach(function (x) { data[x[0]] = document.getElementById('cf-' + x[0]).value; });
+      try { await api(detail ? 'contacts/' + c0.id : 'contacts', detail ? 'PUT' : 'POST', data); go('crm'); } catch (err) { document.getElementById('cf-msg').textContent = err.message; }
+    };
+  }
+  document.getElementById('csv-file').onchange = async function () {
+    var file = this.files[0], box = document.getElementById('imp'); if (!file) return;
+    try {
+      var table = parseCsv(await file.text()), head = table.shift().map(function (h) { return h.trim().toLocaleLowerCase('tr'); }), col = {};
+      Object.keys(CSV_MAP).forEach(function (k) { var i = head.findIndex(function (h) { return CSV_MAP[k].indexOf(h) > -1; }); if (i > -1) col[k] = i; });
+      if (col.name == null && col.email == null) throw new Error('CSV’de "isim" ya da "e-posta" sütunu bulunamadı.');
+      var data = table.map(function (r) { var o = {}; Object.keys(col).forEach(function (k) { o[k] = r[col[k]] || ''; }); return o; });
+      var p = await api('contacts/import', 'POST', { rows: data, commit: false }), L = { 'new': 'Yeni', match: 'Mevcut kişiyle eşleşti', 'duplicate-in-file': 'Dosyada mükerrer', invalid: 'Geçersiz' };
+      box.innerHTML = '<div class="panel"><div class="head" style="margin-bottom:10px"><h2 style="font-size:22px">İçe aktarma önizlemesi</h2><button class="btn sm" id="imp-x" type="button">Vazgeç</button></div>' +
+        '<p>' + p.totals.new + ' yeni kişi eklenecek · ' + p.totals.match + ' mevcut kişiyle eşleşti (yeniden oluşturulmaz, yalnızca yeni etiketler eklenir) · ' + p.totals.duplicateInFile + ' dosyada mükerrer · ' + p.totals.invalid + ' geçersiz</p>' +
+        '<div class="scroll" style="max-height:320px;overflow-y:auto;margin:12px 0"><table><thead><tr><th>İsim</th><th>E-posta</th><th>Telefon</th><th>Sonuç</th></tr></thead><tbody>' + p.rows.map(function (o) { return '<tr><td>' + esc(o.row.name) + '</td><td>' + esc(o.row.email) + '</td><td>' + esc(o.row.phone) + '</td><td>' + L[o.status] + (o.match ? ': ' + esc(o.match.name) : '') + '</td></tr>'; }).join('') + '</tbody></table></div>' +
+        '<p class="msg bad" id="imp-msg" role="alert"></p><button class="btn pri" id="imp-go" type="button"' + (p.totals.new + p.totals.match ? '' : ' disabled') + '>' + p.totals.new + ' kişiyi içe aktar</button></div>';
+      document.getElementById('imp-x').onclick = function () { box.innerHTML = ''; };
+      document.getElementById('imp-go').onclick = async function () { this.disabled = true; try { await api('contacts/import', 'POST', { rows: data, commit: true }); go('crm'); } catch (err) { document.getElementById('imp-msg').textContent = err.message; } };
+    } catch (err) { box.innerHTML = '<p class="msg bad" role="alert">' + esc(err.message) + '</p>'; }
+    this.value = '';
+  };
+}
+
+/* ---------- Görevler ---------- */
+async function vGorevler() {
+  var r = await Promise.all([api('tasks'), api('events')]), tasks = r[0].tasks, evs = r[1].events, by = {}; evs.forEach(function (e) { by[e.id] = e; });
+  var fe = q().get('event') || '', show = q().get('durum') || 'open';
+  var rows = tasks.filter(function (t) { return (!fe || t.eventId === fe) && (show === 'all' || (show === 'open' ? t.status !== 'done' : t.status === 'done')); });
+  var opts = '<option value="">Etkinlik yok</option>' + evs.filter(function (e) { return e.status !== 'archived'; }).map(function (e) { return '<option value="' + e.id + '"' + (e.id === fe ? ' selected' : '') + '>' + esc(e.title) + '</option>'; }).join('');
+  var td = new Date().toISOString().slice(0, 10);
+  main.innerHTML = '<div class="head"><h1 class="h1">Görevler</h1></div><form class="panel" id="tf"><div class="form"><div class="f full"><label for="t-title">Yeni görev</label><input id="t-title" required></div><div class="f"><label for="t-ev">Etkinlik</label><select id="t-ev">' + opts + '</select></div><div class="f"><label for="t-as">Sorumlu</label><input id="t-as"></div><div class="f"><label for="t-due">Son tarih</label><input id="t-due" type="date"></div></div><p class="msg bad" id="t-msg" role="alert"></p><button class="btn pri" type="submit">Görev ekle</button></form>' +
+    '<div class="row" style="margin-bottom:14px">' + [['open', 'Açık'], ['done', 'Biten'], ['all', 'Tümü']].map(function (x) { return '<button class="btn sm' + (x[0] === show ? ' pri' : '') + '" data-go="gorevler" data-durum="' + x[0] + '"' + (fe ? ' data-ev="' + fe + '"' : '') + '>' + x[1] + '</button>'; }).join('') + '</div><div class="list">' +
+    (rows.length ? rows.map(function (t) {
+      return '<div class="item"><div class="main"><b>' + esc(t.title) + '</b><span class="mute small">' + [t.eventId && by[t.eventId] ? esc(by[t.eventId].title) : '', t.assignee ? 'Sorumlu: ' + esc(t.assignee) : '', t.due ? '<span' + (t.due < td && t.status !== 'done' ? ' style="color:var(--bad)"' : '') + '>Son tarih: ' + fmtDate(t.due) + '</span>' : ''].filter(Boolean).join(' · ') + '</span></div><div class="row acts">' +
+        '<label class="eye" for="ts-' + t.id + '" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Durum</label><select id="ts-' + t.id + '" data-ts="' + t.id + '" style="width:auto">' + ['todo', 'doing', 'done'].map(function (s) { return '<option value="' + s + '"' + (s === t.status ? ' selected' : '') + '>' + STATUS[s] + '</option>'; }).join('') + '</select><button class="btn sm bad" data-del="' + t.id + '">Sil</button></div></div>';
+    }).join('') : '<p class="mute">Görev yok.</p>') + '</div>';
+  document.getElementById('tf').onsubmit = async function (e) {
+    e.preventDefault();
+    try { await api('tasks', 'POST', { title: document.getElementById('t-title').value, eventId: document.getElementById('t-ev').value, assignee: document.getElementById('t-as').value, due: document.getElementById('t-due').value }); render(); } catch (err) { document.getElementById('t-msg').textContent = err.message; }
+  };
+  main.onchange = async function (e) { var s = e.target.closest('[data-ts]'); if (s) { try { await api('tasks/' + s.getAttribute('data-ts'), 'PUT', { status: s.value }); render(); } catch (err) { document.getElementById('t-msg').textContent = err.message; } } };
+}
+
+/* ---------- shared clicks + router ---------- */
+main.addEventListener('click', async function (e) {
+  var g = e.target.closest('[data-go]'), c = e.target.closest('[data-copy]'), st = e.target.closest('[data-st]'), del = e.target.closest('[data-del]');
+  if (c) { copy(c.getAttribute('data-copy'), c); return; }
+  if (g) { var p = {}; if (g.dataset.ev) p.event = g.dataset.ev; if (g.dataset.edit) p.edit = g.dataset.edit; if (g.dataset.durum) p.durum = g.dataset.durum; if (g.dataset.kisi) p.kisi = g.dataset.kisi; go(g.dataset.go, p); return; }
+  if (st) { try { await api('events/' + st.dataset.id + '/status', 'POST', { status: st.dataset.st }); render(); } catch (err) { var m = document.getElementById('ev-msg'); if (m) m.textContent = err.message; } return; }
+  if (del && window.confirm('Görev silinsin mi?')) { await api('tasks/' + del.dataset.del, 'DELETE', {}); render(); }
+});
+var ROUTES = { ozet: vOzet, etkinlikler: vEtkinlikler, rsvp: vRsvp, kapi: vKapi, crm: vCrm, gorevler: vGorevler };
+async function render() {
+  if (scanStop) scanStop();
+  main.onclick = null; main.onchange = null;
+  var view = q().get('view'); if (!ROUTES[view]) view = 'ozet';
+  tabs(view); loading();
+  try { await ROUTES[view](); } catch (err) { failed(err); }
+}
+render();
+})();
+</script>
+</body>
+</html>
