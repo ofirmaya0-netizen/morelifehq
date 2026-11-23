@@ -8,6 +8,7 @@ import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { emailStatus, sendPass, notifyEnquiry } from './lib/email.mjs';
+import { waStatus, sendPassWa } from './lib/whatsapp.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
 
@@ -300,12 +301,13 @@ async function adminApi(req, ctx, parts, url) {
   if (parts[0] === 'rsvps' && parts[1]) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const rs = await rsvpsOf(e.id);
-    if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: emailStatus() });
+    if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: emailStatus(), whatsapp: waStatus() });
     const decide = async (r, dec) => {
       r.status = dec; r.decidedAt = now();
       if (dec === 'approved' && !r.passToken) { r.passToken = token(24); await s.set('passes/' + r.passToken, { eventId: e.id, rsvpId: r.id }); }
       // the pass is e-mailed once on approval; a failed attempt is stored as failed, never as sent
       if (dec === 'approved' && !(r.mail && r.mail.status === 'sent')) { const m = await sendPass(live(e) || e, r, url.origin); if (m.status !== 'off') r.mail = m; }
+      if (dec === 'approved' && r.phone && !(r.wa && r.wa.status === 'sent')) { const w = await sendPassWa(s, live(e) || e, r); if (w.status !== 'off') r.wa = w; }
       await s.set('rsvps/' + e.id + '/' + r.id, r);
     };
     if (parts[2] === 'bulk' && m === 'POST') {
@@ -320,6 +322,13 @@ async function adminApi(req, ctx, parts, url) {
       return json({ ok: true, ...info });
     }
     const r = rs.find((x) => x.id === parts[2]); if (!r) return fail(404, 'Başvuru bulunamadı.');
+    if (parts[3] === 'send-pass-wa' && m === 'POST') {
+      if (r.status !== 'approved' || !r.passToken) return fail(400, 'Giriş kartı yalnızca onaylı başvuruya gönderilir.');
+      if (!waStatus().connected) return fail(409, 'WhatsApp bağlı değil.');
+      if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
+      r.wa = await sendPassWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r);
+      return r.wa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.wa.error || ''), { rsvp: r });
+    }
     if (parts[3] === 'send-pass' && m === 'POST') {
       if (r.status !== 'approved' || !r.passToken) return fail(400, 'Giriş kartı yalnızca onaylı başvuruya gönderilir.');
       if (!emailStatus().connected) return fail(409, 'E-posta servisi bağlı değil.');
