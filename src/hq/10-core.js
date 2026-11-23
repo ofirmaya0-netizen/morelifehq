@@ -1,7 +1,7 @@
 // Core: helpers, API client, router, shell, shared UI pieces. Views register themselves on HQ.views.
 var HQ = (function () {
   'use strict';
-  var main = document.getElementById('main'), layer = document.getElementById('layer'), cleanup = null, badge = { pending: 0 };
+  var main = document.getElementById('main'), layer = document.getElementById('layer'), cleanup = null, badge = { pending: 0, enq: 0 };
   var IC = {
     home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
     mail: '<path d="M4 6h16v12H4z"/><path d="M4 7l8 6 8-6"/>', users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.4 3.2-5.5 6.5-5.5s5.900 2.100 6.500 5.500M16 4.800a3.500 3.500 0 0 1 0 6.400M18 14.800c2 .700 3.200 2.500 3.500 5.200"/>',
@@ -86,12 +86,12 @@ var HQ = (function () {
   async function upload(input) { var f = input && input.files[0]; if (!f) return null; return (await api('images', 'POST', { dataUrl: await shrink(f) })).id; }
 
   /* shell */
-  var NAV = [['ozet', 'Özet', 'home'], ['etkinlikler', 'Etkinlikler', 'cal'], ['rsvp', 'Davetler & RSVP', 'mail'], ['crm', 'CRM', 'users'], ['gorevler', 'Görevler', 'task'], null, ['website', 'Website', 'globe'], ['seo', 'SEO', 'search'], ['marketing', 'Marketing', 'chart'], null, ['ayarlar', 'Ayarlar', 'gear']];
+  var NAV = [['ozet', 'Özet', 'home'], ['etkinlikler', 'Etkinlikler', 'cal'], ['rsvp', 'Davetler & RSVP', 'mail'], ['crm', 'CRM', 'users'], ['talepler', 'Talepler', 'info'], ['gorevler', 'Görevler', 'task'], null, ['website', 'Website', 'globe'], ['seo', 'SEO', 'search'], ['marketing', 'Marketing', 'chart'], null, ['ayarlar', 'Ayarlar', 'gear']];
   var MBAR = [['ozet', 'Özet', 'home'], ['etkinlikler', 'Etkinlik', 'cal'], ['rsvp', 'RSVP', 'mail'], ['kapi', 'Check-in', 'qr'], ['menu', 'Menü', 'menu']];
   var PARENT = { etkinlik: 'etkinlikler', kapi: 'rsvp' };
   function shell(view) {
     var cur = PARENT[view] || view;
-    document.getElementById('nav').innerHTML = NAV.map(function (n) { return n ? '<button class="navi" type="button" data-nav="view=' + n[0] + '"' + (n[0] === cur ? ' aria-current="page"' : '') + '>' + ico(n[2]) + '<span>' + n[1] + '</span>' + (n[0] === 'rsvp' && badge.pending ? '<span class="cnt" title="Bekleyen başvuru">' + badge.pending + '</span>' : '') + '</button>' : '<div class="nav-sep"></div>'; }).join('');
+    document.getElementById('nav').innerHTML = NAV.map(function (n) { return n ? '<button class="navi" type="button" data-nav="view=' + n[0] + '"' + (n[0] === cur ? ' aria-current="page"' : '') + '>' + ico(n[2]) + '<span>' + n[1] + '</span>' + (n[0] === 'rsvp' && badge.pending ? '<span class="cnt" title="Bekleyen başvuru">' + badge.pending + '</span>' : '') + (n[0] === 'talepler' && badge.enq ? '<span class="cnt" title="Yeni talep">' + badge.enq + '</span>' : '') + '</button>' : '<div class="nav-sep"></div>'; }).join('');
     document.getElementById('mbar').innerHTML = MBAR.map(function (n) { var on = n[0] === view || (n[0] !== 'kapi' && n[0] === cur && view !== 'kapi'); return '<button type="button" ' + (n[0] === 'menu' ? 'id="mmenu"' : 'data-nav="view=' + n[0] + '"') + (on ? ' aria-current="page"' : '') + '>' + ico(n[2]) + n[1] + (n[0] === 'rsvp' && badge.pending ? '<span class="cnt">' + badge.pending + '</span>' : '') + '</button>'; }).join('');
     document.body.classList.remove('menu');
   }
@@ -116,7 +116,7 @@ var HQ = (function () {
     catch (err) { main.innerHTML = empty('warn', 'Ekran yüklenemedi', err.message, '<button class="btn" type="button" onclick="location.reload()">Tekrar dene</button>'); }
     refreshBadge();
   }
-  function refreshBadge() { api('summary').then(function (x) { if (x.pendingRsvps !== badge.pending) { badge.pending = x.pendingRsvps; var v = q().get('view'); shell(views[v] ? v : 'ozet'); } }).catch(function () {}); }
+  function refreshBadge() { api('summary').then(function (x) { if (x.pendingRsvps !== badge.pending || x.newEnquiries !== badge.enq) { badge.pending = x.pendingRsvps; badge.enq = x.newEnquiries; var v = q().get('view'); shell(views[v] ? v : 'ozet'); } }).catch(function () {}); }
   function boot() { document.querySelectorAll('[data-ico]').forEach(function (el) { el.outerHTML = ico(el.getAttribute('data-ico')); }); api('session').then(function (s) { document.getElementById('who').textContent = s.email + (s.store === 'morelife-hq' ? '' : ' · preview verisi'); }).catch(function () {}); render(); }
   return { views: views, api: api, go: go, q: q, esc: esc, ico: ico, pill: pill, STATUS: STATUS, fmtDate: fmtDate, fmtTime: fmtTime, today: today, toast: toast, modal: modal, drawer: drawer, closeLayer: closeLayer, field: field, vals: vals, counters: counters, empty: empty, note: note, meter: meter, seg: seg, head: head, cover: cover, busy: busy, upload: upload, initials: initials, copy: copy, render: render, boot: boot, refreshBadge: refreshBadge };
 })();

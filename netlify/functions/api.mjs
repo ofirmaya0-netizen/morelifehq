@@ -7,6 +7,7 @@ import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, c
 import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
+import { emailStatus, sendPass, notifyEnquiry } from './lib/email.mjs';
 import { APP_HTML, LOGIN_HTML } from './lib/hq-html.mjs';
 
 export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/hq', '/hq/*', '/api/hq/*', '/api/public/*'] };
@@ -99,6 +100,25 @@ async function publicApi(req, ctx, parts, url) {
     await s.set('rsvps/' + e.id + '/' + r.id, r);
     return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16) });
   }
+  if (parts[0] === 'enquiries' && req.method === 'POST') {
+    const b = await body(req);
+    if (str(b.website)) return json({ ok: true }); // honeypot
+    if (await limited('enq/' + hash(ipOf(req, ctx)), 8, 3600)) return fail(429, 'Too many requests. Please try again in a few minutes.');
+    const KIND = { contact: 'İletişim', community: 'Community kaydı', partner: 'Partnerlik' }, kind = KIND[b.kind] ? b.kind : 'contact';
+    const q = { id: id(), kind, brief: !!b.brief, kindLabel: b.brief ? 'Proje brief’i' : KIND[kind], name: str(b.name, 120), email: normEmail(b.email), consent: b.consent === true, path: str(b.analyticsPath, 80), status: 'new', note: '', createdAt: now(), updatedAt: now() };
+    for (const f of ['company', 'topic', 'service', 'city', 'preferredDates', 'venue', 'capacity', 'budget', 'artist']) q[f] = str(b[f], 200);
+    q.message = str(b.message, 4000);
+    if (!q.name || !emailOk(q.email)) return fail(400, 'Please enter your name and a valid email.');
+    if (kind === 'community' && !q.consent) return fail(400, 'Please tick the consent box to join the list.');
+    if (kind !== 'community' && !q.message) return fail(400, 'Please write a message.');
+    // one CRM person per e-mail; the form never overwrites what HQ already knows about them
+    const hit = await s.get('contactEmail/' + hash(q.email));
+    if (hit) { q.contactId = hit.id; const c = await s.get('contacts/' + hit.id); const tag = kind === 'community' ? 'community' : 'site-talebi'; if (c && !(c.tags || []).includes(tag)) { c.tags = (c.tags || []).concat(tag); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
+    else { const c = { id: id(), name: q.name, email: q.email, phone: '', instagram: '', company: q.company, tags: [kind === 'community' ? 'community' : 'site-talebi'], source: 'Site formu: ' + q.kindLabel, notes: '', createdAt: now(), updatedAt: now() }; await s.set('contacts/' + c.id, c); await s.set('contactEmail/' + hash(c.email), { id: c.id }); q.contactId = c.id; }
+    await s.set('enquiries/' + q.id, q);
+    q.notify = await notifyEnquiry(q, url.origin); if (q.notify.status !== 'off') await s.set('enquiries/' + q.id, q);
+    return json({ ok: true });
+  }
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
     const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
@@ -171,8 +191,8 @@ async function adminApi(req, ctx, parts, url) {
       const rs = await rsvpsOf(e.id), c = counts(rs);
       if (e.status === 'published') { pending += c.pending; if (!e.date || (e.endDate || e.date) >= td) { approved += c.approved; up.push(adminEvent(e, rs)); } }
     }
-    const open = tasks.filter((t) => t.status !== 'done');
-    return json({ upcoming: up.sort((a, b) => (a.date || '9').localeCompare(b.date || '9')), pendingRsvps: pending, approvedGuests: approved, openTasks: open.length, overdueTasks: open.filter((t) => t.due && t.due < td).length, drafts: evs.filter((e) => e.status === 'draft').length });
+    const open = tasks.filter((t) => t.status !== 'done'), enq = (await all('enquiries/')).filter((x) => x.status === 'new').length;
+    return json({ newEnquiries: enq, upcoming: up.sort((a, b) => (a.date || '9').localeCompare(b.date || '9')), pendingRsvps: pending, approvedGuests: approved, openTasks: open.length, overdueTasks: open.filter((t) => t.due && t.due < td).length, drafts: evs.filter((e) => e.status === 'draft').length });
   }
 
   if (parts[0] === 'events') {
@@ -234,10 +254,12 @@ async function adminApi(req, ctx, parts, url) {
   if (parts[0] === 'rsvps' && parts[1]) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const rs = await rsvpsOf(e.id);
-    if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: { connected: false } });
+    if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: emailStatus() });
     const decide = async (r, dec) => {
       r.status = dec; r.decidedAt = now();
       if (dec === 'approved' && !r.passToken) { r.passToken = token(24); await s.set('passes/' + r.passToken, { eventId: e.id, rsvpId: r.id }); }
+      // the pass is e-mailed once on approval; a failed attempt is stored as failed, never as sent
+      if (dec === 'approved' && !(r.mail && r.mail.status === 'sent')) { const m = await sendPass(live(e) || e, r, url.origin); if (m.status !== 'off') r.mail = m; }
       await s.set('rsvps/' + e.id + '/' + r.id, r);
     };
     if (parts[2] === 'bulk' && m === 'POST') {
@@ -252,6 +274,12 @@ async function adminApi(req, ctx, parts, url) {
       return json({ ok: true, ...info });
     }
     const r = rs.find((x) => x.id === parts[2]); if (!r) return fail(404, 'Başvuru bulunamadı.');
+    if (parts[3] === 'send-pass' && m === 'POST') {
+      if (r.status !== 'approved' || !r.passToken) return fail(400, 'Giriş kartı yalnızca onaylı başvuruya gönderilir.');
+      if (!emailStatus().connected) return fail(409, 'E-posta servisi bağlı değil.');
+      r.mail = await sendPass(live(e) || e, r, url.origin); await s.set('rsvps/' + e.id + '/' + r.id, r);
+      return r.mail.status === 'sent' ? json({ rsvp: r }) : fail(502, 'E-posta gönderilemedi: ' + (r.mail.error || ''), { rsvp: r });
+    }
     if (parts[3] === 'decision' && m === 'POST') {
       const b = await body(req), dec = b.decision;
       if (!RSVP_STATUS.includes(dec)) return fail(400, 'Geçersiz karar.');

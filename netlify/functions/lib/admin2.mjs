@@ -8,6 +8,7 @@ import { seoInput, eventSeo, homeSeo, eventJsonLd, orgJsonLd, isListed, live, is
 import { HOME_FIELDS, homeDefaults } from './render.mjs';
 import { SCHEMA_VERSION } from './migrations.mjs';
 import { SITE_HTML } from './site-html.mjs';
+import { emailStatus } from './email.mjs';
 
 /* ---------- CRM ---------- */
 const C_TEXT = { name: 120, email: 200, phone: 40, instagram: 80, company: 120, source: 80, notes: 4000 };
@@ -87,6 +88,16 @@ async function contacts(req, parts, url, s) {
     if ((o.byE && o.byE !== c.id) || (o.byP && o.byP !== c.id)) return fail(409, 'Bu e-posta veya telefon başka bir kişide kayıtlı. Otomatik birleştirme yapılmaz.');
     const next = { ...r.contact, updatedAt: now() }; await saveContact(s, next, c); return json({ contact: next });
   }
+  return fail(405, 'Desteklenmiyor.');
+}
+
+/* ---------- site enquiries ---------- */
+async function enquiries(req, parts, url, s) {
+  const m = req.method, list = async () => (await all('enquiries/')).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  if (parts[0] === 'enquiries.csv') { const st = url.searchParams.get('status') || ''; return csv('talepler.csv', [['Tarih', 'Tür', 'Durum', 'Ad', 'E-posta', 'Şirket', 'Konu', 'Şehir', 'Tarihler', 'Mekân', 'Kapasite', 'Bütçe', 'Sanatçı', 'Mesaj', 'İzin', 'Not']].concat((await list()).filter((q) => !st || q.status === st).map((q) => [q.createdAt, q.kindLabel, q.status, q.name, q.email, q.company, q.topic || q.service, q.city, q.preferredDates, q.venue, q.capacity, q.budget, q.artist, q.message, q.consent ? 'evet' : '', q.note]))); }
+  if (!parts[1] && m === 'GET') return json({ enquiries: await list(), email: emailStatus() });
+  const q = await s.get('enquiries/' + parts[1]); if (!q) return fail(404, 'Talep bulunamadı.');
+  if (m === 'PUT') { const b = await body(req); if ('status' in b) q.status = ['open', 'done'].includes(b.status) ? b.status : 'new'; if ('note' in b) q.note = str(b.note, 2000); q.updatedAt = now(); await s.set('enquiries/' + q.id, q); return json({ enquiry: q }); }
   return fail(405, 'Desteklenmiyor.');
 }
 
@@ -292,14 +303,15 @@ async function google(url) {
 async function settings(s, storeNameNow) {
   const meta = (await s.get('meta/schema')) || { version: 0, applied: [] };
   return json({ store: storeNameNow, context: process.env.CONTEXT || 'local', siteUrl: SITE_URL(), schema: { version: meta.version, expected: SCHEMA_VERSION, applied: meta.applied },
-    env: Object.fromEntries(['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD', 'HQ_SESSION_SECRET', ...Object.values(G_ENV)].map((k) => [k, !!process.env[k]])),
+    env: Object.fromEntries(['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD', 'HQ_SESSION_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM', ...Object.values(G_ENV)].map((k) => [k, !!process.env[k]])),
     sessionKey: process.env.HQ_SESSION_SECRET && process.env.HQ_SESSION_SECRET.length >= 32 ? 'env' : 'store',
-    integrations: { email: { connected: false, note: 'E-posta servisi bağlı değil. Giriş kartı bağlantısı panelden kopyalanıp paylaşılır; hiçbir e-posta gönderildi olarak işaretlenmez.' }, tickets: { connected: false, note: 'Bilet platformu bağlı değil; satış rakamı gösterilmez.' }, google: googleStatus() } });
+    integrations: { email: { ...emailStatus(), note: emailStatus().connected ? 'Onaylanan misafire giriş kartı e-postası gönderilir; yeni site talepleri yöneticiye bildirilir.' : 'E-posta servisi bağlı değil. Giriş kartı bağlantısı panelden kopyalanıp paylaşılır; hiçbir e-posta gönderildi olarak işaretlenmez.' }, tickets: { connected: false, note: 'Bilet platformu bağlı değil; satış rakamı gösterilmez.' }, google: googleStatus() } });
 }
 
 export async function admin2(req, ctx, parts, url, s, h) {
   const { storeName } = await import('./store.mjs');
   if (parts[0] === 'contacts' || parts[0] === 'contacts.csv') return contacts(req, parts, url, s);
+  if (parts[0] === 'enquiries' || parts[0] === 'enquiries.csv') return enquiries(req, parts, url, s);
   if (parts[0] === 'tasks') return tasks(req, parts, s);
   if (parts[0] === 'site') return site(req, parts, s);
   if (parts[0] === 'seo') return seo(req, parts, s, h);

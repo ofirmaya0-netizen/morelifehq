@@ -19,6 +19,7 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 | `contacts/<id>` | CRM kişisi |
 | `contactEmail/<hash>`, `contactPhone/<hash>` | Normalleştirilmiş e-posta / telefon → kişi id |
 | `tasks/<id>` | Görev |
+| `enquiries/<id>` | Site formlarından gelen talep (iletişim, brief, community, partnerlik) |
 | `images/<id>` | Yüklenen görsel (ikili) |
 | `pages/<key>` | Site sayfası içeriği: `draft`, `live`, `versions[]`, `publishedAt` |
 | `settings/seo` | SEO varsayılanları ve organizatör kimliği |
