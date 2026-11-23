@@ -5,10 +5,22 @@ const COOKIE = 'hq_s';
 const TTL = 12 * 60 * 60; // seconds
 
 export function missingConfig() {
-  return ['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD', 'HQ_SESSION_SECRET'].filter((k) => !process.env[k] || (k === 'HQ_SESSION_SECRET' && process.env[k].length < 32));
+  return ['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD'].filter((k) => !process.env[k]);
 }
 
-const sign = (data) => crypto.createHmac('sha256', process.env.HQ_SESSION_SECRET).update(data).digest('base64url');
+// Cookie signing key. HQ_SESSION_SECRET (32+ chars) wins when set; otherwise a random key is generated once
+// and kept in the server-side store. It is never sent to a browser or returned by any API.
+let secret = null;
+export async function initSecret(s) {
+  if (secret) return;
+  const env = process.env.HQ_SESSION_SECRET;
+  if (env && env.length >= 32) { secret = env; return; }
+  let rec = await s.get('config/sessionSecret');
+  if (!rec || !rec.v) { rec = { v: crypto.randomBytes(48).toString('base64url'), at: new Date().toISOString() }; await s.set('config/sessionSecret', rec); rec = (await s.get('config/sessionSecret')) || rec; }
+  secret = rec.v;
+}
+
+const sign = (data) => crypto.createHmac('sha256', secret).update(data).digest('base64url');
 const same = (a, b) => {
   const x = crypto.createHash('sha256').update(String(a)).digest();
   const y = crypto.createHash('sha256').update(String(b)).digest();
@@ -30,7 +42,7 @@ export function sessionCookie(req) {
 export function clearCookie() { return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`; }
 
 export function session(req) {
-  if (missingConfig().length) return null;
+  if (missingConfig().length || !secret) return null;
   const m = (req.headers.get('cookie') || '').match(/(?:^|;\s*)hq_s=([^;]+)/);
   if (!m) return null;
   const [body, sig] = m[1].split('.');

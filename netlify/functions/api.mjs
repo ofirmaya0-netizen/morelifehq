@@ -1,6 +1,6 @@
 // More Life HQ — one Netlify Function serving the gated /hq page, the admin API (/api/hq/*) and the guest API (/api/public/*).
 import { store, all, setDeployContext, storeName } from './lib/store.mjs';
-import { missingConfig, checkLogin, sessionCookie, clearCookie, session, sameOrigin, token, id, hash } from './lib/auth.mjs';
+import { missingConfig, initSecret, checkLogin, sessionCookie, clearCookie, session, sameOrigin, token, id, hash } from './lib/auth.mjs';
 import { APP_HTML, LOGIN_HTML } from './lib/hq-html.mjs';
 
 export const config = { path: ['/hq', '/hq/*', '/api/hq/*', '/api/public/*'] };
@@ -321,6 +321,7 @@ export default async function handler(req, ctx) {
   const parts = url.pathname.split('/').filter(Boolean);
   setDeployContext((ctx && ctx.deploy && ctx.deploy.context) || process.env.CONTEXT);
   try {
+    if ((parts[0] === 'hq' || parts[1] === 'hq') && !missingConfig().length) await initSecret(await store());
     if (parts[0] === 'hq') {
       const miss = missingConfig();
       if (miss.length) return html('<!doctype html><meta charset="utf-8"><title>More Life HQ</title><body style="font-family:system-ui;background:#0E0B0A;color:#F3EEE6;padding:40px"><h1>HQ henüz yapılandırılmadı</h1><p>Netlify’da şu ortam değişkenlerini tanımlayın: ' + miss.join(', ') + '</p></body>', 503);
