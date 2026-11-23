@@ -1,5 +1,22 @@
 [build]
+  command = "npm run build"
   publish = "site"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/invite"
+  [headers.values]
+    X-Robots-Tag = "noindex"
+    Referrer-Policy = "no-referrer"
+
+[[headers]]
+  for = "/pass"
+  [headers.values]
+    X-Robots-Tag = "noindex"
+    Referrer-Policy = "no-referrer"
 
 # The admin e-mail is the public contact address already shown on the site, so it is not a secret to scan for.
 [build.environment]
