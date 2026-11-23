@@ -16,7 +16,7 @@ async def main():
         await pg.goto(B+'/hq?view=rsvp'); await pg.wait_for_selector('#email')
         await pg.fill('#email','admin@example.com'); await pg.fill('#password','test-password-123'); await pg.click('#go')
         await pg.wait_for_selector('#nav .navi'); ok('login returns to /hq?view=rsvp', 'view=rsvp' in pg.url and (await pg.inner_text('#nav [aria-current=page]')).startswith('Davetler & RSVP'), pg.url)
-        ok('menu has the 9 sections', [x.strip() for x in await pg.locator('#nav .navi span:not(.ico):not(.cnt)').all_inner_texts()]==['Özet','Etkinlikler','Davetler & RSVP','CRM','Görevler','Website','SEO','Marketing','Ayarlar'], await pg.locator('#nav .navi').all_inner_texts())
+        ok('menu sections', [x.strip() for x in await pg.locator('#nav .navi span:not(.ico):not(.cnt)').all_inner_texts()]==['Özet','Etkinlikler','Davetler & RSVP','CRM','Talepler','Görevler','Website','SEO','Marketing','Ayarlar'], await pg.locator('#nav .navi').all_inner_texts())
         await pg.wait_for_selector('.empty'); await shot('01-rsvp-empty')
         # create event from the drawer
         await pg.goto(B+'/hq?view=etkinlikler'); await pg.wait_for_selector('#new'); await pg.click('#new'); await pg.wait_for_selector('#nf')
@@ -62,9 +62,15 @@ async def main():
         ok('CSV columns auto-mapped', await pg.input_value('#f-name')=='0' and await pg.input_value('#f-email')=='1' and await pg.input_value('#f-phone')=='2')
         await pg.click('#mf-pv'); await pg.wait_for_selector('#imp table'); await shot('13-crm-import'); t=await pg.inner_text('#imp')
         import re; t=re.sub(r'\s+',' ',t); ok('import preview totals', 'YENİ KAYIT 1 EŞLEŞEN 1 ÇAKIŞAN 0 MÜKERRER 1 HATALI 1' in t, t[:200])
-        await pg.click('#imp-go'); await pg.wait_for_selector('.toast.ok'); await pg.wait_for_selector('table tbody tr'); ok('import added exactly one contact', await pg.locator('main table tbody tr').count()==2); await shot('14-crm')
+        await pg.click('#imp-go'); await pg.wait_for_selector('.toast.ok'); await pg.wait_for_selector('table tbody tr'); ok('import added exactly one contact', await pg.locator('main table tbody tr').count()==2, await pg.locator('main table tbody tr').count()); await shot('14-crm')
         await pg.click('main [data-open] >> nth=0'); await pg.wait_for_selector('#cf'); await pg.wait_for_timeout(200); await shot('15-contact'); ok('contact card shows event history', 'Test Night' in await pg.inner_text('.drawer'))
         await pg.keyboard.press('Escape')
+        # public site form -> HQ Talepler
+        sp=await g.new_page(); sp.on('pageerror',lambda e: errs.append('site: '+str(e))); await sp.goto(B+'/#contact'); await sp.wait_for_selector('form[data-form=contact] textarea')
+        fm=sp.locator('form[data-form=contact]'); await fm.locator('[name=name]').fill('Lara Demir'); await fm.locator('[name=email]').fill('lara@venue.com'); await fm.get_by_text('Booking & production').click(); await fm.locator('[name=message]').fill('Sunset opening in June?'); await fm.locator('button[type=submit]').click()
+        await sp.wait_for_selector('form[data-form=contact] .result:not([hidden])'); ok('site contact form reports success', 'has been received' in await fm.locator('.result').inner_text(), await fm.locator('.result').inner_text())
+        await pg.goto(B+'/hq?view=talepler'); await pg.wait_for_selector('.item'); await shot('13b-talepler'); ok('enquiry appears in HQ with badge', 'Lara Demir' in await pg.inner_text('.list') and await pg.locator('#nav [data-nav="view=talepler"] .cnt').count()==1)
+        await pg.click('.item [data-open]'); await pg.wait_for_selector('#qf'); ok('enquiry drawer shows the message', 'Sunset opening in June?' in await pg.inner_text('.drawer')); await pg.select_option('#f-status','done'); await pg.click('button[form=qf]'); await pg.wait_for_selector('.empty')
         # tasks
         await pg.goto(B+'/hq?view=gorevler'); await pg.wait_for_selector('#tf'); await pg.fill('#t-title','Ses sistemi'); await pg.select_option('#t-ev',eid); await pg.fill('#t-as','Can'); await pg.fill('#t-due','2020-01-01'); await pg.select_option('#t-pr','high'); await pg.click('#tf button[type=submit]'); await pg.wait_for_selector('[data-ts]'); await shot('16-tasks')
         lt=await pg.inner_text('.list'); ok('task shows event, priority and overdue', all(x in lt for x in ['Test Night','Yüksek öncelik','Gecikti','Can']), lt)

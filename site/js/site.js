@@ -362,7 +362,7 @@ function buildForm(form) {
       });
     }
     var req;
-    try { req = fetch(HQ + '/api/enquiries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (err) { fallback(); return; }
+    try { req = fetch('/api/public/enquiries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }); } catch (err) { fallback(); return; }
     req.then(function (res) {
       if (res.ok) { finish(); box.setAttribute('role', 'status'); box.innerHTML = '<p><strong>' + esc(cfg.ok) + '</strong></p>'; form.reset(); return; }
       if (res.status === 429) { finish(); box.setAttribute('role', 'alert'); box.innerHTML = '<p>Too many requests. Please try again in a few minutes.</p>'; return; }
