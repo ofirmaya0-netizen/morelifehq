@@ -1,9 +1,9 @@
 // Admin API, part 2: CRM, tasks, website content, SEO, campaign links, marketing reports, settings.
 // Reached only from adminApi() in api.mjs, i.e. after the session and same-origin checks.
 import crypto from 'node:crypto';
-import { all } from './store.mjs';
+import { all, pool } from './store.mjs';
 import { id, hash } from './auth.mjs';
-import { json, fail, now, str, emailOk, normEmail, normPhone, tagList, body, istToday, csv } from './util.mjs';
+import { json, fail, now, str, int, emailOk, normEmail, normPhone, tagList, body, istToday, csv } from './util.mjs';
 import { seoInput, eventSeo, homeSeo, eventJsonLd, orgJsonLd, isListed, live, isDirty, DEFAULT_SEO_SETTINGS, SITE_URL } from './model.mjs';
 import { HOME_FIELDS, homeDefaults } from './render.mjs';
 import { SCHEMA_VERSION } from './migrations.mjs';
@@ -51,31 +51,46 @@ async function contacts(req, parts, url, s) {
     await saveContact(s, c, null); return json({ contact: c }, 201);
   }
   if (parts[1] === 'import' && m === 'POST') {
-    const b = await body(req), rows = Array.isArray(b.rows) ? b.rows.slice(0, 5000) : [], seen = new Set(), out = [];
-    for (const [n, raw] of rows.entries()) {
-      const r = contactInput(raw || {}), line = n + 2; // line in the file, header is line 1
-      if (r.error) { out.push({ line, status: 'invalid', reason: r.error, row: raw }); continue; }
+    // A big file is handled in windows: the client sends every row each time (so duplicates inside the file are judged
+    // against the whole file) plus `from`/`size`, and only that window touches storage. Storage calls run in parallel;
+    // one call per row in sequence made a 2,000-row file outlast the function's time limit.
+    const b = await body(req), rows = Array.isArray(b.rows) ? b.rows.slice(0, 5000) : [], seen = new Set();
+    const from = int(b.from, 0, rows.length), to = b.size ? Math.min(rows.length, from + int(b.size, 1, 500, 250)) : rows.length, out = [];
+    for (const [n, raw] of rows.slice(0, to).entries()) {
+      const r = contactInput(raw && typeof raw === 'object' ? raw : {}), line = n + 2, keep = n >= from; // line in the file, header is line 1
+      if (r.error) { if (keep) out.push({ line, status: 'invalid', reason: r.error, row: raw }); continue; }
       const c = r.contact, ek = c.email, pk = c.phone ? normPhone(c.phone) : '';
-      if ((ek && seen.has('e' + ek)) || (pk && seen.has('p' + pk))) { out.push({ line, status: 'duplicate-in-file', row: c }); continue; }
+      if ((ek && seen.has('e' + ek)) || (pk && seen.has('p' + pk))) { if (keep) out.push({ line, status: 'duplicate-in-file', row: c }); continue; }
       if (ek) seen.add('e' + ek); if (pk) seen.add('p' + pk);
-      const o = await owners(s, c);
-      if (o.byE && o.byP && o.byE !== o.byP) { out.push({ line, status: 'conflict', reason: 'E-posta bir kişiyle, telefon başka bir kişiyle eşleşiyor.', row: c }); continue; }
-      const hitId = o.byE || o.byP;
-      if (hitId) { const ex = await s.get('contacts/' + hitId); out.push({ line, status: 'match', row: c, match: ex ? { id: ex.id, name: ex.name } : null }); }
-      else out.push({ line, status: 'new', row: c });
+      if (keep) out.push({ line, status: 'new', row: c });
     }
+    await pool(out.filter((o) => o.status === 'new'), 24, async (o) => {
+      const h = await owners(s, o.row);
+      if (h.byE && h.byP && h.byE !== h.byP) { o.status = 'conflict'; o.reason = 'E-posta bir kişiyle, telefon başka bir kişiyle eşleşiyor.'; return; }
+      const hitId = h.byE || h.byP; if (!hitId) return;
+      const ex = await s.get('contacts/' + hitId);
+      if (ex) { o.status = 'match'; o.match = { id: ex.id, name: ex.name }; o.ex = ex; }
+      else o.reuseId = hitId; // an earlier import stopped between the index and the record: finish that person instead of losing them
+    });
     const totals = { new: 0, match: 0, conflict: 0, duplicateInFile: 0, invalid: 0 };
     for (const o of out) totals[o.status === 'duplicate-in-file' ? 'duplicateInFile' : o.status] += 1;
-    if (!b.commit) return json({ totals, rows: out.slice(0, 500) });
+    const page = { total: rows.length, next: to < rows.length ? to : null };
+    const view = (o) => ({ line: o.line, status: o.status, reason: o.reason, row: o.row, match: o.match });
+    if (!b.commit) return json({ totals, rows: out.slice(0, 500).map(view), ...page });
     let created = 0, updated = 0;
-    for (const o of out) {
-      if (o.status === 'new') { const c = { tags: [], notes: '', ...o.row, source: o.row.source || 'CSV içe aktarma', id: id(), createdAt: now(), updatedAt: now() }; await saveContact(s, c, null); created += 1; }
-      else if (o.status === 'match' && o.match) { // never overwrite: only add tags the person does not have yet
-        const ex = await s.get('contacts/' + o.match.id), add = (o.row.tags || []).filter((t) => !(ex.tags || []).includes(t));
+    await pool(out, 16, async (o) => {
+      if (o.status === 'new') {
+        const c = { tags: [], notes: '', ...o.row, source: o.row.source || 'CSV içe aktarma', id: o.reuseId || id(), createdAt: now(), updatedAt: now() };
+        // index first: if the request dies here, the next run finds the index and completes the record, so no one is created twice
+        if (c.email) await s.set(emailKey(c.email), { id: c.id });
+        if (c.phone && normPhone(c.phone).length >= 7) await s.set(phoneKey(c.phone), { id: c.id });
+        await s.set('contacts/' + c.id, c); created += 1;
+      } else if (o.status === 'match') { // never overwrite: only add tags the person does not have yet
+        const ex = o.ex, add = (o.row.tags || []).filter((t) => !(ex.tags || []).includes(t));
         if (add.length) { ex.tags = (ex.tags || []).concat(add); ex.updatedAt = now(); await s.set('contacts/' + ex.id, ex); updated += 1; }
       }
-    }
-    return json({ ok: true, created, updated, totals });
+    });
+    return json({ ok: true, created, updated, totals, ...page });
   }
   const c = await s.get('contacts/' + parts[1]); if (!c) return fail(404, 'Kişi bulunamadı.');
   if (m === 'GET') {
