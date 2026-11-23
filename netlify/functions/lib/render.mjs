@@ -13,6 +13,8 @@ function headTags(seo, extra = '') {
     '<meta name="twitter:card" content="' + (seo.ogImage ? 'summary_large_image' : 'summary') + '">\n<meta name="twitter:title" content="' + esc(seo.ogTitle) + '">\n<meta name="twitter:description" content="' + esc(seo.ogDescription) + '">\n' +
     (seo.ogImage ? '<meta name="twitter:image" content="' + esc(seo.ogImage) + '">\n' : '') + extra;
 }
+// GA4 is added only to public pages (never to invite or pass pages, whose URLs carry private keys) and only when configured.
+const gaTag = () => (/^G-[A-Z0-9]{4,}$/.test(process.env.GA4_MEASUREMENT_ID || '') ? '<script>window.ML_GA=' + JSON.stringify(process.env.GA4_MEASUREMENT_ID) + ';</script>\n<script src="/js/consent.js" defer></script>\n' : '');
 const banner = (t) => '<div style="position:fixed;z-index:9999;left:50%;bottom:16px;transform:translateX(-50%);padding:10px 16px;border-radius:999px;background:#F2C46B;color:#0E0B0A;font:600 14px Inter Tight,system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.5)">' + esc(t) + '</div>';
 
 /* ---------- home ---------- */
@@ -45,6 +47,7 @@ export function renderHome(pageRec, set, featured, preview) {
   h = setText(h, 'contactEmail', c.contactEmail); h = setHref(h, 'contactEmail', 'mailto:' + c.contactEmail);
   h = setHref(h, 'instagram', c.instagramUrl);
   if (preview) h = h.replace('</body>', banner('Taslak önizleme — yayında değil') + '</body>');
+  else h = h.replace('</body>', gaTag() + '</body>');
   return h;
 }
 
@@ -89,7 +92,7 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
     tickets + form + '</main>\n' + (mode === 'public' ? '<p style="margin-top:22px"><a class="link" href="/#events">All events</a></p>\n' : '') + '</div>\n' +
     (mode === 'preview' ? banner('Taslak önizleme — yayında değil') : '') +
-    '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guest.js" defer></script>\n</body>\n</html>';
+    '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guest.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
 }
 
 export const notFound = (title, text) => '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>' + esc(title) + ' — More Life</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap"><link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/guest.css"></head><body><div class="g-wrap"><a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a><main class="g-card"><h1 class="g-title">' + esc(title) + '</h1><p style="color:var(--mute)">' + esc(text) + '</p><a class="btn" href="/">Go to morelife.events</a></main></div></body></html>';
@@ -101,4 +104,4 @@ export function sitemap(homeIndexable, events, set) {
   for (const e of events) { const s = eventSeo(e, set); if (!s.noindex && s.canonical === s.url) urls.push({ loc: s.url, lastmod: str(e.publishedAt, 10) }); }
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map((u) => '<url><loc>' + esc(u.loc) + '</loc>' + (u.lastmod ? '<lastmod>' + u.lastmod + '</lastmod>' : '') + '</url>').join('\n') + '\n</urlset>\n';
 }
-export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';
+export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';

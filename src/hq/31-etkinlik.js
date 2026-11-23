@@ -56,7 +56,15 @@
       if (tg) tg.onclick = async function () { try { await put({ invite: { enabled: iv.enabled === false } }, iv.enabled === false ? 'Davet linki açıldı' : 'Davet linki kapatıldı'); } catch (err) { H.toast(err.message, 'bad'); } };
     }
     else if (tab === 'basvurular') await H.parts.apps(box, id, { f: H.q().get('durum') || (ev.counts.pending ? 'pending' : 'all') });
-    else if (tab === 'checkin') { if (live) clean = await H.parts.door(box, id); else box.innerHTML = H.empty('qr', 'Check-in kapalı', 'Check-in ekranı etkinlik yayınlanınca açılır.'); }
+    else if (tab === 'checkin') {
+      if (!live) box.innerHTML = H.empty('qr', 'Check-in kapalı', 'Check-in ekranı etkinlik yayınlanınca açılır.');
+      else {
+        box.innerHTML = '<div class="split"><div id="dr"></div><div class="card" id="dl"><h2 class="h2" style="margin-bottom:6px">Kapı linki</h2><p class="small mute" style="margin-bottom:12px">Kapı görevlisi için: HQ hesabı ve şifresi olmadan yalnızca bu etkinliğin check-in ekranını açar. İsim ve kişi sayısını görür; e-posta, telefon, not ve diğer ekranları görmez. Etkinlikten iki gün sonra kendiliğinden kapanır.</p>' +
+          (ev.doorUrl ? '<p class="url" style="padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.3);border:1px solid var(--line)">' + e(location.origin + ev.doorUrl) + '</p><div class="row" style="margin-top:12px"><button class="btn pri" type="button" data-copy="' + e(ev.doorUrl) + '" data-copied="Kapı linki kopyalandı">' + H.ico('copy') + 'Kopyala</button><button class="btn" type="button" data-door="renew">Yenile</button><button class="btn" type="button" data-door="close">Kapat</button></div>' : '<button class="btn pri" type="button" data-door="new">Kapı linki oluştur</button>') + '</div></div>';
+        clean = await H.parts.door(box.querySelector('#dr'), id);
+        box.querySelector('#dl').onclick = async function (x) { var b = x.target.closest('[data-door]'); if (!b) return; var a = b.getAttribute('data-door'); if (a !== 'new' && !(await H.modal({ title: a === 'close' ? 'Kapı linki kapatılsın mı?' : 'Kapı linki yenilensin mi?', text: 'Mevcut link hemen çalışmaz olur.', ok: a === 'close' ? 'Kapat' : 'Yenile', danger: 1 }))) return; try { await H.api('events/' + id + '/door-link', 'POST', { close: a === 'close' }); H.toast(a === 'close' ? 'Kapı linki kapatıldı' : 'Kapı linki hazır', 'ok'); H.render(); } catch (err) { H.toast(err.message, 'bad'); } };
+      }
+    }
     else if (tab === 'gorevler') await H.parts.tasks(box, { eventId: id });
     else if (tab === 'seo') {
       var s = await H.api('seo'), row = s.rows.filter(function (r) { return r.key === 'event:' + id; })[0];

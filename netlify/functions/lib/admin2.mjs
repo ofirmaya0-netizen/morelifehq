@@ -305,6 +305,7 @@ async function settings(s, storeNameNow) {
   return json({ store: storeNameNow, context: process.env.CONTEXT || 'local', siteUrl: SITE_URL(), schema: { version: meta.version, expected: SCHEMA_VERSION, applied: meta.applied },
     env: Object.fromEntries(['HQ_ADMIN_EMAIL', 'HQ_ADMIN_PASSWORD', 'HQ_SESSION_SECRET', 'RESEND_API_KEY', 'EMAIL_FROM', ...Object.values(G_ENV)].map((k) => [k, !!process.env[k]])),
     sessionKey: process.env.HQ_SESSION_SECRET && process.env.HQ_SESSION_SECRET.length >= 32 ? 'env' : 'store',
+    legacy: { total: 12 },
     integrations: { email: { ...emailStatus(), note: emailStatus().connected ? 'Onaylanan misafire giriş kartı e-postası gönderilir; yeni site talepleri yöneticiye bildirilir.' : 'E-posta servisi bağlı değil. Giriş kartı bağlantısı panelden kopyalanıp paylaşılır; hiçbir e-posta gönderildi olarak işaretlenmez.' }, tickets: { connected: false, note: 'Bilet platformu bağlı değil; satış rakamı gösterilmez.' }, google: googleStatus() } });
 }
 

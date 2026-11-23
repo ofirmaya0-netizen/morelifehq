@@ -8,9 +8,10 @@ import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { emailStatus, sendPass, notifyEnquiry } from './lib/email.mjs';
-import { APP_HTML, LOGIN_HTML } from './lib/hq-html.mjs';
+import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
+import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
 
-export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/hq', '/hq/*', '/api/hq/*', '/api/public/*'] };
+export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
 
 export async function limited(key, max, windowSec) {
   const s = await store(), k = 'rate/' + key, t = Date.now();
@@ -68,7 +69,7 @@ async function publicPage(req, url, parts) {
 async function publicApi(req, ctx, parts, url) {
   const s = await store();
   if (parts[0] === 'events' && req.method === 'GET') {
-    const evs = (await all('events/')).filter(isListed).map(live).filter((e) => !e.date || (e.endDate || e.date) >= istToday());
+    const evs = (await all('events/')).filter(isListed).map(live).filter((e) => url.searchParams.get('scope') === 'all' || !e.date || (e.endDate || e.date) >= istToday());
     return json({ events: evs.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(guestEvent) });
   }
   if (parts[0] === 'image' && req.method === 'GET') {
@@ -136,8 +137,45 @@ async function publicApi(req, ctx, parts, url) {
   return fail(404, 'Not found');
 }
 
+/* ---------- check-in (used by HQ and by the door link) ---------- */
+// The check-in record is created atomically: of two devices scanning the same pass, exactly one gets true.
+async function checkIn(s, r, undo) {
+  const key = 'checkins/' + r.eventId + '/' + r.id, save = () => s.set('rsvps/' + r.eventId + '/' + r.id, r);
+  if (undo) { await s.del(key); r.checkedInAt = ''; r.scanCount = 0; await save(); return { result: 'undone', rsvp: r }; }
+  const at = now(), first = await s.create(key, { at });
+  if (first) { r.checkedInAt = at; r.scanCount = 1; await save(); return { result: 'ok', message: 'Giriş onaylandı.', rsvp: r }; }
+  const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
+  return { result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r };
+}
+async function findPass(s, b, eventId) {
+  let r = null;
+  if (b.token) { const ref = await s.get('passes/' + str(b.token, 60)); r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId); }
+  else if (eventId && b.rsvpId) r = await s.get('rsvps/' + eventId + '/' + str(b.rsvpId, 40));
+  if (!r) return { out: { result: 'invalid', message: 'Geçersiz kart.' } };
+  if (eventId && r.eventId !== eventId) { const other = await s.get('events/' + r.eventId); return { out: { result: 'wrong-event', message: 'Bu kart başka bir etkinliğe ait' + (other ? ': ' + other.title : '') + '.' } }; }
+  if (r.status !== 'approved') return { out: { result: 'not-approved', message: 'Bu başvuru onaylı değil.' }, r };
+  return { r };
+}
+
+/* ---------- door link: check-in for one event, without an HQ account ---------- */
+// A door key opens only the check-in list of its own event: names and party size, no e-mail, phone or notes.
+const doorGuest = (r) => ({ id: r.id, name: r.name, guests: r.guests, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId });
+const doorValid = (e) => e && e.status === 'published' && e.door && e.door.token && (!e.date || istToday() <= new Date(Date.parse(e.endDate || e.date) + 2 * 864e5).toISOString().slice(0, 10));
+async function doorApi(req, ctx, parts, url) {
+  const s = await store(), key = str(req.headers.get('x-door') || '', 60), ref = key && await s.get('doors/' + key), e = ref && await s.get('events/' + ref.eventId);
+  if (await limited('door/' + hash(ipOf(req, ctx)), 600, 3600)) return fail(429, 'Çok fazla istek.');
+  if (!doorValid(e) || e.door.token !== key) return fail(401, 'Bu kapı linki geçerli değil.');
+  if (parts[0] === 'list' && req.method === 'GET') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue }, guests: (await all('rsvps/' + e.id + '/')).filter((r) => r.status === 'approved').map(doorGuest) });
+  if (parts[0] === 'checkin' && req.method === 'POST') {
+    const b = await body(req), f = await findPass(s, b, e.id);
+    if (f.out) return json(f.r ? { ...f.out, rsvp: doorGuest(f.r) } : f.out);
+    const o = await checkIn(s, f.r, !!b.undo); return json({ ...o, rsvp: doorGuest(o.rsvp) });
+  }
+  return fail(404, 'Bulunamadı.');
+}
+
 /* ---------- admin API: events, RSVP, check-in ---------- */
-const adminEvent = (e, rs) => ({ ...e, counts: counts(rs), dirty: isDirty(e), formState: formState(e), inviteUrl: inviteUrl(e), publicUrl: '/events/' + (e.live ? e.live.slug : e.slug), listed: isListed(e) });
+const adminEvent = (e, rs) => ({ ...e, doorUrl: e.door && e.door.token ? '/door?k=' + e.door.token : '', counts: counts(rs), dirty: isDirty(e), formState: formState(e), inviteUrl: inviteUrl(e), publicUrl: '/events/' + (e.live ? e.live.slug : e.slug), listed: isListed(e) });
 async function uniqueSlug(s, slug, eventId) {
   let cand = slug, n = 1;
   for (;;) { const hit = await s.get('slugs/' + cand); if (!hit || hit.id === eventId) return cand; n += 1; cand = slug.slice(0, 74) + '-' + n; }
@@ -227,6 +265,14 @@ async function adminApi(req, ctx, parts, url) {
       e.status = st; e.updatedAt = now(); await s.set('events/' + e.id, e); // e.live is kept so the event can be re-published as it was
       return json({ event: adminEvent(e, await rsvpsOf(e.id)) });
     }
+    if (parts[2] === 'door-link' && m === 'POST') { // create / renew / close the door staff link
+      const b = await body(req);
+      if (e.door && e.door.token) await s.del('doors/' + e.door.token);
+      e.door = b.close ? null : { token: token(24), createdAt: now() }; e.updatedAt = now();
+      if (e.door) await s.set('doors/' + e.door.token, { eventId: e.id });
+      await s.set('events/' + e.id, e);
+      return json({ event: adminEvent(e, await rsvpsOf(e.id)) });
+    }
     if (parts[2] === 'invite-token' && m === 'POST') { // old link stops working immediately
       await s.del('invites/' + e.inviteToken);
       e.inviteToken = token(24); e.updatedAt = now();
@@ -291,19 +337,20 @@ async function adminApi(req, ctx, parts, url) {
   }
 
   if (parts[0] === 'checkin' && m === 'POST') {
-    const b = await body(req); let r = null;
-    if (b.token) { const ref = await s.get('passes/' + str(b.token, 60)); r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId); }
-    else if (b.eventId && b.rsvpId) r = await s.get('rsvps/' + str(b.eventId, 40) + '/' + str(b.rsvpId, 40));
-    if (!r) return json({ result: 'invalid', message: 'Geçersiz kart.' });
-    if (b.eventId && r.eventId !== b.eventId) { const other = await s.get('events/' + r.eventId); return json({ result: 'wrong-event', message: 'Bu kart başka bir etkinliğe ait' + (other ? ': ' + other.title : '') + '.' }); }
-    if (r.status !== 'approved') return json({ result: 'not-approved', message: 'Bu başvuru onaylı değil.', rsvp: r });
-    const key = 'checkins/' + r.eventId + '/' + r.id, save = () => s.set('rsvps/' + r.eventId + '/' + r.id, r);
-    if (b.undo) { await s.del(key); r.checkedInAt = ''; r.scanCount = 0; await save(); return json({ result: 'undone', rsvp: r }); }
-    // The check-in record is created atomically: of two devices scanning the same pass, exactly one gets true.
-    const at = now(), first = await s.create(key, { at });
-    if (first) { r.checkedInAt = at; r.scanCount = 1; await save(); return json({ result: 'ok', message: 'Giriş onaylandı.', rsvp: r }); }
-    const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
-    return json({ result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r });
+    const b = await body(req), f = await findPass(s, b, str(b.eventId, 40));
+    if (f.out) return json(f.r ? { ...f.out, rsvp: f.r } : f.out);
+    return json(await checkIn(s, f.r, !!b.undo));
+  }
+
+  if (parts[0] === 'import-site-events' && m === 'POST') { // one-off: the archive that is hard-coded in the public site
+    let created = 0, skipped = 0;
+    for (const x of LEGACY_EVENTS) {
+      if (await s.get('slugs/' + x.slug)) { skipped += 1; continue; }
+      const r = eventInput({ ...x, useRsvp: false, useTickets: false, visibility: 'public' }, {}); if (r.error) { skipped += 1; continue; }
+      const e = { ...r.event, id: id(), status: 'draft', inviteToken: token(24), createdAt: now(), updatedAt: now(), live: null, imported: 'site-archive' };
+      await s.set('invites/' + e.inviteToken, { eventId: e.id }); await publish(s, e, false); created += 1;
+    }
+    return json({ ok: true, created, skipped, total: LEGACY_EVENTS.length });
   }
 
   return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf });
@@ -327,6 +374,8 @@ export default async function handler(req, ctx) {
       return await adminApi(req, ctx, parts.slice(2), url);
     }
     if (parts[0] === 'api' && parts[1] === 'public') return await publicApi(req, ctx, parts.slice(2), url);
+    if (parts[0] === 'api' && parts[1] === 'door') return await doorApi(req, ctx, parts.slice(2), url);
+    if (parts[0] === 'door') return page(DOOR_HTML, 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return fail(405, 'Method not allowed');
     return await publicPage(req, url, parts);
   } catch (err) {

@@ -14,6 +14,7 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 | `invites/<token>` | davet anahtarı → etkinlik id |
 | `rsvps/<eventId>/<id>` | Başvuru: kişi bilgisi, durum, `passToken`, `utm`, `contactId` |
 | `rsvpEmail/<eventId>/<hash>` | Aynı e-postanın aynı etkinliğe ikinci başvurusunu engelleyen kayıt |
+| `doors/<token>` | Kapı linki anahtarı → etkinlik id (yalnızca o etkinliğin check-in listesi) |
 | `passes/<token>` | giriş kartı anahtarı → etkinlik + başvuru |
 | `checkins/<eventId>/<rsvpId>` | Giriş kaydı. **Atomik oluşturulur**: aynı kart iki cihazda okutulursa yalnızca biri yazar |
 | `contacts/<id>` | CRM kişisi |

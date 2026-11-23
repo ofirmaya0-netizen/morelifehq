@@ -201,6 +201,19 @@ function loadHqEvents() {
     }).join('') + '</div>';
   }).catch(function () {});
 }
+function loadHqArchive() {
+  var req; try { req = fetch('/api/public/events?scope=all'); } catch (err) { return; }
+  req.then(function (r) { return r.ok ? r.json() : { events: [] }; }).then(function (d) {
+    var today = new Date().toISOString().slice(0, 10), added = 0;
+    ((d && d.events) || []).forEach(function (e) {
+      if (!e.date || (e.endDate || e.date) >= today || EVENTS.some(function (x) { return x.slug === e.slug; })) return;
+      EVENTS.push({ slug: e.slug, artist: e.artist || e.title, date: e.date.split('-').reverse().join('.'), time: e.time || undefined, venue: [e.venue, e.city].filter(Boolean).join(', ') }); added += 1;
+    });
+    if (!added) return;
+    EVENTS.sort(function (a, b) { return b.date.split('.').reverse().join('').localeCompare(a.date.split('.').reverse().join('')); });
+    renderEvents(); if (/^#event-/.test(location.hash)) route();
+  }).catch(function () {});
+}
 function renderEvents() {
   var y = filt.year, v = filt.venue;
   var list = EVENTS.filter(function (e) { return (!y || e.date.slice(-4) === y) && (!v || e.venue === v); });
@@ -591,6 +604,7 @@ $$('form[data-form]').forEach(buildForm);
 renderEvents();
 renderUpcoming();
 loadHqEvents();
+loadHqArchive();
 carousel();
 dragStrip();
 waves();
