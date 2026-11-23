@@ -8,6 +8,8 @@ function fileStore(dir) {
     async get(k) { try { return JSON.parse(await fs.readFile(p(k), 'utf8')); } catch { return null; } },
     async set(k, v) { await fs.mkdir(dir, { recursive: true }); await fs.writeFile(p(k), JSON.stringify(v)); },
     async del(k) { try { await fs.unlink(p(k)); } catch {} },
+    // Atomic create: resolves true only for the single caller that created the key.
+    async create(k, v) { await fs.mkdir(dir, { recursive: true }); try { await fs.writeFile(p(k), JSON.stringify(v), { flag: 'wx' }); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } },
     async list(prefix) {
       try { return (await fs.readdir(dir)).map(decodeURIComponent).filter((k) => k.startsWith(prefix) && !k.endsWith('.meta')); } catch { return []; }
     },
@@ -23,6 +25,7 @@ async function blobStore() {
     get: (k) => s.get(k, { type: 'json' }),
     set: (k, v) => s.setJSON(k, v),
     del: (k) => s.delete(k),
+    async create(k, v) { const r = await s.setJSON(k, v, { onlyIfNew: true }); return !!(r && r.modified); },
     async list(prefix) { const r = await s.list({ prefix }); return r.blobs.map((b) => b.key); },
     setBin: (k, buf, type) => s.set(k, buf, { metadata: { type } }),
     async getBin(k) {

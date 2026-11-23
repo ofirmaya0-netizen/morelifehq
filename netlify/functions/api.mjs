@@ -1,341 +1,309 @@
-// More Life HQ — one Netlify Function serving the gated /hq page, the admin API (/api/hq/*) and the guest API (/api/public/*).
+// More Life HQ — one Netlify Function: public pages (home, event, invite, sitemap, robots), the guest API
+// (/api/public/*), the gated HQ page (/hq) and the admin API (/api/hq/*). Every admin route passes the same session check.
 import { store, all, setDeployContext, storeName } from './lib/store.mjs';
 import { missingConfig, initSecret, checkLogin, sessionCookie, clearCookie, session, sameOrigin, token, id, hash } from './lib/auth.mjs';
+import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
+import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
+import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render.mjs';
+import { migrate } from './lib/migrations.mjs';
+import { admin2 } from './lib/admin2.mjs';
 import { APP_HTML, LOGIN_HTML } from './lib/hq-html.mjs';
 
-export const config = { path: ['/hq', '/hq/*', '/api/hq/*', '/api/public/*'] };
+export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/hq', '/hq/*', '/api/hq/*', '/api/public/*'] };
 
-const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
-const html = (body, status = 200) => new Response(body, { status, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin' } });
-const fail = (status, error) => json({ error }, status);
-const now = () => new Date().toISOString();
-const str = (v, max = 300) => String(v == null ? '' : v).trim().slice(0, max);
-const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
-const normEmail = (e) => str(e, 200).toLowerCase();
-const normPhone = (p) => str(p, 40).replace(/[^\d+]/g, '');
-const tags = (t) => [...new Set((Array.isArray(t) ? t : String(t || '').split(',')).map((x) => str(x, 40).toLowerCase()).filter(Boolean))].slice(0, 20);
-
-async function body(req) { try { return await req.json(); } catch { return {}; } }
-
-async function limited(key, max, windowSec) {
+export async function limited(key, max, windowSec) {
   const s = await store(), k = 'rate/' + key, t = Date.now();
   const r = (await s.get(k)) || { n: 0, t };
   if (t - r.t > windowSec * 1000) { r.n = 0; r.t = t; }
   r.n += 1; await s.set(k, r);
   return r.n > max;
 }
-const ipOf = (req, ctx) => (ctx && ctx.ip) || req.headers.get('x-nf-client-connection-ip') || 'local';
-
-/* ---------- shaping ---------- */
-const EVENT_FIELDS = ['title', 'artist', 'date', 'time', 'venue', 'city', 'description', 'ticketUrl', 'imageId'];
-function eventInput(b, prev = {}) {
-  const e = { ...prev };
-  for (const f of EVENT_FIELDS) if (f in b) e[f] = str(b[f], f === 'description' ? 2000 : 300);
-  if ('capacity' in b) e.capacity = Math.max(0, Math.min(100000, parseInt(b.capacity, 10) || 0));
-  if ('visibility' in b) e.visibility = b.visibility === 'private' ? 'private' : 'public';
-  if (e.ticketUrl && !/^https:\/\//.test(e.ticketUrl)) return { error: 'Bilet linki https:// ile başlamalı.' };
-  if (e.date && !/^\d{4}-\d{2}-\d{2}$/.test(e.date)) return { error: 'Tarih geçersiz.' };
-  if (e.time && !/^\d{2}:\d{2}$/.test(e.time)) return { error: 'Saat geçersiz.' };
-  if (!e.title) return { error: 'Etkinlik adı gerekli.' };
-  return { event: e };
-}
-const publicEvent = (e) => ({ title: e.title, artist: e.artist, date: e.date, time: e.time, venue: e.venue, city: e.city, description: e.description, ticketUrl: e.ticketUrl, image: e.imageId ? '/api/public/image/' + e.imageId : '', visibility: e.visibility, invite: '/invite?t=' + e.inviteToken });
-const today = () => new Date().toISOString().slice(0, 10);
-const guestsOf = (rs, status) => rs.filter((r) => r.status === status).reduce((n, r) => n + (r.guests || 1), 0);
-
-function csvCell(v) {
-  let s = String(v == null ? '' : v);
-  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // stop spreadsheet formula injection
-  return /[",\n\r;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-}
+export const seoSettings = async (s) => ({ ...DEFAULT_SEO_SETTINGS, ...((await s.get('settings/seo')) || {}) });
+const rsvpsOf = (eventId) => all('rsvps/' + eventId + '/');
+const inviteUrl = (e) => '/invite?t=' + e.inviteToken;
 
 async function upsertContactFromRsvp(s, r) {
-  const key = 'contactEmail/' + hash(r.email);
-  const hit = await s.get(key);
+  const hit = (await s.get('contactEmail/' + hash(r.email))) || (r.phone && await s.get('contactPhone/' + hash(normPhone(r.phone))));
   if (hit) return hit.id;
-  const c = { id: id(), name: r.name, email: r.email, phone: r.phone, instagram: r.instagram, company: '', tags: ['rsvp'], notes: '', createdAt: now(), updatedAt: now() };
-  await s.set('contacts/' + c.id, c); await s.set(key, { id: c.id });
+  const c = { id: id(), name: r.name, email: r.email, phone: r.phone, instagram: '', company: '', tags: ['rsvp'], source: 'RSVP', notes: '', createdAt: now(), updatedAt: now() };
+  await s.set('contacts/' + c.id, c); await s.set('contactEmail/' + hash(c.email), { id: c.id });
   if (c.phone) await s.set('contactPhone/' + hash(normPhone(c.phone)), { id: c.id });
   return c.id;
+}
+
+/* ---------- public pages ---------- */
+async function publicPage(req, url, parts) {
+  const s = await store(), set = await seoSettings(s), admin = !!session(req), preview = url.searchParams.get('preview') === '1' && admin;
+  const cache = preview ? { 'cache-control': 'no-store', 'x-robots-tag': 'noindex' } : { 'cache-control': 'public, max-age=0, must-revalidate' };
+  if (url.pathname === '/robots.txt') return new Response(robots(), { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  if (url.pathname === '/sitemap.xml') {
+    const home = await s.get('pages/home'), evs = (await all('events/')).filter(isListed).map(live);
+    return new Response(sitemap(!(home && home.live && home.live.seo && home.live.seo.index === 'noindex'), evs, set), { headers: { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=300' } });
+  }
+  if (url.pathname === '/') {
+    const rec = await s.get('pages/home'), c = (preview ? rec && rec.draft : rec && rec.live) || {};
+    let featured = null;
+    if (c.featuredEventId) { const fe = await s.get('events/' + c.featuredEventId); if (fe && isListed(fe)) featured = live(fe); }
+    return page(renderHome(rec, set, featured, preview), 200, cache);
+  }
+  if (url.pathname === '/invite') {
+    const ref = await s.get('invites/' + str(url.searchParams.get('t'), 60)), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
+    if (!e || e.inviteToken !== url.searchParams.get('t') || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
+    return page(renderEvent(e, set, { mode: 'invite', token: e.inviteToken }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
+  }
+  if (parts[0] === 'events' && parts[1]) {
+    const slug = slugify(parts[1]), ref = await s.get('slugs/' + slug), e0 = ref && await s.get('events/' + ref.id);
+    if (e0 && preview) return page(renderEvent(e0, set, { mode: 'preview' }), 200, cache);
+    const e = e0 && live(e0);
+    if (e && e.slug === slug && e.visibility === 'public') return page(renderEvent(e, set, { mode: 'public', ga: process.env.GA4_MEASUREMENT_ID || '' }), 200, cache);
+    const red = await s.get('redirects/' + slug);
+    if (red) return new Response(null, { status: 301, headers: { location: '/events/' + red.to } });
+    return page(notFound('Event not found.', 'This event page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
+  }
+  return page(notFound('Page not found.', 'This page does not exist.'), 404, { 'x-robots-tag': 'noindex' });
 }
 
 /* ---------- guest API ---------- */
 async function publicApi(req, ctx, parts, url) {
   const s = await store();
   if (parts[0] === 'events' && req.method === 'GET') {
-    const evs = (await all('events/')).filter((e) => e.status === 'published' && e.visibility === 'public' && (!e.date || e.date >= today()));
-    return json({ events: evs.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(publicEvent) });
+    const evs = (await all('events/')).filter(isListed).map(live).filter((e) => !e.date || (e.endDate || e.date) >= istToday());
+    return json({ events: evs.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(guestEvent) });
   }
   if (parts[0] === 'image' && req.method === 'GET') {
-    const key = str(parts[1], 60).replace(/[^A-Za-z0-9_-]/g, '');
-    const img = key && await s.getBin('images/' + key);
+    const key = str(parts[1], 60).replace(/[^A-Za-z0-9_-]/g, ''), img = key && await s.getBin('images/' + key);
     if (!img) return fail(404, 'Not found');
     return new Response(img.buf, { headers: { 'content-type': img.type, 'cache-control': 'public, max-age=31536000, immutable' } });
   }
-  if (parts[0] === 'invite' && req.method === 'GET') {
-    const ref = await s.get('invites/' + str(url.searchParams.get('t'), 60));
-    const e = ref && await s.get('events/' + ref.eventId);
-    if (!e || e.status !== 'published') return fail(404, 'This invitation is not available.');
-    return json({ event: publicEvent(e) });
-  }
   if (parts[0] === 'rsvp' && req.method === 'POST') {
     const b = await body(req);
-    if (str(b.website)) return json({ ok: true, status: 'pending' }); // honeypot: pretend success
+    if (str(b.website)) return json({ ok: true, created: false }); // honeypot: pretend success
     if (await limited('rsvp/' + hash(ipOf(req, ctx)), 12, 3600)) return fail(429, 'Too many requests. Please try again later.');
-    const ref = await s.get('invites/' + str(b.t, 60));
-    const e = ref && await s.get('events/' + ref.eventId);
-    if (!e || e.status !== 'published') return fail(404, 'This invitation is not available.');
-    const r = { name: str(b.name, 120), email: normEmail(b.email), phone: str(b.phone, 40), instagram: str(b.instagram, 80), note: str(b.note, 600), guests: Math.max(1, Math.min(10, parseInt(b.guests, 10) || 1)) };
+    let e0 = null;
+    if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && e0.inviteToken !== b.t) e0 = null; }
+    else if (b.slug) { const ref = await s.get('slugs/' + slugify(b.slug)); e0 = ref && await s.get('events/' + ref.id); if (e0 && !isListed(e0)) e0 = null; }
+    const e = e0 && live(e0);
+    if (!e) return fail(404, 'This event is not available.');
+    const st = formState(e);
+    if (st !== 'open') return fail(409, st === 'early' ? 'Requests for this event are not open yet.' : 'Requests for this event are closed.');
+    const iv = e.invite || {}, r = { name: str(b.name, 120), email: normEmail(b.email), phone: iv.askPhone === 'off' ? '' : str(b.phone, 40), note: iv.askNote ? str(b.note, 600) : '', guests: 1 + int(b.plus, 0, iv.plusOnes || 0) };
     if (!r.name || !emailOk(r.email)) return fail(400, 'Please enter your name and a valid email.');
-    if (b.consent !== true) return fail(400, 'Please confirm that we may use your details for this event.');
-    const dupKey = 'rsvpEmail/' + e.id + '/' + hash(r.email);
-    if (await s.get(dupKey)) return json({ ok: true, status: 'pending', duplicate: true });
-    Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0 });
+    if (iv.askPhone === 'required' && normPhone(r.phone).length < 7) return fail(400, 'Please enter your phone number.');
+    if (b.consent !== true) return fail(400, 'Please tick the box so we can manage your attendance.');
+    const u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
+    for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
+    Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, utm, via: b.t ? 'invite' : 'event-page' });
+    // One request per e-mail per event: only the first writer of this key creates a guest.
+    if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
     r.contactId = await upsertContactFromRsvp(s, r);
-    await s.set('rsvps/' + e.id + '/' + r.id, r); await s.set(dupKey, { id: r.id });
-    return json({ ok: true, status: 'pending' });
+    await s.set('rsvps/' + e.id + '/' + r.id, r);
+    return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16) });
   }
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
-    const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId);
-    const e = r && await s.get('events/' + r.eventId);
+    const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
     if (!r || !e || r.status !== 'approved') return fail(404, 'This pass is not valid.');
-    return json({ pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt }, event: publicEvent(e) });
+    return json({ pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt }, event: guestEvent(live(e) || e) });
+  }
+  if (parts[0] === 'hit' && req.method === 'POST') {
+    const b = await body(req), kind = b.k === 'ticket' ? 'ticket' : 'view', eid = str(b.e, 40).replace(/[^A-Za-z0-9_-]/g, '');
+    if (isBot(req.headers.get('user-agent')) || !eid || await limited('hit/' + hash(ipOf(req, ctx)), 120, 3600)) return json({ ok: true });
+    const e = await s.get('events/' + eid); if (!e || e.status !== 'published') return json({ ok: true });
+    const u = b.utm && typeof b.utm === 'object' ? b.utm : {};
+    await s.set('hits/' + eid + '/' + istToday() + '/' + kind + '/' + id(), { s: str(u.source, 80).toLowerCase(), m: str(u.medium, 80).toLowerCase(), c: str(u.campaign, 80).toLowerCase() });
+    return json({ ok: true });
   }
   return fail(404, 'Not found');
 }
 
-/* ---------- admin API ---------- */
+/* ---------- admin API: events, RSVP, check-in ---------- */
+const adminEvent = (e, rs) => ({ ...e, counts: counts(rs), dirty: isDirty(e), formState: formState(e), inviteUrl: inviteUrl(e), publicUrl: '/events/' + (e.live ? e.live.slug : e.slug), listed: isListed(e) });
+async function uniqueSlug(s, slug, eventId) {
+  let cand = slug, n = 1;
+  for (;;) { const hit = await s.get('slugs/' + cand); if (!hit || hit.id === eventId) return cand; n += 1; cand = slug.slice(0, 74) + '-' + n; }
+}
+async function saveSlug(s, e, prevSlug) {
+  e.slug = await uniqueSlug(s, e.slug, e.id);
+  await s.set('slugs/' + e.slug, { id: e.id });
+  if (prevSlug && prevSlug !== e.slug && !(e.live && e.live.slug === prevSlug)) await s.del('slugs/' + prevSlug);
+}
+// What publishing would change on the public site (shown before the admin confirms).
+function routeChanges(e) {
+  const out = [];
+  if (!e.live) out.push({ type: 'new', url: e.visibility === 'public' ? '/events/' + e.slug : inviteUrl(e) + ' (özel davet, listelenmez)' });
+  else if (e.live.slug !== e.slug) out.push({ type: 'moved', from: '/events/' + e.live.slug, to: '/events/' + e.slug });
+  return out;
+}
+async function publish(s, e, redirect) {
+  const old = e.live && e.live.slug;
+  if (old && old !== e.slug) {
+    await s.del('slugs/' + old);
+    if (redirect) {
+      await s.set('redirects/' + old, { to: e.slug, at: now() });
+      for (const k of await s.list('redirects/')) { const r = await s.get(k); if (r && r.to === old) await s.set(k, { to: e.slug, at: now() }); } // no chains
+    }
+  }
+  await s.del('redirects/' + e.slug); // a live page never redirects away from itself (no loops)
+  e.live = snapshot(e); e.status = 'published'; e.publishedAt = now(); e.updatedAt = now();
+  await s.set('slugs/' + e.slug, { id: e.id }); await s.set('events/' + e.id, e);
+}
+
 async function adminApi(req, ctx, parts, url) {
   const s = await store(), m = req.method;
-
   if (parts[0] === 'login' && m === 'POST') {
-    if (!sameOrigin(req)) return fail(403, 'Geçersiz istek.');
-    const ipk = 'login/' + hash(ipOf(req, ctx));
-    if (await limited(ipk, 8, 900)) return fail(429, 'Çok fazla deneme. 15 dakika sonra tekrar deneyin.');
+    if (!sameOrigin(req)) return fail(403, 'İstek reddedildi.');
+    if (await limited('login/' + hash(ipOf(req, ctx)), 8, 900)) return fail(429, 'Çok fazla deneme. 15 dakika sonra tekrar deneyin.');
     const b = await body(req);
     if (!checkLogin(b.email, b.password)) return fail(401, 'E-posta veya şifre hatalı.');
-    await s.del('rate/' + ipk);
     return json({ ok: true }, 200, { 'set-cookie': sessionCookie(req) });
   }
   if (parts[0] === 'logout' && m === 'POST') return json({ ok: true }, 200, { 'set-cookie': clearCookie() });
-
   const me = session(req);
   if (!me) return fail(401, 'Giriş gerekli.');
-  if (m !== 'GET' && !sameOrigin(req)) return fail(403, 'Geçersiz istek.');
+  if (m !== 'GET' && !sameOrigin(req)) return fail(403, 'İstek reddedildi.');
   if (parts[0] === 'session') return json({ email: me.email, store: storeName() });
 
   if (parts[0] === 'summary') {
-    const [evs, rs, ts] = await Promise.all([all('events/'), all('rsvps/'), all('tasks/')]);
-    const up = evs.filter((e) => e.status === 'published' && (!e.date || e.date >= today())).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-    const live = new Set(evs.filter((e) => e.status !== 'archived').map((e) => e.id));
-    const act = rs.filter((r) => live.has(r.eventId));
-    return json({
-      upcoming: up.map((e) => ({ id: e.id, title: e.title, date: e.date, venue: e.venue, pending: act.filter((r) => r.eventId === e.id && r.status === 'pending').length, approved: guestsOf(act.filter((r) => r.eventId === e.id), 'approved'), capacity: e.capacity })),
-      pendingRsvps: act.filter((r) => r.status === 'pending').length,
-      approvedGuests: guestsOf(act, 'approved'),
-      openTasks: ts.filter((t) => t.status !== 'done').length
-    });
+    const evs = await all('events/'), tasks = await all('tasks/'), td = istToday(), up = [];
+    let pending = 0, approved = 0;
+    for (const e of evs) {
+      if (e.status === 'archived') continue;
+      const rs = await rsvpsOf(e.id), c = counts(rs);
+      if (e.status === 'published') { pending += c.pending; if (!e.date || (e.endDate || e.date) >= td) { approved += c.approved; up.push(adminEvent(e, rs)); } }
+    }
+    const open = tasks.filter((t) => t.status !== 'done');
+    return json({ upcoming: up.sort((a, b) => (a.date || '9').localeCompare(b.date || '9')), pendingRsvps: pending, approvedGuests: approved, openTasks: open.length, overdueTasks: open.filter((t) => t.due && t.due < td).length, drafts: evs.filter((e) => e.status === 'draft').length });
   }
 
   if (parts[0] === 'events') {
-    if (m === 'GET' && !parts[1]) {
-      const [evs, rs] = await Promise.all([all('events/'), all('rsvps/')]);
-      return json({ events: evs.sort((a, b) => (b.date || '9').localeCompare(a.date || '9')).map((e) => {
-        const mine = rs.filter((r) => r.eventId === e.id);
-        return { ...e, counts: { pending: mine.filter((r) => r.status === 'pending').length, approved: guestsOf(mine, 'approved'), waitlist: mine.filter((r) => r.status === 'waitlist').length, checkedIn: mine.filter((r) => r.checkedInAt).reduce((n, r) => n + (r.guests || 1), 0) } };
-      }) });
+    if (!parts[1] && m === 'GET') {
+      const out = []; for (const e of await all('events/')) out.push(adminEvent(e, await rsvpsOf(e.id)));
+      return json({ events: out.sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.createdAt.localeCompare(a.createdAt)) });
     }
-    if (m === 'POST' && !parts[1]) {
-      const r = eventInput(await body(req), { visibility: 'public' });
-      if (r.error) return fail(400, r.error);
-      const e = { ...r.event, id: id(), status: 'draft', inviteToken: token(), createdAt: now(), updatedAt: now() };
-      await s.set('events/' + e.id, e); await s.set('invites/' + e.inviteToken, { eventId: e.id });
-      return json({ event: e }, 201);
+    if (!parts[1] && m === 'POST') {
+      const r = eventInput(await body(req), { visibility: 'public' }); if (r.error) return fail(400, r.error);
+      const e = { ...r.event, id: id(), status: 'draft', inviteToken: token(24), createdAt: now(), updatedAt: now(), live: null };
+      await saveSlug(s, e, ''); await s.set('events/' + e.id, e); await s.set('invites/' + e.inviteToken, { eventId: e.id });
+      return json({ event: adminEvent(e, []) }, 201);
     }
-    const e = await s.get('events/' + str(parts[1], 40));
+    const e = await s.get('events/' + parts[1]);
     if (!e) return fail(404, 'Etkinlik bulunamadı.');
-    if (m === 'PUT' && !parts[2]) {
-      const r = eventInput(await body(req), e);
-      if (r.error) return fail(400, r.error);
-      r.event.updatedAt = now(); await s.set('events/' + e.id, r.event);
-      return json({ event: r.event });
+    if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, await rsvpsOf(e.id)), changes: routeChanges(e), seo: eventSeo(e, await seoSettings(s)) });
+    if (!parts[2] && m === 'PUT') {
+      const r = eventInput(await body(req), e); if (r.error) return fail(400, r.error);
+      const next = { ...r.event, updatedAt: now() };
+      await saveSlug(s, next, e.slug); await s.set('events/' + e.id, next);
+      return json({ event: adminEvent(next, await rsvpsOf(e.id)), changes: routeChanges(next) });
     }
-    if (m === 'POST' && parts[2] === 'status') {
+    if (parts[2] === 'publish' && m === 'POST') {
+      const b = await body(req);
+      if (!e.date) return fail(400, 'Yayınlamak için tarih gerekli.');
+      await publish(s, e, b.redirect !== false);
+      return json({ event: adminEvent(e, await rsvpsOf(e.id)) });
+    }
+    if (parts[2] === 'status' && m === 'POST') {
       const st = (await body(req)).status;
-      if (!['draft', 'published', 'archived'].includes(st)) return fail(400, 'Geçersiz durum.');
-      if (st === 'published' && (!e.date || !e.venue)) return fail(400, 'Yayınlamak için tarih ve mekân gerekli.');
-      e.status = st; e.updatedAt = now(); await s.set('events/' + e.id, e);
-      return json({ event: e });
+      if (!['draft', 'archived'].includes(st)) return fail(400, 'Geçersiz durum.');
+      e.status = st; e.updatedAt = now(); await s.set('events/' + e.id, e); // e.live is kept so the event can be re-published as it was
+      return json({ event: adminEvent(e, await rsvpsOf(e.id)) });
     }
+    if (parts[2] === 'invite-token' && m === 'POST') { // old link stops working immediately
+      await s.del('invites/' + e.inviteToken);
+      e.inviteToken = token(24); e.updatedAt = now();
+      await s.set('invites/' + e.inviteToken, { eventId: e.id }); await s.set('events/' + e.id, e);
+      return json({ event: adminEvent(e, await rsvpsOf(e.id)) });
+    }
+    return fail(404, 'Bulunamadı.');
   }
 
   if (parts[0] === 'images' && m === 'POST') {
-    const mm = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec((await body(req)).dataUrl || '');
-    if (!mm) return fail(400, 'Görsel JPEG, PNG veya WebP olmalı.');
-    const buf = Buffer.from(mm[2], 'base64');
-    if (buf.length > 3 * 1024 * 1024) return fail(400, 'Görsel 3 MB’dan küçük olmalı.');
-    const key = id(); await s.setBin('images/' + key, buf, mm[1]);
+    const b = await body(req), mt = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(b.dataUrl || ''));
+    if (!mt) return fail(400, 'Görsel JPEG, PNG veya WebP olmalı.');
+    const buf = Buffer.from(mt[2], 'base64');
+    if (buf.length > 3 * 1024 * 1024) return fail(413, 'Görsel 3 MB’tan küçük olmalı.');
+    const key = id(); await s.setBin('images/' + key, buf, mt[1]);
     return json({ id: key, url: '/api/public/image/' + key }, 201);
   }
 
-  if (parts[0] === 'rsvps' || parts[0] === 'rsvps.csv') {
-    const evId = str(parts[1] || url.searchParams.get('event'), 40);
-    const e = evId && await s.get('events/' + evId);
-    if (!e) return fail(404, 'Etkinlik bulunamadı.');
-    const list = (await all('rsvps/' + e.id + '/')).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    if (parts[0] === 'rsvps.csv') {
-      const head = ['Ad', 'E-posta', 'Telefon', 'Instagram', 'Kişi', 'Durum', 'Başvuru', 'Karar', 'Giriş', 'Okutma', 'Not'];
-      const rows = list.map((r) => [r.name, r.email, r.phone, r.instagram, r.guests, r.status, r.createdAt, r.decidedAt, r.checkedInAt, r.scanCount, r.note]);
-      const csv = '﻿' + [head, ...rows].map((r) => r.map(csvCell).join(',')).join('\r\n');
-      return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', 'content-disposition': 'attachment; filename="misafir-listesi-' + e.id + '.csv"' } });
-    }
-    if (m === 'GET') return json({ event: e, rsvps: list });
-    if (m === 'POST' && parts[3] === 'decision') {
-      const r = list.find((x) => x.id === parts[2]);
-      if (!r) return fail(404, 'Başvuru bulunamadı.');
-      const b = await body(req);
-      if (!['approved', 'rejected', 'waitlist', 'pending'].includes(b.decision)) return fail(400, 'Geçersiz karar.');
-      if (b.decision === 'approved' && r.status !== 'approved' && e.capacity && !b.force) {
-        const used = guestsOf(list, 'approved');
-        if (used + r.guests > e.capacity) return json({ error: 'Kapasite aşılıyor: ' + used + ' onaylı + ' + r.guests + ' > ' + e.capacity + '.', overCapacity: true }, 409);
-      }
-      r.status = b.decision; r.decidedAt = now();
-      if (r.status === 'approved' && !r.passToken) { r.passToken = token(); await s.set('passes/' + r.passToken, { eventId: e.id, rsvpId: r.id }); }
+  if (parts[0] === 'rsvps.csv') {
+    const e = await s.get('events/' + str(url.searchParams.get('event'), 40)); if (!e) return fail(404, 'Etkinlik bulunamadı.');
+    const st = url.searchParams.get('status') || '', q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr');
+    const rows = (await rsvpsOf(e.id)).filter((r) => (!st || (st === 'checkedin' ? !!r.checkedInAt : r.status === st)) && (!q || (r.name + ' ' + r.email + ' ' + r.phone).toLocaleLowerCase('tr').includes(q))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || ''])));
+  }
+  if (parts[0] === 'rsvps' && parts[1]) {
+    const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');
+    const rs = await rsvpsOf(e.id);
+    if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: { connected: false } });
+    const decide = async (r, dec) => {
+      r.status = dec; r.decidedAt = now();
+      if (dec === 'approved' && !r.passToken) { r.passToken = token(24); await s.set('passes/' + r.passToken, { eventId: e.id, rsvpId: r.id }); }
       await s.set('rsvps/' + e.id + '/' + r.id, r);
+    };
+    if (parts[2] === 'bulk' && m === 'POST') {
+      const b = await body(req), dec = b.decision, ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
+      if (!RSVP_STATUS.includes(dec) || dec === 'pending') return fail(400, 'Geçersiz karar.');
+      const pick = rs.filter((r) => ids.includes(r.id) && r.status !== dec), used = guestsOf(rs, 'approved');
+      const add = dec === 'approved' ? pick.reduce((n, r) => n + (r.guests || 1), 0) : -pick.filter((r) => r.status === 'approved').reduce((n, r) => n + (r.guests || 1), 0);
+      const info = { count: pick.length, guests: pick.reduce((n, r) => n + (r.guests || 1), 0), capacity: e.capacity || 0, approvedNow: used, approvedAfter: used + add, over: !!e.capacity && used + add > e.capacity };
+      if (b.dryRun) return json(info);
+      if (info.over && dec === 'approved' && !b.force) return fail(409, 'Kapasite aşılıyor (' + info.approvedAfter + ' / ' + e.capacity + ').', { overCapacity: true, ...info });
+      for (const r of pick) await decide(r, dec);
+      return json({ ok: true, ...info });
+    }
+    const r = rs.find((x) => x.id === parts[2]); if (!r) return fail(404, 'Başvuru bulunamadı.');
+    if (parts[3] === 'decision' && m === 'POST') {
+      const b = await body(req), dec = b.decision;
+      if (!RSVP_STATUS.includes(dec)) return fail(400, 'Geçersiz karar.');
+      if (dec === 'approved' && r.status !== 'approved' && e.capacity && guestsOf(rs, 'approved') + r.guests > e.capacity && !b.force) return fail(409, 'Kapasite doldu (' + guestsOf(rs, 'approved') + ' / ' + e.capacity + ').', { overCapacity: true });
+      await decide(r, dec);
       return json({ rsvp: r });
     }
+    return fail(404, 'Bulunamadı.');
   }
 
   if (parts[0] === 'checkin' && m === 'POST') {
-    const b = await body(req);
-    let ref = b.rsvpId ? { eventId: str(b.eventId, 40), rsvpId: str(b.rsvpId, 40) } : await s.get('passes/' + str(b.token, 60));
-    if (!ref) return json({ result: 'invalid', message: 'Geçersiz QR.' });
-    if (b.eventId && ref.eventId !== b.eventId) return json({ result: 'wrong-event', message: 'Bu kart başka bir etkinliğe ait.' });
-    const r = await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId);
-    if (!r) return json({ result: 'invalid', message: 'Kayıt bulunamadı.' });
-    if (r.status !== 'approved') return json({ result: 'not-approved', message: 'Bu misafir onaylı değil.', rsvp: r });
-    if (b.undo) { r.checkedInAt = ''; r.scanCount = 0; await s.set('rsvps/' + r.eventId + '/' + r.id, r); return json({ result: 'undone', rsvp: r }); }
-    r.scanCount = (r.scanCount || 0) + 1;
-    const first = !r.checkedInAt;
-    if (first) r.checkedInAt = now();
-    await s.set('rsvps/' + r.eventId + '/' + r.id, r);
-    return json({ result: first ? 'ok' : 'duplicate', message: first ? 'Giriş onaylandı.' : 'Bu kart daha önce okutuldu.', rsvp: r });
+    const b = await body(req); let r = null;
+    if (b.token) { const ref = await s.get('passes/' + str(b.token, 60)); r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId); }
+    else if (b.eventId && b.rsvpId) r = await s.get('rsvps/' + str(b.eventId, 40) + '/' + str(b.rsvpId, 40));
+    if (!r) return json({ result: 'invalid', message: 'Geçersiz kart.' });
+    if (b.eventId && r.eventId !== b.eventId) { const other = await s.get('events/' + r.eventId); return json({ result: 'wrong-event', message: 'Bu kart başka bir etkinliğe ait' + (other ? ': ' + other.title : '') + '.' }); }
+    if (r.status !== 'approved') return json({ result: 'not-approved', message: 'Bu başvuru onaylı değil.', rsvp: r });
+    const key = 'checkins/' + r.eventId + '/' + r.id, save = () => s.set('rsvps/' + r.eventId + '/' + r.id, r);
+    if (b.undo) { await s.del(key); r.checkedInAt = ''; r.scanCount = 0; await save(); return json({ result: 'undone', rsvp: r }); }
+    // The check-in record is created atomically: of two devices scanning the same pass, exactly one gets true.
+    const at = now(), first = await s.create(key, { at });
+    if (first) { r.checkedInAt = at; r.scanCount = 1; await save(); return json({ result: 'ok', message: 'Giriş onaylandı.', rsvp: r }); }
+    const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
+    return json({ result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r });
   }
 
-  if (parts[0] === 'contacts') {
-    if (parts[1] === 'import' && m === 'POST') {
-      const b = await body(req), rows = Array.isArray(b.rows) ? b.rows.slice(0, 5000) : [];
-      const seen = new Set(), out = [];
-      for (const raw of rows) {
-        const c = { name: str(raw.name, 120), email: normEmail(raw.email), phone: str(raw.phone, 40), instagram: str(raw.instagram, 80), company: str(raw.company, 120), tags: tags(raw.tags), notes: str(raw.notes, 2000) };
-        const ph = normPhone(c.phone), keys = [c.email && 'e:' + c.email, ph && 'p:' + ph].filter(Boolean);
-        let status = 'new', match = null;
-        if (!c.name && !c.email) status = 'invalid';
-        else if (c.email && !emailOk(c.email)) status = 'invalid';
-        else if (keys.some((k) => seen.has(k))) status = 'duplicate-in-file';
-        else {
-          const hit = (c.email && await s.get('contactEmail/' + hash(c.email))) || (ph && await s.get('contactPhone/' + hash(ph)));
-          if (hit) { status = 'match'; match = await s.get('contacts/' + hit.id); }
-        }
-        keys.forEach((k) => seen.add(k));
-        if (b.commit && status === 'new') {
-          const n = { ...c, id: id(), createdAt: now(), updatedAt: now() };
-          await s.set('contacts/' + n.id, n);
-          if (n.email) await s.set('contactEmail/' + hash(n.email), { id: n.id });
-          if (ph) await s.set('contactPhone/' + hash(ph), { id: n.id });
-        }
-        if (b.commit && status === 'match' && match && c.tags.length) { match.tags = tags([...(match.tags || []), ...c.tags]); match.updatedAt = now(); await s.set('contacts/' + match.id, match); }
-        out.push({ row: c, status, match: match ? { id: match.id, name: match.name, email: match.email } : null });
-      }
-      const count = (st) => out.filter((o) => o.status === st).length;
-      return json({ committed: !!b.commit, rows: out.slice(0, 500), totals: { new: count('new'), match: count('match'), duplicateInFile: count('duplicate-in-file'), invalid: count('invalid') } });
-    }
-    if (m === 'GET' && !parts[1]) return json({ contacts: (await all('contacts/')).sort((a, b) => a.name.localeCompare(b.name, 'tr')) });
-    const input = async (prev = {}) => {
-      const b = await body(req);
-      const c = { ...prev, name: str(b.name, 120), email: normEmail(b.email), phone: str(b.phone, 40), instagram: str(b.instagram, 80), company: str(b.company, 120), tags: tags(b.tags), notes: str(b.notes, 2000), updatedAt: now() };
-      if (!c.name) return { error: 'İsim gerekli.' };
-      if (c.email && !emailOk(c.email)) return { error: 'E-posta geçersiz.' };
-      const hit = c.email && await s.get('contactEmail/' + hash(c.email));
-      if (hit && hit.id !== prev.id) return { error: 'Bu e-posta ile kayıtlı bir kişi zaten var.' };
-      return { contact: c };
-    };
-    const index = async (c, prev) => {
-      if (prev && prev.email && prev.email !== c.email) await s.del('contactEmail/' + hash(prev.email));
-      if (prev && prev.phone && normPhone(prev.phone) !== normPhone(c.phone)) await s.del('contactPhone/' + hash(normPhone(prev.phone)));
-      if (c.email) await s.set('contactEmail/' + hash(c.email), { id: c.id });
-      if (normPhone(c.phone)) await s.set('contactPhone/' + hash(normPhone(c.phone)), { id: c.id });
-    };
-    if (m === 'POST' && !parts[1]) {
-      const r = await input(); if (r.error) return fail(400, r.error);
-      const c = { ...r.contact, id: id(), createdAt: now() };
-      await s.set('contacts/' + c.id, c); await index(c);
-      return json({ contact: c }, 201);
-    }
-    const c = await s.get('contacts/' + str(parts[1], 40));
-    if (!c) return fail(404, 'Kişi bulunamadı.');
-    if (m === 'GET') {
-      const [rs, evs] = await Promise.all([all('rsvps/'), all('events/')]);
-      const byId = Object.fromEntries(evs.map((e) => [e.id, e]));
-      const history = rs.filter((r) => r.contactId === c.id || (c.email && r.email === c.email)).map((r) => ({ eventId: r.eventId, event: (byId[r.eventId] || {}).title || '', date: (byId[r.eventId] || {}).date || '', status: r.status, guests: r.guests, checkedInAt: r.checkedInAt })).sort((a, b) => b.date.localeCompare(a.date));
-      return json({ contact: c, history });
-    }
-    if (m === 'PUT') {
-      const r = await input(c); if (r.error) return fail(400, r.error);
-      await s.set('contacts/' + c.id, r.contact); await index(r.contact, c);
-      return json({ contact: r.contact });
-    }
-  }
-
-  if (parts[0] === 'tasks') {
-    const input = async (prev = {}) => {
-      const b = await body(req);
-      const t = { ...prev, updatedAt: now() };
-      if ('title' in b) t.title = str(b.title, 200);
-      if ('eventId' in b) t.eventId = str(b.eventId, 40);
-      if ('assignee' in b) t.assignee = str(b.assignee, 80);
-      if ('due' in b) t.due = /^\d{4}-\d{2}-\d{2}$/.test(b.due) ? b.due : '';
-      if ('status' in b) t.status = ['todo', 'doing', 'done'].includes(b.status) ? b.status : 'todo';
-      if (!t.title) return { error: 'Görev başlığı gerekli.' };
-      if (t.eventId && !(await s.get('events/' + t.eventId))) return { error: 'Etkinlik bulunamadı.' };
-      return { task: t };
-    };
-    if (m === 'GET' && !parts[1]) return json({ tasks: (await all('tasks/')).sort((a, b) => (a.due || '9').localeCompare(b.due || '9')) });
-    if (m === 'POST' && !parts[1]) {
-      const r = await input({ status: 'todo', eventId: '', assignee: '', due: '' }); if (r.error) return fail(400, r.error);
-      const t = { ...r.task, id: id(), createdAt: now() }; await s.set('tasks/' + t.id, t);
-      return json({ task: t }, 201);
-    }
-    const t = await s.get('tasks/' + str(parts[1], 40));
-    if (!t) return fail(404, 'Görev bulunamadı.');
-    if (m === 'PUT') { const r = await input(t); if (r.error) return fail(400, r.error); await s.set('tasks/' + t.id, r.task); return json({ task: r.task }); }
-    if (m === 'DELETE') { await s.del('tasks/' + t.id); return json({ ok: true }); }
-  }
-
-  return fail(404, 'Bulunamadı.');
+  return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf });
 }
 
+/* ---------- router ---------- */
 export default async function handler(req, ctx) {
-  const url = new URL(req.url);
-  const parts = url.pathname.split('/').filter(Boolean);
+  const url = new URL(req.url), parts = url.pathname.split('/').filter(Boolean);
   setDeployContext((ctx && ctx.deploy && ctx.deploy.context) || process.env.CONTEXT);
   try {
-    if ((parts[0] === 'hq' || parts[1] === 'hq') && !missingConfig().length) await initSecret(await store());
+    const s = await store();
+    await migrate(s, storeName());
+    const miss = missingConfig();
+    if (!miss.length) await initSecret(s);
     if (parts[0] === 'hq') {
-      const miss = missingConfig();
-      if (miss.length) return html('<!doctype html><meta charset="utf-8"><title>More Life HQ</title><body style="font-family:system-ui;background:#0E0B0A;color:#F3EEE6;padding:40px"><h1>HQ henüz yapılandırılmadı</h1><p>Netlify’da şu ortam değişkenlerini tanımlayın: ' + miss.join(', ') + '</p></body>', 503);
-      return html(session(req) ? APP_HTML : LOGIN_HTML, 200);
+      if (miss.length) return gated('<!doctype html><meta charset="utf-8"><title>More Life HQ</title><body style="font-family:system-ui;background:#0E0B0A;color:#F3EEE6;padding:40px"><h1>HQ henüz yapılandırılmadı</h1><p>Netlify’da şu ortam değişkenlerini tanımlayın: ' + miss.join(', ') + '</p></body>', 503);
+      return gated(session(req) ? APP_HTML : LOGIN_HTML, 200);
     }
-    if (parts[0] === 'api' && parts[1] === 'public') return await publicApi(req, ctx, parts.slice(2), url);
     if (parts[0] === 'api' && parts[1] === 'hq') {
-      const miss = missingConfig();
       if (miss.length) return fail(503, 'HQ yapılandırılmadı: ' + miss.join(', '));
       return await adminApi(req, ctx, parts.slice(2), url);
     }
-    return fail(404, 'Not found');
+    if (parts[0] === 'api' && parts[1] === 'public') return await publicApi(req, ctx, parts.slice(2), url);
+    if (req.method !== 'GET' && req.method !== 'HEAD') return fail(405, 'Method not allowed');
+    return await publicPage(req, url, parts);
   } catch (err) {
     console.error(err);
-    return fail(500, 'Beklenmeyen bir hata oluştu.');
+    if (url.pathname === '/') { const { SITE_HTML } = await import('./lib/site-html.mjs'); return page(SITE_HTML, 200); } // never take the home page down with the database
+    return parts[0] === 'api' ? fail(500, 'Sunucu hatası.') : page(notFound('Something went wrong.', 'Please try again in a moment.'), 500, { 'x-robots-tag': 'noindex' });
   }
 }

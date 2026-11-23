@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
 <title>Entry pass — More Life</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="/css/site.css">
@@ -24,7 +25,7 @@
     if (!r.ok) { card.innerHTML = '<h1 class="g-title">Pass <span class="serif accent">not valid.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p>'; return; }
     var e = r.j.event, p = r.j.pass, qr = qrcode(0, 'M');
     qr.addData(location.origin + '/pass?t=' + t); qr.make();
-    card.innerHTML = '<p class="eyebrow">Entry pass · More Life</p><h1 class="g-title">' + esc(e.title) + '</h1>' +
+    card.innerHTML = '<p class="eyebrow">Entry pass · More Life</p><p style="font-size:20px;font-weight:600;color:#7FD1A0">Your attendance is confirmed.</p><h1 class="g-title">' + esc(e.title) + '</h1>' +
       '<div class="g-meta">' + [date(e.date) + (e.time ? ' · ' + e.time : ''), [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).map(function (x) { return '<span class="chip" style="cursor:default">' + esc(x) + '</span>'; }).join('') + '</div>' +
       '<div class="g-qr" role="img" aria-label="QR code for entry">' + qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) + '</div>' +
       '<div class="meta"><div><span class="eyebrow">Name</span><b>' + esc(p.name) + '</b></div><div><span class="eyebrow">Guests</span><b>' + p.guests + '</b></div></div>' +

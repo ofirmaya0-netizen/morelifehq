@@ -12,7 +12,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 
 const port = +process.env.PORT || 8888;
 http.createServer(async (rq, rs) => {
   const url = new URL(rq.url, 'http://localhost:' + port);
-  if (/^\/(hq|api\/(hq|public))(\/|$)/.test(url.pathname)) {
+  if (/^\/(hq|api\/(hq|public)|events|invite|sitemap\.xml|robots\.txt)(\/|$)/.test(url.pathname) || url.pathname === '/') {
     const chunks = []; for await (const c of rq) chunks.push(c);
     const req = new Request(url, { method: rq.method, headers: rq.headers, body: ['GET', 'HEAD'].includes(rq.method) ? undefined : Buffer.concat(chunks) });
     const res = await handler(req, { ip: '127.0.0.1' });
