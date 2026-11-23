@@ -4,10 +4,12 @@ import { esc, dateEn } from './util.mjs';
 const API = () => process.env.EMAIL_API_URL || 'https://api.resend.com/emails';
 export const emailStatus = () => ({ connected: !!(process.env.RESEND_API_KEY && process.env.EMAIL_FROM), missing: ['RESEND_API_KEY', 'EMAIL_FROM'].filter((k) => !process.env[k]) });
 
+// EMAIL_FROM may be a bare address (rsvp@morelife.events); the display name is added here.
+const fromHeader = () => { const v = String(process.env.EMAIL_FROM || '').trim(); return /</.test(v) ? v : (process.env.EMAIL_FROM_NAME || 'More Life') + ' <' + v + '>'; };
 async function send(to, subject, html, text, replyTo) {
   if (!emailStatus().connected) return { status: 'off' };
   try {
-    const r = await fetch(API(), { method: 'POST', headers: { authorization: 'Bearer ' + process.env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: process.env.EMAIL_FROM, to: [to], subject, html, text, reply_to: replyTo || undefined }) });
+    const r = await fetch(API(), { method: 'POST', headers: { authorization: 'Bearer ' + process.env.RESEND_API_KEY, 'content-type': 'application/json' }, body: JSON.stringify({ from: fromHeader(), to: [to], subject, html, text, reply_to: replyTo || undefined }) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return { status: 'failed', at: new Date().toISOString(), error: String(j.message || j.error || 'HTTP ' + r.status).slice(0, 200) };
     return { status: 'sent', at: new Date().toISOString(), id: String(j.id || '') };
