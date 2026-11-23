@@ -17,6 +17,38 @@
   row.push(cur); if (row.some(function (x) { return x.trim(); })) rows.push(row);
   return rows;
 }
+  // Large files go to the server in small batches: one request per file ran past the function time limit (502).
+  var BATCH = 50;
+  function phoneKey(p) { var d = String(p || '').trim().replace(/[^\d+]/g, ''); if (/^0[1-9]\d{9}$/.test(d)) d = '+90' + d.slice(1); else if (/^00/.test(d)) d = '+' + d.slice(2); else if (/^90\d{10}$/.test(d)) d = '+' + d; return d; }
+  async function sendImport(rows, commit, onProgress) {
+    var seen = {}, send = [], out = [], totals = { 'new': 0, match: 0, conflict: 0, duplicateInFile: 0, invalid: 0 }, created = 0, updated = 0;
+    // The server only sees one batch at a time, so repeats across the whole file are caught here first.
+    rows.forEach(function (r, n) {
+      var ek = String(r.email || '').trim().toLowerCase(), pk = phoneKey(r.phone);
+      if ((ek && seen['e' + ek]) || (pk && seen['p' + pk])) { totals.duplicateInFile += 1; out.push({ line: n + 2, status: 'duplicate-in-file', row: { name: r.name || ek, email: ek, phone: r.phone || '' } }); return; }
+      if (ek) seen['e' + ek] = 1; if (pk) seen['p' + pk] = 1;
+      send.push({ n: n, row: r });
+    });
+    // Batches never share an e-mail or phone (see above), so a few can safely run side by side.
+    var next = 0, done = 0, failed = null;
+    async function worker() {
+      while (next < send.length && !failed) {
+        var part = send.slice(next, next + BATCH), res = null, lastErr = null; next += BATCH;
+        for (var attempt = 0; attempt < 3 && !res; attempt++) {
+          try { res = await H.api('contacts/import', 'POST', { rows: part.map(function (x) { return x.row; }), commit: commit }); } catch (err) { lastErr = err; if (err.data && err.data.error) break; }
+        }
+        if (!res) { failed = lastErr; return; }
+        Object.keys(totals).forEach(function (k) { totals[k] += (res.totals && res.totals[k]) || 0; });
+        created += res.created || 0; updated += res.updated || 0;
+        (res.rows || []).forEach(function (o) { o.line = part[o.line - 2].n + 2; out.push(o); });
+        done += part.length; if (onProgress) onProgress(done, send.length);
+      }
+    }
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    if (failed) { failed.sent = commit ? done : 0; throw failed; }
+    out.sort(function (a, b) { return a.line - b.line; });
+    return { totals: totals, rows: out.slice(0, 500), created: created, updated: updated };
+  }
   H.views.crm = async function (main) {
     var d = await H.api('contacts'), st = { q: H.q().get('ara') || '', tag: H.q().get('etiket') || '' }, tags = [];
     d.contacts.forEach(function (c) { (c.tags || []).forEach(function (t) { if (tags.indexOf(t) < 0) tags.push(t); }); }); tags.sort();
@@ -66,7 +98,7 @@
         data = table.map(function (r) { var o = {}; Object.keys(map).forEach(function (k) { if (map[k] !== '') o[k] = r[+map[k]] || ''; }); return o; });
         H.busy(this, 1, 'Kontrol ediliyor…');
         try {
-          var p = await H.api('contacts/import', 'POST', { rows: data, commit: false }), L = { 'new': ['ok', 'Yeni'], match: ['info', 'Eşleşti'], conflict: ['bad', 'Çakışma'], 'duplicate-in-file': ['warn', 'Dosyada mükerrer'], invalid: ['bad', 'Hatalı'] }, t = p.totals;
+          var pvBtn = this, p = await sendImport(data, false, function (done, total) { pvBtn.textContent = 'Kontrol ediliyor… ' + done + ' / ' + total; }), L = { 'new': ['ok', 'Yeni'], match: ['info', 'Eşleşti'], conflict: ['bad', 'Çakışma'], 'duplicate-in-file': ['warn', 'Dosyada mükerrer'], invalid: ['bad', 'Hatalı'] }, t = p.totals;
           box.innerHTML = '<div class="grid g4" style="margin-bottom:12px">' + [['Yeni kayıt', t.new], ['Eşleşen', t.match], ['Çakışan', t.conflict], ['Mükerrer', t.duplicateInFile], ['Hatalı', t.invalid]].map(function (x) { return '<div class="card" style="padding:12px"><p class="eye">' + x[0] + '</p><p style="font-size:24px;font-weight:600">' + x[1] + '</p></div>'; }).join('') + '</div>' +
             '<p class="small mute" style="margin-bottom:10px">Eşleşen kişiler yeniden oluşturulmaz; yalnızca yeni etiketleri eklenir. Çakışan satırlar (e-posta bir kişiyle, telefon başka bir kişiyle eşleşiyor) otomatik birleştirilmez ve atlanır.</p>' +
             '<div class="card flat"><div class="scroll" style="max-height:340px;overflow-y:auto"><table><thead><tr><th>Satır</th><th>Ad</th><th>E-posta</th><th>Telefon</th><th>Sonuç</th></tr></thead><tbody>' + p.rows.map(function (o) { return '<tr><td class="num-t">' + o.line + '</td><td>' + e(o.row.name) + '</td><td>' + e(o.row.email) + '</td><td>' + e(o.row.phone) + '</td><td>' + H.pill(L[o.status][0], L[o.status][1]) + (o.match ? ' <span class="small mute">' + e(o.match.name) + '</span>' : '') + (o.reason ? '<br><span class="small" style="color:var(--bad)">' + e(o.reason) + '</span>' : '') + '</td></tr>'; }).join('') + '</tbody></table></div></div>';
@@ -74,7 +106,11 @@
         } catch (err) { box.innerHTML = H.note('bad', e(err.message)); }
         H.busy(this, 0);
       };
-      goBtn.onclick = async function () { H.busy(goBtn, 1, 'Aktarılıyor…'); try { var r = await H.api('contacts/import', 'POST', { rows: data, commit: true }); H.closeLayer(); H.toast(r.created + ' kişi eklendi, ' + r.updated + ' kişi güncellendi', 'ok'); H.render(); } catch (err) { H.busy(goBtn, 0); box.insertAdjacentHTML('afterbegin', H.note('bad', e(err.message))); } };
+      goBtn.onclick = async function () {
+        H.busy(goBtn, 1, 'Aktarılıyor…');
+        try { var r = await sendImport(data, true, function (done, total) { goBtn.textContent = 'Aktarılıyor… ' + done + ' / ' + total; }); H.closeLayer(); H.toast(r.created + ' kişi eklendi, ' + r.updated + ' kişi güncellendi', 'ok'); H.render(); }
+        catch (err) { H.busy(goBtn, 0); box.insertAdjacentHTML('afterbegin', H.note('bad', e(err.message) + (err.sent ? ' ' + err.sent + ' satır işlendi. Yeniden “İçe aktar”a basabilirsiniz; eklenen kişiler tekrar oluşturulmaz.' : ''))); }
+      };
     }
   };
 })();
