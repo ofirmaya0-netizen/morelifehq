@@ -47,9 +47,17 @@ export async function store() {
   return cached;
 }
 
+// Runs fn over items with at most `limit` in flight, so a large collection never opens thousands of storage requests at once.
+export async function pool(items, limit, fn) {
+  const out = new Array(items.length); let next = 0;
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); } };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 export async function all(prefix) {
   const s = await store();
   const keys = await s.list(prefix);
-  const out = await Promise.all(keys.map((k) => s.get(k)));
+  const out = await pool(keys, 64, (k) => s.get(k));
   return out.filter(Boolean);
 }
