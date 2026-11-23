@@ -117,3 +117,5 @@ button.g-pill:hover{background:rgba(243,238,230,.2)}
 .tk-acts .wide{grid-column:1/-1}
 .tk-acts .quiet{background:transparent;border-color:transparent;color:var(--mute);height:44px;font-weight:500;text-decoration:underline;text-underline-offset:4px}
 .tk-acts .hero{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.g-rsvp{display:none;justify-content:center;gap:10px;height:58px;font-size:17px;border-radius:18px}
+@media(min-width:960px){.g-rsvp{display:inline-flex;align-self:flex-start;min-width:260px}}

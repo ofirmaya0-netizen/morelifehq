@@ -100,10 +100,11 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
     '<div class="g-facts">' + (e.date ? '<div class="g-fact"><div class="g-cal" aria-hidden="true"><i>' + cal.mon + '</i><b>' + cal.day + '</b></div><div><b>' + esc(cal.long) + '</b><span>' + esc(hours + (hours ? ' · ' : '') + 'Istanbul time') + '</span></div></div>' : '') +
       (e.venue || e.city ? '<div class="g-fact"><div class="g-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5a7 7 0 10-14 0C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/></svg></div><div><b>' + esc(e.venue || e.city) + '</b>' + (e.venue && e.city ? '<span>' + esc(e.city) + '</span>' : '') + '</div><a class="g-go" href="' + esc(mapUrl) + '" target="_blank" rel="noopener">Directions</a></div>' : '') + '</div>' +
     (extra.length ? '<div class="g-meta">' + extra.map(chip).join('') + '</div>' : '') +
+    (state === 'open' ? '<a class="btn g-rsvp" data-rsvp href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '<span aria-hidden="true">↓</span></a>' : '') +
     (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') +
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
     tickets + (form ? '<div class="g-panel">' + form + '</div>' : '') + (mode === 'public' ? '<p><a class="link" href="/#events">All events</a></p>' : '') + '</div></main>\n</div>\n' +
-    (state === 'open' ? '<a class="btn g-cta" id="g-cta" href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '</a>\n' : '') +
+    (state === 'open' ? '<a class="btn g-cta" id="g-cta" data-rsvp href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '</a>\n' : '') +
     (mode === 'preview' ? banner('Taslak önizleme — yayında değil') : '') +
     '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guests.js" defer></script>\n<script src="/js/guest.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
 }
