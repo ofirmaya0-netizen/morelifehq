@@ -17,3 +17,7 @@
   [headers.values]
     X-Robots-Tag = "noindex"
     Referrer-Policy = "no-referrer"
+
+# The admin e-mail is the public contact address already shown on the site, so it is not a secret to scan for.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "HQ_ADMIN_EMAIL"
