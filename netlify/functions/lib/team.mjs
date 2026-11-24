@@ -32,7 +32,7 @@ export async function findMember(s, email) {
 }
 
 // What a role may reach. Every admin route passes through here after the session check.
-const HIDDEN_FROM_VIEWER = ['bookings', 'audit'];
+const HIDDEN_FROM_VIEWER = ['bookings', 'audit', 'pnl'];
 export function allowed(u, m, parts) {
   const a = parts[0], r = u.role;
   if (a === 'session' || a === 'me') return true;
@@ -130,6 +130,7 @@ export async function describe(s, parts, m, b, j) {
     if (p1 === 'settings') return ['Bilet satış ayarlarını düzenledi', '', b.provider != null ? 'sağlayıcı: ' + (b.provider || 'yok') : ''];
     if (p2 === 'shop') return ['enabled' in b ? (b.enabled ? 'Bilet satışını açtı' : 'Bilet satışını kapattı') : 'Bilet satış ayarını düzenledi', t];
     if (p2 === 'types') return [del ? 'Bilet türünü sildi' : put ? 'Bilet türünü düzenledi' : 'Bilet türü ekledi', t, j.type ? j.type.name + ' · ' + j.type.price + (j.type.stock ? ' · stok ' + j.type.stock : '') : ''];
+    if (p2 === 'promoters') return [del ? 'Promoteri sildi' : put ? 'Promoteri düzenledi' : 'Promoter ekledi', t, j.promoter ? j.promoter.name + ' · ' + j.promoter.code : ''];
     if (p2 === 'codes') return [del ? 'Kodu sildi' : put ? 'Kodu düzenledi' : 'Kod oluşturdu', t, j.code ? j.code.code : ''];
     if (p2 === 'orders') {
       const o = j.order || {}, who = (o.buyer && o.buyer.name) || '';
@@ -139,6 +140,7 @@ export async function describe(s, parts, m, b, j) {
     }
     return null;
   }
+  if (a === 'pnl') return [j.removed ? 'Kâr/zarar satırını sildi' : j.line ? 'Kâr/zarar satırı kaydetti' : 'Kâr/zarar ayarını düzenledi', j.eventTitle || await title(p1), j.line ? j.line.label + ' · ' + j.line.amount + ' ' + j.line.currency : j.removed ? j.removed.label : ''];
   if (a === 'images' || a === 'me') return null;
   return [m + ' ' + parts.join('/'), ''];
 }

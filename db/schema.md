@@ -86,3 +86,8 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `twait/<eventId>/<id>` — someone who asked to be told when a type can be bought (sold out, or sale not open yet): type, e-mail, quantity, language, `waiting` / `notified`. One record per e-mail and type.
 - `tresale/<typeId>/<ticketId>` — a ticket its holder put back on sale; `tresaleTaken/<typeId>/<ticketId>` — the atomic claim of a basket that is buying it. On payment the old ticket is voided and its price refunded to the first buyer.
 - `orders/….lang` (`en` / `tr`) decides the language of that buyer's mails; `orders/….reminded` records the one unpaid-basket reminder.
+- `tpromo/<eventId>/<CODE>` + `tpromoTok/<token>` — a promoter: name, commission (% and/or fixed per ticket), private panel key. Orders carry `promoter` when the buyer came through `?p=CODE`.
+- `orders/….refCode` + `refs/<code>` → `{ eventId, orderId }` — the buyer's link for friends; orders bought through it carry `referredBy`.
+- `ttypes/….earlyFor` (audience id) + `.earlyUntil` — early access: until then only e-mails in that CRM audience can buy the type.
+- `tshop/<eventId>.look` — theme, accent colour, heading and button text of the shop; `/tickets/<slug>` is the shop alone, `?embed=1` its iframe form (`/js/embed.js`).
+- `pnl/<eventId>` — profit and loss: reporting currency, rates entered by hand, income / expense lines. Ticket income and booking fees are read live, not stored.

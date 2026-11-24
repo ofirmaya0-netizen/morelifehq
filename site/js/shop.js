@@ -5,6 +5,9 @@
   var C = window.ML || {}, box = document.getElementById('g-shop'); if (!box) return;
   var qs = new URLSearchParams(location.search), st = { qty: {}, code: (qs.get('code') || '').slice(0, 40), data: null, busy: false }, utm = {};
   try { utm = JSON.parse(sessionStorage.getItem('ml-utm-' + C.e) || '{}'); } catch (e) {}
+  // a promoter's link (?p=CODE) and a friend's link (?ref=…) are remembered for this visit, so the sale is credited even after browsing around
+  var keep = function (k, v) { try { if (v) sessionStorage.setItem('ml-' + k + '-' + C.e, v); else v = sessionStorage.getItem('ml-' + k + '-' + C.e) || ''; } catch (e) {} return v || ''; };
+  var promo = keep('p', (qs.get('p') || '').slice(0, 20)), friend = keep('ref', (qs.get('ref') || '').slice(0, 20));
   ['source', 'medium', 'campaign', 'content'].forEach(function (k) { var v = qs.get('utm_' + k); if (v) utm[k] = v.slice(0, 80); });
   // English or Turkish: the visitor's browser language to start with, their own choice after that
   var lang = 'en'; try { lang = localStorage.getItem('ml-lang') || ((navigator.language || '').toLowerCase().indexOf('tr') === 0 ? 'tr' : 'en'); } catch (e) {}
@@ -29,20 +32,28 @@
   }
   function load(keep) {
     return fetch('/api/public/shop?' + (C.t ? 't=' + encodeURIComponent(C.t) : 'slug=' + encodeURIComponent(C.slug)) + (st.code ? '&code=' + encodeURIComponent(st.code) : '')).then(function (r) { return r.json(); }).then(function (d) {
-      st.data = d; if (!d.enabled || !d.types.length) { box.hidden = true; return; }
+      st.data = d; var none = document.getElementById('sh-none');
+      if (!d.enabled || !d.types.length) { box.hidden = true; if (none) none.hidden = false; tell(); return; }
+      if (d.look && /^#[0-9a-f]{6}$/i.test(d.look.accent || '')) { box.style.setProperty('--sh-acc', d.look.accent); var hx = d.look.accent, lum = (parseInt(hx.slice(1, 3), 16) * 299 + parseInt(hx.slice(3, 5), 16) * 587 + parseInt(hx.slice(5, 7), 16) * 114) / 1000; box.style.setProperty('--sh-on', lum > 150 ? '#17110F' : '#fff'); } // button text stays readable on any accent
       d.types.forEach(function (t) { if (t.state !== 'on') st.qty[t.id] = 0; else if (st.qty[t.id] > t.max) st.qty[t.id] = t.max; });
-      draw(keep); box.hidden = false;
+      draw(keep); box.hidden = false; tell();
       var cta = document.querySelectorAll('[data-shop]'); cta.forEach(function (b) { b.hidden = false; });
     }).catch(function () { box.hidden = true; });
   }
+  // inside an iframe on another site: report the height so the frame fits, and leave the frame when it is time to pay
+  function tell() { if (C.embed && window.parent !== window) try { window.parent.postMessage({ mlTickets: 1, height: document.documentElement.scrollHeight }, '*'); } catch (e) {} }
+  if (C.embed && 'ResizeObserver' in window) new ResizeObserver(tell).observe(document.body);
+  function leftIn(v) { var ms = Date.parse(v + ':00+03:00') - Date.now(), h = Math.floor(ms / 36e5); return ms <= 0 || h >= 48 ? '' : h >= 1 ? (lang === 'tr' ? 'Satış ' + h + ' saat sonra bitiyor' : 'Sales end in ' + h + 'h') : (lang === 'tr' ? 'Satış bir saatten kısa sürede bitiyor' : 'Sales end in under an hour'); }
   var LABEL = { soon: 'Not on sale yet', soldout: 'Sold out', ended: 'Sales ended' }, wait = '', waited = {};
   function draw(keep) {
     var d = st.data, v = keep ? vals() : {}, t = totals();
-    box.innerHTML = '<div class="sh-head"><h2>' + S('Tickets') + '</h2><div class="sh-lang" role="group" aria-label="Language"><button type="button" data-lang="en" aria-pressed="' + (lang === 'en') + '">EN</button><button type="button" data-lang="tr" aria-pressed="' + (lang === 'tr') + '">TR</button></div></div>' + (d.test ? '<p class="g-pill hot" style="align-self:flex-start">' + S('Test mode · no money moves') + '</p>' : '') + (d.note ? '<p style="color:var(--mute)">' + esc(d.note) + '</p>' : '') +
+    box.innerHTML = '<div class="sh-head"><h2>' + esc((d.look && d.look.title) || S('Tickets')) + '</h2><div class="sh-lang" role="group" aria-label="Language"><button type="button" data-lang="en" aria-pressed="' + (lang === 'en') + '">EN</button><button type="button" data-lang="tr" aria-pressed="' + (lang === 'tr') + '">TR</button></div></div>' + (d.test ? '<p class="g-pill hot" style="align-self:flex-start">' + S('Test mode · no money moves') + '</p>' : '') + (d.note ? '<p style="color:var(--mute)">' + esc(d.note) + '</p>' : '') +
       '<div class="sh-list">' + d.types.map(function (x) {
         var q = st.qty[x.id] || 0, on = x.state === 'on';
         return '<div class="sh-row' + (on ? '' : ' off') + '"><div class="sh-main"><b>' + esc(x.name) + '</b>' + (x.description ? '<span>' + esc(x.description) + '</span>' : '') + (x.admits > 1 ? '<span>' + S('Admits') + ' ' + x.admits + '</span>' : '') +
-          (on && x.resale ? '<span>' + S('Resale ticket from another guest, at the original price') + '</span>' : on && x.low ? '<span class="sh-low">' + S('Last few') + '</span>' : '') + (!on ? '<span>' + (x.state === 'soon' && x.opens ? S('On sale') + ' ' + esc(when(x.opens)) : S(LABEL[x.state] || '')) + '</span>' : '') + '</div>' +
+          (on && x.resale ? '<span>' + S('Resale ticket from another guest, at the original price') + '</span>' : on && x.left ? '<span class="sh-low">' + (lang === 'tr' ? 'Son ' + x.left + ' bilet' : 'Only ' + x.left + ' left') + '</span>' : on && x.low ? '<span class="sh-low">' + S('Last few') + '</span>' : '') +
+          (on && x.next ? '<span>' + (lang === 'tr' ? 'Bunlar bitince fiyat ' + money(x.next) + ' olacak' : 'Price goes up to ' + money(x.next) + ' when these are gone') + '</span>' : '') + (on && x.ends && leftIn(x.ends) ? '<span class="sh-low">' + leftIn(x.ends) + '</span>' : '') +
+          (on && x.early ? '<span>' + (lang === 'tr' ? 'Davetli misafirlere erken erişim: sizi davet ettiğimiz e-postayı kullanın' : 'Early access for invited guests: use the email we invited you on') + '</span>' : '') + (!on ? '<span>' + (x.state === 'soon' && x.opens ? S('On sale') + ' ' + esc(when(x.opens)) : S(LABEL[x.state] || '')) + '</span>' : '') + '</div>' +
           '<div class="sh-price">' + (x.now < x.price ? '<s>' + money(x.price) + '</s>' : '') + '<b>' + (x.now ? money(x.now) : S('Free')) + '</b>' + (x.fee ? '<span>+ ' + money(x.fee) + ' ' + S('fee') + '</span>' : '') + '</div>' +
           (on ? '<div class="sh-qty" role="group" aria-label="' + S('Quantity for') + ' ' + esc(x.name) + '"><button type="button" data-dec="' + x.id + '" aria-label="' + S('One fewer') + '"' + (q ? '' : ' disabled') + '>−</button><output aria-live="polite">' + q + '</output><button type="button" data-inc="' + x.id + '" aria-label="' + S('One more') + '"' + (q >= x.max ? ' disabled' : '') + '>+</button></div>'
             : '<div class="sh-qty">' + (x.notify && !waited[x.id] ? '<button class="sh-wait" type="button" data-wait="' + x.id + '">' + S(x.notify === 'onsale' ? 'Tell me when it opens' : 'Join the waitlist') + '</button>' : '') + '</div>') +
@@ -55,7 +66,7 @@
           '<div style="position:absolute;left:-9999px" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>' +
           (d.terms || d.refundPolicy ? '<details class="sh-terms" style="grid-column:1/-1"><summary>' + S('Terms of sale and refund policy') + '</summary>' + (d.seller ? '<p><b>' + S('Seller') + '</b><br>' + esc(d.seller).replace(/\n/g, '<br>') + '</p>' : '') + (d.refundPolicy ? '<p><b>' + S('Refunds') + '</b><br>' + esc(d.refundPolicy).replace(/\n/g, '<br>') + '</p>' : '') + (d.terms ? '<p><b>' + S('Terms of sale') + '</b><br>' + esc(d.terms).replace(/\n/g, '<br>') + '</p>' : '') + '</details>' : '') +
           '<label class="check" for="sh-terms" style="grid-column:1/-1"><input id="sh-terms" name="terms" type="checkbox" required' + (v.terms ? ' checked' : '') + '><span>' + S('I accept the terms of sale and refund policy, and More Life may use these details to manage my order.') + '</span></label>' +
-          '<p class="g-msg" id="sh-msg" role="alert" style="grid-column:1/-1"></p><button class="btn" type="submit" style="grid-column:1/-1">' + (t.total ? S('Continue to payment') + ' · ' + money(t.total) : S('Get tickets')) + '</button><p class="sh-note" style="grid-column:1/-1">' + S('Your tickets are held for') + ' ' + d.holdMinutes + ' ' + S('minutes while you pay. Card details are entered on the payment provider’s page, never here.') + (d.installments && t.total ? ' ' + S('Instalments are available on the payment page.') : '') + '</p>'
+          '<p class="g-msg" id="sh-msg" role="alert" style="grid-column:1/-1"></p><button class="btn" type="submit" style="grid-column:1/-1">' + (t.total ? esc((d.look && d.look.button) || S('Continue to payment')) + ' · ' + money(t.total) : S('Get tickets')) + '</button><p class="sh-note" style="grid-column:1/-1">' + S('Your tickets are held for') + ' ' + d.holdMinutes + ' ' + S('minutes while you pay. Card details are entered on the payment provider’s page, never here.') + (d.installments && t.total ? ' ' + S('Instalments are available on the payment page.') : '') + '</p>'
           : '<p class="g-msg" style="grid-column:1/-1">' + S('Ticket sales are not open yet.') + '</p>') + '</form>' : '');
   }
   function vals() { var f = document.getElementById('sh-form'), o = {}; if (f) f.querySelectorAll('[name]').forEach(function (el) { o[el.name] = el.type === 'checkbox' ? el.checked : el.value; }); return o; }
@@ -85,9 +96,9 @@
     if (!v.terms) { msg.className = 'g-msg bad'; msg.textContent = S('Please accept the terms of sale to continue.'); return; }
     st.busy = true; btn.disabled = true; msg.className = 'g-msg'; msg.textContent = S('Holding your tickets…');
     ga('begin_checkout', { currency: st.data.currency, value: t.total });
-    fetch('/api/public/checkout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug: C.slug || undefined, t: C.t || undefined, items: Object.keys(st.qty).filter(function (k) { return st.qty[k]; }).map(function (k) { return { typeId: k, qty: st.qty[k] }; }), name: v.name, email: v.email, phone: v.phone, website: v.website, code: st.data.code && st.data.code.ok ? st.code : '', terms: true, lang: lang, utm: utm, ref: (function () { try { return sessionStorage.getItem('ml-ref-' + C.e) || ''; } catch (e) { return ''; } })() }) })
+    fetch('/api/public/checkout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ slug: C.slug || undefined, t: C.t || undefined, items: Object.keys(st.qty).filter(function (k) { return st.qty[k]; }).map(function (k) { return { typeId: k, qty: st.qty[k] }; }), name: v.name, email: v.email, phone: v.phone, website: v.website, code: st.data.code && st.data.code.ok ? st.code : '', terms: true, lang: lang, utm: utm, ref: friend, promo: promo }) })
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || S('Something went wrong.')); return j; }); })
-      .then(function (j) { location.href = j.url; })
+      .then(function (j) { var abs = new URL(j.url, location.href).href; if (C.embed && window.top !== window) { try { window.top.location.href = abs; return; } catch (e) { window.open(abs, '_blank'); return; } } location.href = abs; }) // payment and the order page never run inside someone else's frame
       .catch(function (err) { st.busy = false; load(true).then(function () { var m = document.getElementById('sh-msg'); if (m) { m.className = 'g-msg bad'; m.textContent = err.message; } }); });
   });
   load();

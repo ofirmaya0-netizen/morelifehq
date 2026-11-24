@@ -122,6 +122,42 @@ try:
     ok('still exactly one unit sold', {t['id']:t for t in a.req(T)[1]['types']}[solo]['taken']==1 and sv()['state']=='soldout')
     a.req(T+'/shop','PUT',{'resale':False})
 
+    # ---------- promoters, friends, early access, nudges ----------
+    ok('promoter needs a name', a.req(T+'/promoters','POST',{'code':'CAN'})[0]==400)
+    st,j,_=a.req(T+'/promoters','POST',{'name':'Can Promoter','code':'can','pct':10,'fixed':20}); ptk=j['promoter']['token']
+    ok('promoter created with a private panel link', st==201 and j['promoter']['code']=='CAN' and a.req(T+'/promoters','POST',{'name':'Kopya','code':'CAN'})[0]==409, j)
+    st,j,tp=buy([{'typeId':ga,'qty':2}],email='promo@x.com',name='Promo Alıcı',promo='can'); pid=tp
+    st,j,_=anon.req('/api/public/promoter?t='+ptk); ok('promoter page: own sales, no buyer contact', st==200 and j['tickets']==2 and j['revenue']==3000 and j['commission']==340 and j['sales'][0]['who']=='Promo A.' and 'email' not in str(j['sales']) and j['link'].endswith('?p=CAN'), j)
+    ok('promoter page needs its key', anon.req('/api/public/promoter?t=nope')[0]==404)
+    pr={x['code']:x for x in a.req(T)[1]['promoters']}; ok('HQ sees the promoter’s numbers', pr['CAN']['tickets']==2 and pr['CAN']['commission']==340)
+    ok('unknown promoter code is ignored, sale still goes through', buy([{'typeId':free,'qty':1}],email='np@x.com',name='No Promo',promo='ghost')[0]==200)
+    fr=order(tp)['friends']; ok('buyer gets a link for friends', fr and '?ref=' in fr['url'] and fr['bought']==0, fr)
+    buy([{'typeId':ga,'qty':1}],email='friend@x.com',name='Arkadaş Bir',ref=fr['url'].split('ref=')[1]); buy([{'typeId':free,'qty':1}],email='promo@x.com',name='Promo Alıcı',ref=fr['url'].split('ref=')[1])
+    ok('friends counted, own purchases are not', order(tp)['friends']['bought']==1 and any(x['email']=='promo@x.com' and x['tickets']==1 for x in a.req(T)[1]['sales']['referrers']), a.req(T)[1]['sales']['referrers'])
+    by={t['name']:t for t in anon.req('/api/public/shop?slug='+slug)[1]['types']}; ok('nudge: price of the next phase and last few', by['Early Bird']['next']==1500 and by['Backstage']['state']=='soldout', by['Early Bird'])
+    au=a.req('/api/hq/audiences','POST',{'name':'Geçen yaz gelenler','rules':{'tags':['bilet']}})[1]['audience']['id']
+    ok('early access needs both audience and time', a.req(T+'/types','POST',{'name':'Members','price':800,'stock':5,'earlyFor':au})[0]==400)
+    mem=a.req(T+'/types','POST',{'name':'Members','price':800,'stock':5,'earlyFor':au,'earlyUntil':'2099-01-01T00:00'})[1]['type']['id']
+    ok('shop marks the type as early access', {t['id']:t for t in anon.req('/api/public/shop?slug='+slug)[1]['types']}[mem]['early']=='2099-01-01T00:00')
+    ok('a stranger cannot buy during early access', buy([{'typeId':mem,'qty':1}],email='stranger@x.com',name='Yabancı Biri')[0]==403)
+    ok('a past buyer can', buy([{'typeId':mem,'qty':1}],email='ada@x.com',name='Ada Yılmaz')[0]==200)
+    a.req(T+'/types/'+mem,'PUT',{'earlyUntil':'2020-01-01T00:00'}); ok('after the window it is open to everyone', buy([{'typeId':mem,'qty':1}],email='stranger@x.com',name='Yabancı Biri')[0]==200)
+
+    # ---------- profit and loss ----------
+    bk=a.req('/api/hq/bookings','POST',{'artist':'PAWSA','agency':'Primary','eventId':eid,'fee':1000,'currency':'EUR'})[1]['booking']['id']
+    a.req('/api/hq/bookings/'+bk+'/payments','POST',{'kind':'deposit','amount':500}); pp=a.req('/api/hq/bookings/'+bk)[1]['booking']['payments'][0]['id']; a.req('/api/hq/bookings/'+bk+'/payments/'+pp,'PUT',{'paid':True})
+    P='/api/hq/pnl/'+eid; st,j,_=a.req(P)
+    ok('P&L starts from tickets and bookings', {r['auto'] for r in j['rows']}=={'tickets','booking'} and j['missing']==['EUR'] and j['totals']['complete'] is False and j['totals']['expense']==0, j['totals'])
+    ok('line needs a label and an amount', a.req(P+'/lines','POST',{'kind':'expense','amount':'x','label':'Ses'})[0]==400 and a.req(P+'/lines','POST',{'kind':'expense','amount':100})[0]==400)
+    st,j,_=a.req(P+'/lines','POST',{'kind':'expense','category':'Prodüksiyon (ses, ışık, sahne)','label':'Ses ve ışık','amount':5000,'currency':'TRY'}); lid=j['line']['id']
+    a.req(P+'/lines','POST',{'kind':'income','category':'Sponsorluk','label':'Marka X','amount':2000,'currency':'TRY','settled':True})
+    ok('bad rate refused', a.req(P,'PUT',{'rates':{'EUR':-3}})[0]==400)
+    a.req(P,'PUT',{'rates':{'EUR':40}}); j=a.req(P)[1]; tk=[r for r in j['rows'] if r.get('auto')=='tickets'][0]['amount']
+    ok('with the rate entered the result is complete', j['totals']['complete'] and j['totals']['expense']==45000 and j['totals']['income']==tk+2000 and j['totals']['net']==tk+2000-45000 and j['totals']['unpaid']==25000, j['totals'])
+    ok('cost per ticket and break-even', j['perTicket']['tickets']>0 and j['perTicket']['breakEven']>j['perTicket']['tickets'], j['perTicket'])
+    ok('line edited and removed', a.req(P+'/lines/'+lid,'PUT',{'amount':6000,'settled':True})[1]['line']['amount']==6000 and a.req(P+'/lines/'+lid,'DELETE',{})[0]==200 and a.req(P)[1]['totals']['expense']==40000)
+    a.req('/api/hq/bookings/'+bk,'DELETE',{})
+
     # ---------- admin: orders, refunds, comps, box office ----------
     st,j,_=a.req(T+'/orders'); ords={o['buyer']['email']:o for o in j['orders']}; ok('orders listed without stock keys or payment internals', 'ada@x.com' in ords and 'slots' not in ords['ada@x.com'] and 'items' not in (ords['ada@x.com'].get('payment') or {}), ords.get('ada@x.com'))
     ok('search', a.req(T+'/orders?q=bora')[1]['total']==1)
@@ -130,7 +166,7 @@ try:
     ok('refunded ticket is dead, the other lives', [t['status'] for t in order(tok2)['tickets']]==['valid','void'])
     ok('cannot refund more than was paid', a.req(T+'/orders/'+oid+'/refund','POST',{'amount':5000})[0]==400)
     st,j,_=a.req(T+'/orders/'+oid+'/refund','POST',{}); ok('rest refunded: order closed, total back', j['order']['status']=='refunded' and j['order']['refunded']==2650, j['order'])
-    ok('refunded units are on sale again', {t['id']:t for t in a.req(T)[1]['types']}[ga]['taken']==0)
+    ok('refunded units are on sale again', {t['id']:t for t in a.req(T)[1]['types']}[ga]['taken']==3)  # the promoter sale (2) and the friend (1) remain
     st,j,_=a.req(T+'/orders','POST',{'channel':'comp','typeId':ga,'qty':2,'name':'Basın Listesi','email':'basin@x.com'}); ok('comp tickets: free, issued at once', st==201 and j['order']['total']==0 and j['order']['channel']=='comp' and len(j['tickets'])==2, j)
     st,j,_=a.req(T+'/orders','POST',{'channel':'boxoffice','typeId':ga,'qty':1,'name':'Kapı Müşterisi','method':'cash'}); ok('box office sale recorded at the list price', j['order']['total']==1500 and j['order']['method']=='cash' and j['order']['fee']==0, j['order'])
     ok('comp beyond stock refused', a.req(T+'/orders','POST',{'channel':'comp','typeId':vip,'qty':5,'name':'Çok Kişi'})[0]==409)
@@ -143,10 +179,10 @@ try:
     # ---------- figures ----------
     s=a.req(T)[1]['sales']; bt={x['name']:x for x in s['byType']}
     # the race winner never paid. ada 2210 + bora 2650 (refunded) + vip 22005 + free 0 + comp 0 + door 1500
-    ok('sales: gross, refunds, net', s['gross']==28365+1110 and s['refunds']==2650+500 and s['net']==25715+610 and s['orders']==8, {k:s[k] for k in ['gross','refunds','net','orders','tickets']})
-    ok('sales: by type and check-ins', bt['Early Bird']['sold']==2 and s['checkedIn']==2 and bt['VIP Masa (4 kişi)']['sold']==4 and bt['General']['sold']==3, bt)
+    ok('sales: net is gross minus refunds, refunds as made', s['refunds']==2650+500 and s['net']==round(s['gross']-s['refunds'],2) and s['gross']>28365, {k:s[k] for k in ['gross','refunds','net','orders','tickets']})
+    ok('sales: by type and check-ins', bt['Early Bird']['sold']==2 and s['checkedIn']==2 and bt['VIP Masa (4 kişi)']['sold']==4 and bt['General']['sold']==6, bt)
     ok('sales: by source', any(x['name']=='instagram / launch' and x['tickets']==2 for x in s['bySource']) and any(x['name']=='Kapı satışı' for x in s['bySource']), s['bySource'])
-    e0=a.req('/api/hq/summary')[1]['upcoming'][0]; ok('Özet carries ticket sales', e0['sales']['tickets']==s['tickets'] and e0['sales']['last7']>0 and e0['sales']['net']==25715+610, e0.get('sales'))
+    e0=a.req('/api/hq/summary')[1]['upcoming'][0]; ok('Özet carries ticket sales', e0['sales']['tickets']==s['tickets'] and e0['sales']['last7']>0 and e0['sales']['net']==s['net'], e0.get('sales'))
     ok('all-events sales list', a.req('/api/hq/tickets/sales')[1]['events'][0]['tickets']==s['tickets'])
     ok('buyers land in the CRM tagged', a.req('/api/hq/contacts?limit=5&tag=bilet')[1]['matched']>=4)
     mk=a.req('/api/hq/marketing')[1]['events'][0]; ok('Marketing shows tickets sold here', mk['tickets']==s['tickets'] and mk['net']==s['net'], mk)

@@ -1,0 +1,39 @@
+/* Kâr/Zarar: etkinliğin gelir ve giderleri. Bilet geliri ve sanatçı ücretleri kendiliğinden gelir, gerisi satır satır girilir. */
+(function () {
+  var H = HQ, e = H.esc, F = H.field;
+  H.parts.pnl = async function (root, eventId) {
+    var d, P = 'pnl/' + eventId;
+    async function load() { d = await H.api(P); draw(); }
+    function draw() {
+      var t = d.totals, M = function (n) { return H.money(n, d.currency); }, inc = d.rows.filter(function (r) { return r.kind === 'income'; }), exp = d.rows.filter(function (r) { return r.kind === 'expense'; });
+      var line = function (r) {
+        return '<tr><td><b>' + e(r.label) + '</b><br><span class="small mute">' + e(r.category) + (r.auto === 'tickets' ? ' · HQ satışından' : r.auto === 'booking' ? ' · Booking’ten' : '') + (r.note ? ' · ' + e(r.note) : '') + '</span></td><td class="r"><b>' + H.money(r.amount, r.currency) + '</b>' + (r.currency !== d.currency ? '<br><span class="small ' + (r.inReport == null ? '' : 'mute') + '"' + (r.inReport == null ? ' style="color:var(--warn)"' : '') + '>' + (r.inReport == null ? 'kur girilmedi' : '≈ ' + M(r.inReport)) + '</span>' : '') + '</td><td>' + (r.kind === 'expense' ? H.pill(r.settled ? 'ok' : 'warn', r.settled ? 'Ödendi' : (r.paid ? H.money(r.paid, r.currency) + ' ödendi' : 'Ödenecek')) : H.pill(r.settled ? 'ok' : 'info', r.settled ? 'Tahsil edildi' : 'Bekleniyor')) + '</td><td class="r">' +
+          (r.auto === 'booking' ? '<button class="btn sm" type="button" data-nav="view=booking&id=' + r.bookingId + '">Booking</button>' : r.auto ? '<button class="btn sm" type="button" data-nav="view=etkinlik&id=' + eventId + '&tab=biletler">Biletler</button>' : '<button class="btn sm" type="button" data-ln="' + r.id + '">Düzenle</button>') + '</td></tr>';
+      };
+      var table = function (title, rows, kind, empty) { return '<div class="sec"><div class="sec-h"><h2 class="h2">' + title + '</h2><button class="btn sm" type="button" data-add="' + kind + '">' + H.ico('plus') + (kind === 'income' ? 'Gelir ekle' : 'Gider ekle') + '</button></div>' + (rows.length ? '<div class="card flat"><div class="scroll"><table><thead><tr><th>Kalem</th><th class="r">Tutar</th><th>Durum</th><th></th></tr></thead><tbody>' + rows.map(line).join('') + '</tbody></table></div></div>' : '<p class="mute small">' + empty + '</p>') + '</div>'; };
+      root.innerHTML = (d.missing.length ? H.note('warn', '<b>Sonuç eksik:</b> ' + d.missing.join(', ') + ' cinsinden kalemler var ama ' + d.currency + ' karşılığı için kur girilmedi. O kalemler toplamlara katılmıyor.') + '<div style="height:14px"></div>' : '') +
+        '<div class="grid g4" style="margin-bottom:8px"><div class="stat"><span class="lbl">Gelir</span><span class="num sm">' + M(t.income) + '</span></div><div class="stat"><span class="lbl">Gider</span><span class="num sm">' + M(t.expense) + '</span><span class="small mute">' + (t.unpaid ? M(t.unpaid) + ' henüz ödenmedi' : 'tamamı ödendi') + '</span></div>' +
+        '<div class="stat' + (t.net < 0 ? ' alert' : '') + '"><span class="lbl">' + (t.net < 0 ? 'Zarar' : 'Kâr') + (t.complete ? '' : ' (eksik)') + '</span><span class="num sm" style="color:var(--' + (t.net < 0 ? 'bad' : 'ok') + ')">' + M(t.net) + '</span><span class="small mute">' + (t.margin != null ? 'marj %' + t.margin : '') + '</span></div>' +
+        '<div class="stat"><span class="lbl">Başabaş</span><span class="num sm">' + (d.perTicket && d.perTicket.breakEven != null ? d.perTicket.breakEven + ' bilet' : '—') + '</span><span class="small mute">' + (d.perTicket ? 'şu an ' + d.perTicket.tickets + ' satıldı · bilet başı maliyet ' + M(d.perTicket.cost) : 'bilet satışı başlayınca hesaplanır') + '</span></div></div>' +
+        table('Gelirler', inc, 'income', 'Henüz gelir yok. Bilet satışı kendiliğinden gelir; bar payı, sponsorluk ve kapı nakdini satır olarak ekleyin.') + table('Giderler', exp, 'expense', 'Henüz gider yok. Bu etkinliğe bağlı booking’lerin ücreti kendiliğinden gelir; prodüksiyon, mekân, seyahat ve vergiyi satır olarak ekleyin.') +
+        '<div class="sec"><form class="card" id="rtf"><h2 class="h2" style="margin-bottom:4px">Para birimi ve kurlar</h2><p class="small dim" style="margin-bottom:14px">Sonuç tek para biriminde gösterilir. Başka para birimindeki kalemler için kuru siz girersiniz (örneğin sanatçıya ödediğiniz gerçek kur); HQ kur tahmin etmez.</p><div class="form">' +
+        F({ name: 'currency', label: 'Sonuç para birimi', type: 'select', value: d.currency, options: d.currencies.map(function (c) { return [c, c]; }) }) + d.currencies.filter(function (c) { return c !== d.currency && (d.need.indexOf(c) > -1 || d.rates[c]); }).map(function (c) { return F({ name: 'rate-' + c, label: '1 ' + c + ' = ? ' + d.currency, type: 'number', value: d.rates[c] || '', attrs: ' min="0" step="0.0001" inputmode="decimal"' }); }).join('') +
+        '</div><div class="row between" style="margin-top:14px"><p class="msg bad" role="alert"></p><button class="btn pri" type="submit">Kaydet</button></div></form></div>';
+    }
+    function lineForm(l, kind) {
+      var isNew = !l; l = l || { kind: kind, currency: d.currency, amount: '' };
+      var dr = H.drawer({ title: isNew ? (l.kind === 'income' ? 'Gelir ekle' : 'Gider ekle') : l.label, body: '<form class="form" id="lnf">' + F({ name: 'category', label: 'Kategori', type: 'select', full: 1, value: l.category, options: d.categories[l.kind].map(function (c) { return [c, c]; }) }) + F({ name: 'label', label: 'Açıklama', value: l.label, required: 1, full: 1, ph: l.kind === 'income' ? 'Örn. Mekân bar payı %15' : 'Örn. Ses ve ışık kiralama', max: 160 }) +
+        F({ name: 'amount', label: 'Tutar', type: 'number', value: l.amount, required: 1, attrs: ' min="0" step="0.01" inputmode="decimal"' }) + F({ name: 'currency', label: 'Para birimi', type: 'select', value: l.currency, options: d.currencies.map(function (c) { return [c, c]; }) }) + F({ name: 'settled', type: 'check', label: l.kind === 'income' ? 'Tahsil edildi' : 'Ödendi', value: l.settled, full: 1 }) + F({ name: 'note', label: 'Not', value: l.note, full: 1 }) + '<p class="msg bad f full" role="alert"></p></form>',
+        foot: (isNew ? '' : '<button class="btn ghost bad" type="button" id="ln-del">Sil</button>') + '<button class="btn pri" type="submit" form="lnf">Kaydet</button>' });
+      dr.querySelector('#lnf').onsubmit = async function (x) { x.preventDefault(); var b = dr.querySelector('button[type=submit]'), v = H.vals(this); v.kind = l.kind; H.busy(b, 1); try { await H.api(P + '/lines' + (isNew ? '' : '/' + l.id), isNew ? 'POST' : 'PUT', v); H.closeLayer(); H.toast('Satır kaydedildi', 'ok'); await load(); } catch (err) { this.querySelector('.msg').textContent = err.message; H.busy(b, 0); } };
+      var del = dr.querySelector('#ln-del'); if (del) del.onclick = async function () { try { await H.api(P + '/lines/' + l.id, 'DELETE', {}); H.closeLayer(); H.toast('Satır silindi', 'ok'); await load(); } catch (err) { H.toast(err.message, 'bad'); } };
+    }
+    root.onclick = function (x) { var a = x.target.closest('[data-add]'), l = x.target.closest('[data-ln]'); if (a) lineForm(null, a.getAttribute('data-add')); if (l) lineForm(d.rows.filter(function (r) { return r.id === l.getAttribute('data-ln'); })[0]); };
+    root.onsubmit = async function (x) {
+      if (x.target.id !== 'rtf') return; x.preventDefault(); var v = H.vals(x.target), rates = {}, b = x.target.querySelector('button[type=submit]');
+      Object.keys(v).forEach(function (k) { if (k.indexOf('rate-') === 0) rates[k.slice(5)] = v[k]; });
+      H.busy(b, 1); try { await H.api(P, 'PUT', { currency: v.currency, rates: rates }); H.toast('Kaydedildi', 'ok'); await load(); } catch (err) { x.target.querySelector('.msg').textContent = err.message; H.busy(b, 0); }
+    };
+    await load();
+  };
+})();

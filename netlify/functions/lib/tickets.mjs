@@ -46,10 +46,13 @@ function typeInput(b, prev) {
   if ('hidden' in b) t.hidden = !!b.hidden;
   if ('status' in b) t.status = b.status === 'off' ? 'off' : 'on';
   if ('after' in b) t.after = str(b.after, 40);
+  if ('earlyFor' in b) t.earlyFor = str(b.earlyFor, 40);
+  if ('earlyUntil' in b) { t.earlyUntil = str(b.earlyUntil, 16); if (t.earlyUntil && !isDT(t.earlyUntil)) return { error: 'Erken erişim bitiş zamanı geçersiz.' }; }
   if (!t.name) return { error: 'Bilet türüne bir ad verin.' };
   if (t.min > t.max) return { error: 'En az adet, en fazla adetten büyük olamaz.' };
   if (t.saleStart && t.saleEnd && t.saleEnd <= t.saleStart) return { error: 'Satış bitişi başlangıçtan sonra olmalı.' };
   if (t.after && t.after === t.id) return { error: 'Bir bilet türü kendisinden sonra açılamaz.' };
+  if (!!t.earlyFor !== !!t.earlyUntil) return { error: 'Erken erişim için hem kitle hem bitiş zamanı gerekli.' };
   return { type: t };
 }
 // on | soon (not open yet) | soldout | ended | off. "after" opens a type once the one before it is sold out or over: early bird → phase 1 → phase 2.
@@ -109,6 +112,8 @@ async function findCode(s, eventId, raw) {
   if (!c || !c.active || (c.start && n < c.start) || (c.end && n > c.end)) return null;
   return c;
 }
+// Early access: until the given time a type is sold only to people of one CRM audience (matched by the buyer's e-mail).
+const isEarly = (t) => !!t.earlyFor && !!t.earlyUntil && istNow() < t.earlyUntil;
 const covers = (c, typeId) => !!c && (!c.typeIds.length || c.typeIds.includes(typeId));
 const usesOf = async (s, c) => (await s.list('tcodeUse/' + c.eventId + '/' + c.code + '/')).length;
 
@@ -191,6 +196,7 @@ async function issue(s, e, o, origin, quiet) {
     await s.set('tickets/' + e.id + '/' + t.id, t); await s.set('passes/' + t.token, { eventId: e.id, ticketId: t.id }); o.tickets.push(t.id);
   }
   o.status = 'paid'; o.paidAt = o.paidAt || now(); await s.del('pending/' + e.id + '/' + o.id);
+  if (!o.refCode && o.channel === 'online') { o.refCode = token(6); await s.set('refs/' + o.refCode, { eventId: e.id, orderId: o.id }); } // the buyer's own link for friends
   for (const k of (o.slots || []).filter((x) => x.startsWith('tresaleTaken/'))) await handOver(s, e, o, k, origin); // units that came from another holder
   o.slots = (o.slots || []).filter((x) => !x.startsWith('tresaleTaken/'));
   if (!quiet && o.buyer.email) { const m = await sendOrder(live(e) || e, o, await ticketsFor(s, o), origin); if (m.status !== 'off') o.mail = m; }
@@ -226,13 +232,14 @@ async function shopView(s, e, rawCode) {
   if (!shop.enabled || le.eventStatus === 'cancelled') return { enabled: false };
   await sweep(s, e.id);
   const code = await findCode(s, e.id, rawCode), full = code && code.maxUses && await usesOf(s, code) >= code.maxUses, c = full ? null : code;
-  const types = (await typesView(s, e.id)).filter((t) => t.state !== 'off' && (!t.hidden || covers(c, t.id))).map((t) => {
+  const all = await typesView(s, e.id), types = all.filter((t) => t.state !== 'off' && (!t.hidden || covers(c, t.id))).map((t) => {
     const p = price([{ t, qty: 1 }], c, set).items[0];
-    return { id: t.id, name: t.name, description: t.description || '', price: t.price, now: p.unitNet, fee: p.unitFee, state: t.state, min: t.min, max: t.left == null ? t.max : Math.min(t.max, t.left), admits: t.admits || 1, low: t.left != null && t.left > 0 && t.left <= Math.max(5, Math.round(t.stock * 0.1)), opens: t.state === 'soon' ? t.saleStart || '' : '', resale: t.state === 'on' && t.left != null && t.left <= t.resale && t.resale > 0,
+    return { id: t.id, name: t.name, description: t.description || '', price: t.price, now: p.unitNet, fee: p.unitFee, state: t.state, min: t.min, max: t.left == null ? t.max : Math.min(t.max, t.left), admits: t.admits || 1, low: t.left != null && t.left > 0 && t.left <= Math.max(5, Math.round(t.stock * 0.1)), opens: t.state === 'soon' ? t.saleStart || '' : '', resale: t.state === 'on' && t.left != null && t.left <= t.resale && t.resale > 0, left: t.left != null && t.left > 0 && t.left <= 10 ? t.left : null, ends: t.state === 'on' && t.saleEnd ? t.saleEnd : '', early: isEarly(t) ? t.earlyUntil : '',
+      next: (() => { const n = all.find((x) => x.after === t.id && x.status !== 'off' && !x.hidden && x.price > t.price); return n ? n.price : null; })(), // what the same ticket costs once this phase is gone
       notify: shop.waitlist !== false && (t.state === 'soldout' ? 'waitlist' : t.state === 'soon' ? 'onsale' : '') };
   });
   return { enabled: true, ready: !why, currency: shop.currency, note: shop.note, types, code: rawCode ? (c ? { ok: true, code: c.code } : { ok: false, error: full ? 'This code has been used up.' : 'This code is not valid.' }) : null,
-    seller: set.seller, terms: set.terms, refundPolicy: set.refundPolicy, test: set.provider === 'test', holdMinutes: HOLD_MIN, installments: set.provider === 'iyzico' && !!set.installments };
+    look: shop.look || {}, seller: set.seller, terms: set.terms, refundPolicy: set.refundPolicy, test: set.provider === 'test', holdMinutes: HOLD_MIN, installments: set.provider === 'iyzico' && !!set.installments };
 }
 async function settle(s, e, o, res, origin) { // payment result → tickets, or the stock goes back
   if (o.status === 'paid') return o;
@@ -282,9 +289,14 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
       lines.push({ t, qty });
     }
     if (!lines.length) return fail(400, say('Please choose at least one ticket.', 'Lütfen en az bir bilet seçin.'));
+    for (const { t } of lines.filter((x) => isEarly(x.t))) {
+      const { audienceMembers } = await import('./admin2.mjs'), au = await s.get('audiences/' + t.earlyFor);
+      if (!au || !(await audienceMembers(au)).some((c) => c.email === buyer.email)) return fail(403, t.name + say(' is in early access for invited guests until ' + t.earlyUntil.replace('T', ' ') + '. Use the email address we invited you on.', ' şu an yalnızca davetli misafirlere açık (' + t.earlyUntil.replace('T', ' ') + ' tarihine kadar). Sizi davet ettiğimiz e-posta adresini kullanın.'));
+    }
+    const pm = b.promo ? await s.get('tpromo/' + e.id + '/' + normCode(b.promo)) : null, rf = b.ref ? await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')) : null;
     const pr = price(lines, code, set), u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
-    const o = { id: id(), no: orderNo(), token: token(24), eventId: e.id, status: 'pending', channel: 'online', provider: pr.total > 0 ? set.provider : 'free', currency: shop.currency, ...pr, code: code ? code.code : '', buyer, lang: L, utm, ref: str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, ''),
+    const o = { id: id(), no: orderNo(), token: token(24), eventId: e.id, status: 'pending', channel: 'online', provider: pr.total > 0 ? set.provider : 'free', currency: shop.currency, ...pr, code: code ? code.code : '', buyer, lang: L, utm, promoter: pm && pm.active ? pm.code : '', referredBy: rf && rf.eventId === e.id && rf.orderId ? rf.orderId : '',
       slots: [], tickets: [], refunds: [], terms: { at: now(), hash: hash(set.terms + '|' + set.refundPolicy) }, createdAt: now(), expiresAt: new Date(Date.now() + HOLD_MIN * 60000).toISOString() };
     for (const { t, qty } of lines) { const got = await reserve(s, t, qty, o.id); if (!got) { await pool(o.slots, 8, (k) => s.del(k)); return fail(409, t.name + say(' just sold out.', ' az önce tükendi.')); } o.slots.push(...got); }
     if (code) { // a use is one record per order; when two buyers race for the last use, the earlier record keeps it
@@ -304,6 +316,14 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
     if (o.total === 0) { await issue(s, e, o, url.origin); return json({ ok: true, url: '/order?t=' + o.token }); }
     try { const p = provider(set.provider), st = await p.start(o, { origin: url.origin, ip: h.ip, installments: !!set.installments }); o.payment = { provider: set.provider, session: st.session || '' }; await s.set(orderKey(o), o); return json({ ok: true, url: st.url, expiresAt: o.expiresAt }); }
     catch (err) { o.status = 'cancelled'; await releaseStock(s, o); o.payment = { lastError: String(err.message || err) }; await s.set(orderKey(o), o); console.error('pay start', err); return fail(502, say('The payment page could not be opened. Please try again.', 'Ödeme sayfası açılamadı. Lütfen tekrar deneyin.')); }
+  }
+  // A promoter's own page, opened with their private link: their sales link and what was sold through it. No buyer contact details.
+  if (parts[0] === 'promoter' && m === 'GET') {
+    const r = await s.get('tpromoTok/' + str(url.searchParams.get('t'), 60)), pm = r && await s.get('tpromo/' + r.eventId + '/' + r.code), e = pm && await s.get('events/' + r.eventId);
+    if (!pm || !e || pm.token !== url.searchParams.get('t')) return fail(404, 'This link is not valid.');
+    const le = live(e) || e, shop = await shopOf(s, e.id), st = promoStats(pm, await ordersOf(e.id));
+    return json({ name: pm.name, active: pm.active, link: isListed(e) ? '/events/' + le.slug + '?p=' + pm.code : '', currency: shop.currency, tickets: st.tickets, orders: st.orders, revenue: st.revenue, commission: st.commission, terms: [pm.pct ? '%' + pm.pct : '', pm.fixed ? pm.fixed + ' ' + shop.currency + ' / ticket' : ''].filter(Boolean).join(' + '),
+      sales: st.list.slice(0, 50).map((o) => ({ at: o.paidAt, who: o.buyer.name.split(' ')[0] + ' ' + (o.buyer.name.split(' ').pop() || '').slice(0, 1) + '.', tickets: o.items.reduce((n, i) => n + i.qty * i.admits, 0) })), event: { title: le.title, date: le.date, venue: le.venue, city: le.city } });
   }
   // "Tell me when I can buy": for a sold-out type (waitlist) or one whose sale has not opened yet
   if (parts[0] === 'waitlist' && m === 'POST') {
@@ -338,6 +358,7 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
         payUrl: o.status === 'pending' && o.provider === 'test' ? '/pay/test?o=' + o.token : '' },
       lang: o.lang || 'en', tickets: ts.map((t) => ({ id: t.id, type: t.typeName, name: t.name, status: t.status, checkedIn: !!t.checkedInAt, url: t.status === 'valid' ? '/pass?t=' + t.token : '', resold: !!t.resoldTo, listed: !!t.listed,
         canResell: shop.resale === true && !started && t.status === 'valid' && !t.checkedInAt && ((types.find((x) => x.id === t.typeId) || {}).admits || 1) === 1, back: t.net != null ? t.net : t.paid || 0 })), transfers: shop.transfers !== false,
+      friends: o.refCode && isListed(e) && ['paid', 'partial'].includes(o.status) && !started ? { url: '/events/' + le.slug + '?ref=' + o.refCode, bought: (await ordersOf(e.id)).filter((x) => x.referredBy === o.id && ['paid', 'partial'].includes(x.status) && x.buyer.email !== o.buyer.email).reduce((n, x) => n + x.items.reduce((m, i) => m + i.qty * i.admits, 0), 0) } : null,
       event: { title: le.title, date: le.date, time: le.time, venue: le.venue, city: le.city, image: le.imageId ? '/api/public/image/' + le.imageId : '', url: isListed(e) ? '/events/' + le.slug : '' }, support: set.supportEmail });
   }
   // the buyer puts a ticket in someone else's name: the old QR stops working and the new holder gets theirs by e-mail
@@ -377,6 +398,14 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
 export const testPayPage = async (s, url) => { const r = await s.get('orderTok/' + str(url.searchParams.get('o'), 60)), o = r && await s.get('orders/' + r.eventId + '/' + r.id), e = o && await s.get('events/' + o.eventId); return o && e && o.status === 'pending' && o.provider === 'test' && !provider('test').error ? payPage(o, live(e) || e) : null; };
 
 /* ---------- admin ---------- */
+// A promoter's sales: paid online orders that came through their link. Commission is on the ticket price after discounts,
+// without the service fee, and only for tickets that were not refunded.
+function promoStats(pm, orders) {
+  const list = orders.filter((o) => o.promoter === pm.code && ['paid', 'partial'].includes(o.status)).sort((a, b) => (b.paidAt || '').localeCompare(a.paidAt || '')); let tickets = 0, revenue = 0;
+  for (const o of list) { const share = o.total > 0 ? Math.max(0, (o.total - refunded(o)) / o.total) : 1, n = o.items.reduce((a, i) => a + i.qty * i.admits, 0); tickets += Math.round(n * share); revenue += (o.subtotal - o.discount) * share; }
+  revenue = r2(revenue);
+  return { list, orders: list.length, tickets, revenue, commission: r2(revenue * (pm.pct || 0) / 100 + tickets * (pm.fixed || 0)) };
+}
 // What was sold: money in, fees, refunds, by type, by day and by where buyers came from.
 function salesOf(orders, tickets, types) {
   const paid = orders.filter((o) => ['paid', 'partial', 'refunded'].includes(o.status)), sum = (f) => r2(paid.reduce((n, o) => n + f(o), 0)), byDay = {}, byType = {}, bySource = {}, byCode = {};
@@ -392,6 +421,7 @@ function salesOf(orders, tickets, types) {
   const valid = tickets.filter((t) => t.status === 'valid'), w = Date.now() - 7 * 864e5, w2 = Date.now() - 14 * 864e5, at = (o) => Date.parse(o.paidAt || o.createdAt), cnt = (list) => list.reduce((a, o) => a + o.items.reduce((b, i) => b + i.qty * i.admits, 0), 0);
   return { orders: paid.length, tickets: valid.length, checkedIn: valid.filter((t) => t.checkedInAt).length, gross: sum((o) => o.total), fees: sum((o) => o.fee), discounts: sum((o) => o.discount), refunds: sum(refunded), net: r2(sum((o) => o.total) - sum(refunded)),
     last7: cnt(paid.filter((o) => at(o) >= w)), prev7: cnt(paid.filter((o) => at(o) < w && at(o) >= w2)), pending: orders.filter((o) => o.status === 'pending').length,
+    referrers: paid.map((o) => ({ o, got: paid.filter((x) => x.referredBy === o.id && x.buyer.email !== o.buyer.email) })).filter((x) => x.got.length).map((x) => ({ name: x.o.buyer.name, email: x.o.buyer.email, orders: x.got.length, tickets: cnt(x.got) })).sort((a, b) => b.tickets - a.tickets).slice(0, 30), // buying again through your own link does not count
     byType: Object.values(byType), byDay: Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day)).slice(-60), bySource: Object.values(bySource).sort((a, b) => b.revenue - a.revenue || b.tickets - a.tickets), byCode: Object.values(byCode) };
 }
 // Sales figures of one event for other screens (Özet, Marketing). Null when the event sells no tickets here.
@@ -458,13 +488,19 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
     const [types, os, ts, shop, set] = await Promise.all([typesView(s, e.id), ordersOf(e.id), ticketsOf(e.id), shopOf(s, e.id), tixSettings(s)]), codes = (await all('tcodes/' + e.id + '/')).sort((a, b) => a.code.localeCompare(b.code));
     for (const c of codes) c.uses = await usesOf(s, c);
     const waits = (await all('twait/' + e.id + '/')).filter((w) => w.status === 'waiting'); for (const t of types) t.waiting = waits.filter((w) => w.typeId === t.id).reduce((n, w) => n + w.qty, 0);
-    return json({ event: { id: e.id, title: e.title, slug: e.live ? e.live.slug : e.slug, status: e.status, visibility: e.visibility, inviteUrl: '/invite?t=' + e.inviteToken, listed: isListed(e), externalTickets: !!(e.useTickets && e.ticketUrl) }, shop, types, codes, sales: salesOf(os, ts, types), blocked: blocked(set), provider: set.provider, fee: { mode: set.feeMode, pct: set.feePct, fixed: set.feeFixed }, currencies: CURRENCIES });
+    const promoters = (await all('tpromo/' + e.id + '/')).sort((a, b) => a.name.localeCompare(b.name, 'tr')).map((pm) => { const x = promoStats(pm, os); return { ...pm, orders: x.orders, tickets: x.tickets, revenue: x.revenue, commission: x.commission, panelUrl: '/promoter?t=' + pm.token }; });
+    return json({ promoters, siteUrl: SITE_URL(), event: { id: e.id, title: e.title, slug: e.live ? e.live.slug : e.slug, inviteToken: e.inviteToken, status: e.status, visibility: e.visibility, inviteUrl: '/invite?t=' + e.inviteToken, listed: isListed(e), externalTickets: !!(e.useTickets && e.ticketUrl) }, shop, types, codes, sales: salesOf(os, ts, types), blocked: blocked(set), provider: set.provider, fee: { mode: set.feeMode, pct: set.feePct, fixed: set.feeFixed }, currencies: CURRENCIES });
   }
   if (sub === 'shop' && m === 'PUT') {
     const b = await body(req), cur = await shopOf(s, e.id), n = { ...cur };
     if ('enabled' in b) n.enabled = !!b.enabled;
     for (const k of ['transfers', 'waitlist', 'resale', 'remind']) if (k in b) n[k] = !!b[k];
     if ('note' in b) n.note = str(b.note, 300);
+    if (b.look && typeof b.look === 'object') { // how the shop looks: theme and accent on the stand-alone / embedded page, heading and button text everywhere
+      const k = b.look, acc = str(k.accent, 7);
+      if (acc && !/^#[0-9a-f]{6}$/i.test(acc)) return fail(400, 'Vurgu rengi #RRGGBB biçiminde olmalı.');
+      n.look = { theme: k.theme === 'light' ? 'light' : 'dark', accent: acc, title: str(k.title, 60), button: str(k.button, 40) };
+    }
     if ('currency' in b && b.currency !== cur.currency) { if ((await s.list('orders/' + e.id + '/')).length) return fail(409, 'Sipariş alındıktan sonra para birimi değiştirilemez.'); n.currency = CURRENCIES.includes(b.currency) ? b.currency : 'TRY'; }
     if (n.enabled && !(await s.list('ttypes/' + e.id + '/')).length) return fail(400, 'Satışı açmadan önce en az bir bilet türü ekleyin.');
     await s.set('tshop/' + e.id, n); return json({ shop: n, eventTitle: e.title });
@@ -494,9 +530,22 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
     if (m === 'PUT') { const r = codeInput(await body(req), c); if (r.error) return fail(400, r.error); await s.set('tcodes/' + e.id + '/' + c.code, r.code); return json({ code: r.code, eventTitle: e.title }); }
     if (m === 'DELETE') { await s.del('tcodes/' + e.id + '/' + c.code); return json({ ok: true, code: c, eventTitle: e.title }); }
   }
+  if (sub === 'promoters') { // a person or venue that sells through their own link, with what they earn per sale
+    const shape = (b, prev) => { const pm = { ...prev }; if ('name' in b) pm.name = str(b.name, 80); if ('pct' in b) pm.pct = money(b.pct); if ('fixed' in b) pm.fixed = money(b.fixed); if ('active' in b) pm.active = !!b.active; if ('note' in b) pm.note = str(b.note, 200);
+      return !pm.name ? { error: 'Promoter adı gerekli.' } : pm.pct == null || pm.pct > 100 || pm.fixed == null ? { error: 'Komisyon geçersiz.' } : { pm }; };
+    if (!parts[3] && m === 'POST') {
+      const b = await body(req), r = shape(b, { eventId: e.id, code: normCode(b.code || str(b.name, 20)).slice(0, 20), name: '', pct: 0, fixed: 0, active: true, note: '', token: token(24), createdAt: now() }); if (r.error) return fail(400, r.error);
+      if (r.pm.code.length < 3) return fail(400, 'Link kodu en az 3 karakter olmalı (harf, rakam).');
+      if (!(await s.create('tpromo/' + e.id + '/' + r.pm.code, r.pm))) return fail(409, 'Bu link kodu zaten kullanılıyor.');
+      await s.set('tpromoTok/' + r.pm.token, { eventId: e.id, code: r.pm.code }); return json({ promoter: r.pm, eventTitle: e.title }, 201);
+    }
+    const pm = await s.get('tpromo/' + e.id + '/' + normCode(parts[3])); if (!pm) return fail(404, 'Promoter bulunamadı.');
+    if (m === 'PUT') { const r = shape(await body(req), pm); if (r.error) return fail(400, r.error); await s.set('tpromo/' + e.id + '/' + pm.code, r.pm); return json({ promoter: r.pm, eventTitle: e.title }); }
+    if (m === 'DELETE') { await s.del('tpromoTok/' + pm.token); await s.del('tpromo/' + e.id + '/' + pm.code); return json({ ok: true, promoter: pm, eventTitle: e.title }); } // past orders keep the code they were sold under
+  }
   if (sub === 'orders.csv') {
     const os = (await ordersOf(e.id)).filter((o) => o.status !== 'pending' && o.status !== 'expired' && o.status !== 'cancelled').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return csv('siparisler-' + e.slug + '.csv', [['Sipariş', 'Durum', 'Kanal', 'Ad Soyad', 'E-posta', 'Telefon', 'Biletler', 'Ara toplam', 'İndirim', 'Hizmet bedeli', 'Toplam', 'İade', 'Para birimi', 'Kod', 'Kaynak', 'Kampanya', 'Ödeme', 'Sağlayıcı ref.']].concat(os.map((o) => [o.no, o.status, o.channel, o.buyer.name, o.buyer.email, o.buyer.phone, o.items.map((i) => i.qty + '× ' + i.name).join(' + '), o.subtotal, o.discount, o.fee, o.total, refunded(o), o.currency, o.code, (o.utm && o.utm.source) || '', (o.utm && o.utm.campaign) || '', o.paidAt, (o.payment && o.payment.ref) || ''])));
+    return csv('siparisler-' + e.slug + '.csv', [['Sipariş', 'Durum', 'Kanal', 'Ad Soyad', 'E-posta', 'Telefon', 'Biletler', 'Ara toplam', 'İndirim', 'Hizmet bedeli', 'Toplam', 'İade', 'Para birimi', 'Kod', 'Promoter', 'Kaynak', 'Kampanya', 'Ödeme', 'Sağlayıcı ref.']].concat(os.map((o) => [o.no, o.status, o.channel, o.buyer.name, o.buyer.email, o.buyer.phone, o.items.map((i) => i.qty + '× ' + i.name).join(' + '), o.subtotal, o.discount, o.fee, o.total, refunded(o), o.currency, o.code, o.promoter || '', (o.utm && o.utm.source) || '', (o.utm && o.utm.campaign) || '', o.paidAt, (o.payment && o.payment.ref) || ''])));
   }
   if (sub === 'waitlist.csv') { const ts = await typesOf(e.id); return csv('bekleme-listesi-' + e.slug + '.csv', [['Tür', 'Ad', 'E-posta', 'Adet', 'Liste', 'Durum', 'Kayıt', 'Bildirim']].concat((await all('twait/' + e.id + '/')).sort((a, b) => a.at.localeCompare(b.at)).map((w) => [(ts.find((x) => x.id === w.typeId) || {}).name || '', w.name, w.email, w.qty, w.kind === 'onsale' ? 'satış açılışı' : 'bekleme', w.status === 'waiting' ? 'bekliyor' : 'bildirildi', w.at, w.notifiedAt || '']))); }
   if (sub === 'tickets.csv') return csv('biletler-' + e.slug + '.csv', [['Bilet', 'Tür', 'Ad Soyad', 'E-posta', 'Sipariş', 'Durum', 'Giriş', 'Girişi yapan']].concat((await ticketsOf(e.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((t) => [t.id, t.typeName, t.name, t.email, t.orderNo, t.status === 'valid' ? 'geçerli' : 'iptal', t.checkedInAt, t.checkedInBy || ''])));

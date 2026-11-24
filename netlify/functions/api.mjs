@@ -5,10 +5,11 @@ import { missingConfig, initSecret, checkLogin, verifyPassword, sessionCookie, c
 import { currentUser, ownerUser, findMember, allowed, screens, ROLES, logAudit, describe, auditRoute, teamRoute, setupRoute, meRoute } from './lib/team.mjs';
 import { bookingsRoute, bookingAlerts } from './lib/bookings.mjs';
 import { backupsRoute } from './lib/backup.mjs';
-import { ticketsPublic, ticketsAdmin, testPayPage, eventSales, eventTickets, ticketGuest, findTicket } from './lib/tickets.mjs';
+import { pnlRoute } from './lib/pnl.mjs';
+import { ticketsPublic, ticketsAdmin, testPayPage, eventSales, eventTickets, ticketGuest, findTicket, shopOf } from './lib/tickets.mjs';
 import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
 import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, guestList, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
-import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render.mjs';
+import { renderHome, renderEvent, renderShop, notFound, sitemap, robots } from './lib/render.mjs';
 import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.mjs';
 import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
@@ -19,7 +20,7 @@ import { waStatus, waSettings, sendPassWa, passParams, invitePreview } from './l
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
 
-export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/pay/*', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
+export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/pay/*', '/tickets', '/tickets/*', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
 
 export async function limited(key, max, windowSec) {
   const s = await store(), k = 'rate/' + key, t = Date.now();
@@ -62,6 +63,13 @@ async function publicPage(req, url, parts) {
     const ref = await s.get('invites/' + str(url.searchParams.get('t'), 60)), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
     if (!e || e.inviteToken !== url.searchParams.get('t') || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
     return page(renderEvent(e, set, { mode: 'invite', token: e.inviteToken }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
+  }
+  if (parts[0] === 'tickets') { // the shop alone: /tickets/slug for public events, /tickets?t=invite-key for private ones; ?embed=1 inside an iframe
+    const tk = str(url.searchParams.get('t'), 60), ref = parts[1] ? await s.get('slugs/' + slugify(parts[1])) : tk ? await s.get('invites/' + tk) : null, e0 = ref && await s.get('events/' + (ref.id || ref.eventId)), e = e0 && live(e0);
+    if (!e || (parts[1] ? !isListed(e0) : e0.inviteToken !== tk)) return page(notFound('Tickets not found.', 'This ticket page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
+    const embed = url.searchParams.get('embed') === '1';
+    // the embedded page must be allowed inside other sites' frames; everything else it links to opens at the top level
+    return page(renderShop(e, { token: parts[1] ? '' : tk, embed, look: (await shopOf(s, e.id)).look || {} }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', ...(parts[1] ? {} : { 'referrer-policy': 'no-referrer' }) });
   }
   if (parts[0] === 'events' && parts[1]) {
     const slug = slugify(parts[1]), ref = await s.get('slugs/' + slug), e0 = ref && await s.get('events/' + ref.id);
@@ -141,7 +149,7 @@ async function publicApi(req, ctx, parts, url) {
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
-  if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
+  if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale', 'promoter'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
     if (ref && ref.ticketId) { // a bought ticket opens in the same pass page as an approved guest
@@ -299,6 +307,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
   if (parts[0] === 'bookings') return bookingsRoute(req, parts, url, s, me);
   if (parts[0] === 'backups') return backupsRoute(req, parts, url, s, me);
   if (parts[0] === 'tickets') return ticketsAdmin(req, parts, url, s, me, ipOf(req, ctx));
+  if (parts[0] === 'pnl') return pnlRoute(req, parts, s, me);
 
   if (parts[0] === 'summary') {
     // One read for the Özet screen: what is waiting for a decision today, and how each upcoming event is doing.
