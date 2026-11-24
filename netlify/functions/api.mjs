@@ -9,6 +9,7 @@ import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.
 import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
+import { inviteRoute } from './lib/invites.mjs';
 import { emailStatus, sendPass, passMail, notifyEnquiry } from './lib/email.mjs';
 import { waStatus, waSettings, sendPassWa, passParams, invitePreview } from './lib/whatsapp.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
@@ -288,6 +289,7 @@ async function adminApi(req, ctx, parts, url) {
       const pv = (key, label, on, m) => ({ key, label, on, subject: m.subject, html: m.html });
       return json({ email: { status: emailStatus(), pass: { subject: pm.subject, html: pm.html }, all: [pv('pass', 'Giriş kartı (onayda)', true, pm), pv('d1', 'Hatırlatma: bir gün önce', iv.reminders !== false, reminderMail(e, sample, url.origin, 'd1')), pv('h4', 'Hatırlatma: son 4 saat', iv.reminders !== false, reminderMail(e, sample, url.origin, 'h4')), pv('offer', 'Bekleme listesi: yer açıldı', iv.autoWaitlist === true, offerMail(e, sample, url.origin)), pv('thanks', 'Teşekkür (ertesi gün)', iv.thanks !== false, thanksMail(e, sample, url.origin))] }, whatsapp: { status: waStatus(), inviteReady: !!(ws.invite.projectId && ws.invite.version), passReady: !!(ws.pass.projectId && ws.pass.version), invite: invitePreview(e, sample), pass: passParams(e, sample) } });
     }
+    if (parts[2] === 'invite-sends' || parts[2] === 'invite-send') return inviteRoute(req, s, e, url, parts[2]);
     if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, await rsvpsOf(e.id)), changes: routeChanges(e), seo: eventSeo(e, await seoSettings(s)) });
     if (!parts[2] && m === 'PUT') {
       const r = eventInput(await body(req), e); if (r.error) return fail(400, r.error);

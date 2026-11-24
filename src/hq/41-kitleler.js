@@ -31,8 +31,16 @@
       var a = x.audience, m = x.members;
       var dr = H.drawer({ title: a.name, body: '<p class="mute">' + e(summary(a.rules, O.events)) + '</p>' + (a.note ? '<p class="small dim" style="margin-top:6px">' + e(a.note) + '</p>' : '') + '<div style="margin:0 0 16px">' + sizes(a) + '</div>' +
         (m.length ? '<div class="card flat"><div class="scroll" style="max-height:52vh;overflow-y:auto"><table><thead><tr><th>Kişi</th><th>İletişim</th><th>Etiketler</th></tr></thead><tbody>' + m.slice(0, 300).map(function (c) { return '<tr data-nav="view=crm&kisi=' + c.id + '" style="cursor:pointer"><td><b>' + e(c.name) + '</b></td><td class="small mute">' + [c.email, c.phone].filter(Boolean).map(e).join('<br>') + '</td><td>' + c.tags.map(function (t) { return '<span class="pill plain">' + e(t) + '</span>'; }).join(' ') + '</td></tr>'; }).join('') + '</tbody></table></div></div>' + (m.length > 300 ? '<p class="small dim" style="margin-top:8px">İlk 300 kişi gösteriliyor; tamamı CSV’de.</p>' : '') : H.note('info', 'Şu an bu kurallara uyan kişi yok.')),
-        foot: '<button class="btn bad" type="button" id="a-del">Sil</button><span style="flex:1"></span><button class="btn" type="button" id="a-edit">Düzenle</button><a class="btn pri" href="/api/hq/audiences/' + a.id + '.csv">' + H.ico('down') + 'CSV dışa aktar</a>' });
+        foot: '<button class="btn bad" type="button" id="a-del">Sil</button><span style="flex:1"></span><button class="btn" type="button" id="a-inv">Davet gönder</button><button class="btn" type="button" id="a-edit">Düzenle</button><a class="btn pri" href="/api/hq/audiences/' + a.id + '.csv">' + H.ico('down') + 'CSV dışa aktar</a>' });
       dr.querySelector('#a-edit').onclick = function () { edit(a); };
+      dr.querySelector('#a-inv').onclick = async function () {
+        var up = O.events.filter(function (x) { return !x.date || x.date >= H.today(); });
+        if (!up.length) { H.toast('Yaklaşan etkinlik yok. Önce etkinliği oluşturun.', 'bad'); return; }
+        var pick = up[0].id, asked = H.modal({ title: 'Hangi etkinliğe davet?', body: '<div class="f"><label for="inv-ev">Etkinlik</label><select id="inv-ev">' + up.map(function (x) { return '<option value="' + x.id + '">' + e(x.title) + (x.date ? ' · ' + H.fmtDate(x.date) : '') + '</option>'; }).join('') + '</select></div><p class="small mute" style="margin-top:10px">Etkinliğin “Mesajlar” sekmesi açılır; gönderimden önce kimlere gideceğini görürsünüz.</p>', ok: 'Devam' });
+        document.getElementById('inv-ev').onchange = function () { pick = this.value; };
+        if (await asked) H.go('view=etkinlik&id=' + pick + '&tab=mesajlar&kitle=' + id); else open(id);
+      };
+
       dr.querySelector('#a-del').onclick = async function () {
         if (!(await H.modal({ title: 'Kitle silinsin mi?', text: '“' + a.name + '” kitlesi silinir. Kişiler CRM’de kalır.', ok: 'Kitleyi sil', danger: 1 }))) return open(id);
         try { await H.api('audiences/' + id, 'DELETE'); H.toast('Kitle silindi', 'ok'); H.render(); } catch (err) { H.toast(err.message, 'bad'); }
