@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import { json, fail, now, str, normPhone, body } from './util.mjs';
 import { hash, id } from './auth.mjs';
 import { all } from './store.mjs';
-import { waStatus, waCall, channelId } from './whatsapp.mjs';
+import { waStatus, waCall, channelId, waSettings, tplText, waRecordOut, waThreadKey } from './whatsapp.mjs';
 
 const CFG = 'config/waHook', WINDOW = 24 * 3600 * 1000, MAX_BODY = 256 * 1024;
 const OPT_OUT = /^\s*(stop|unsubscribe|dur|durdur)\s*[.!]?\s*$/i, OPT_TAG = 'mesaj-istemiyor';
@@ -43,7 +43,14 @@ export function parseInbound(j) {
   }
   return null;
 }
-const threadKey = (phone) => hash(phone).slice(0, 24);
+const threadKey = waThreadKey;
+// A message the line sent, as Bird lists it: a reply typed in Bird's Inbox, or a template (shown by what it was about).
+export function parseOutbound(p, set) {
+  const c = (((p.receiver || {}).contacts) || [])[0] || {}, b = p.body || {}, kind = str(b.type, 20) || 'text', part = b[kind] || {}, tp = p.template;
+  const said = str((b.text && b.text.text) || part.text || part.caption || '', 4000);
+  const text = said || (tp ? tplText(set, tp, Object.fromEntries((Array.isArray(tp.parameters) ? tp.parameters : []).map((x) => [str(x.key, 40), str(x.value, 300)]))) : '');
+  return { birdId: str(p.id, 80), phone: normPhone(c.identifierValue), at: iso(p.createdAt), kind: tp ? 'template' : kind, text };
+}
 const iso = (t) => { const ms = Date.parse(t || ''); return ms && ms <= Date.now() + 60000 ? new Date(ms).toISOString() : now(); };
 
 export async function waHook(req, s, url) {
@@ -74,13 +81,17 @@ async function storeInbound(s, m, history) {
   if (stop && c && !(c.tags || []).includes(OPT_TAG)) { c.tags = (c.tags || []).concat(OPT_TAG); c.updatedAt = now(); await s.set('contacts/' + c.id, c); }
   return true;
 }
-// One page of the channel's incoming messages from Bird; the screen asks page by page until there is no next page.
-async function importPage(s, pageToken) {
-  const j = await waCall('/channels/' + (await channelId(s)) + '/messages?direction=incoming&limit=25' + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''), 'GET');
-  let stored = 0; const rows = Array.isArray(j.results) ? j.results : [];
-  for (const p of rows) if ((p.direction || 'incoming') === 'incoming' && await storeInbound(s, parseInbound({ event: 'whatsapp.inbound', payload: p }), true)) stored += 1;
+// One page of the channel's messages from Bird, incoming or sent; the screen asks page by page until there is no next page.
+async function importPage(s, pageToken, out) {
+  const j = await waCall('/channels/' + (await channelId(s)) + '/messages?direction=' + (out ? 'outgoing' : 'incoming') + '&limit=' + (out ? 50 : 25) + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''), 'GET');
+  let stored = 0; const rows = Array.isArray(j.results) ? j.results : [], set = out ? await waSettings(s) : null;
+  for (const p of rows) {
+    const dir = p.direction || (out ? 'outgoing' : 'incoming');
+    if (out ? dir === 'outgoing' && ['accepted', 'processing', 'sent', 'delivered', 'read', ''].includes(str(p.status, 30)) && await storeOut(s, parseOutbound(p, set)) : dir === 'incoming' && await storeInbound(s, parseInbound({ event: 'whatsapp.inbound', payload: p }), true)) stored += 1;
+  }
   return { read: rows.length, stored, nextPageToken: str(j.nextPageToken, 600) };
 }
+const storeOut = async (s, m) => !!(m.birdId && (m.text || m.kind !== 'text') && await waRecordOut(s, m.phone, m));
 const preview = (m) => (m.kind === 'text' || !KIND[m.kind] ? m.text || (m.kind === 'text' ? '' : '[' + (KIND[m.kind] || 'Desteklenmeyen mesaj') + ']') : '[' + KIND[m.kind] + ']' + (m.text ? ' ' + m.text : '')).slice(0, 160);
 const unread = (t) => !!t.lastInAt && t.lastInAt > (t.readAt || '');
 export const unreadThreads = async () => (await all('wathreads/')).filter(unread).length;
@@ -110,7 +121,7 @@ export async function inboxRoute(req, parts, url, s, me) {
   }
   if (parts[1] === 'import' && m === 'POST') {
     if (!waStatus().connected) return fail(409, 'WhatsApp bağlı değil.');
-    try { return json(await importPage(s, str((await body(req)).pageToken, 600))); } catch (e) { return fail(502, 'Bird mesaj listesini vermedi: ' + String(e.message || e)); }
+    try { const b = await body(req); return json(await importPage(s, str(b.pageToken, 600), b.direction === 'outgoing')); } catch (e) { return fail(502, 'Bird mesaj listesini vermedi: ' + String(e.message || e)); }
   }
   const k = str(parts[1], 40).replace(/[^a-f0-9]/g, ''), t = k && await s.get('wathreads/' + k);
   if (!t) return fail(404, 'Konuşma bulunamadı.');
@@ -127,10 +138,8 @@ export async function inboxRoute(req, parts, url, s, me) {
     if (!open) return fail(409, 'Bu kişinin son mesajının üzerinden 24 saat geçti. WhatsApp bu süreden sonra yalnızca onaylı şablon mesajına izin verir.');
     let j; try { j = await waCall('/channels/' + (await channelId(s)) + '/messages', 'POST', { receiver: { contacts: [{ identifierValue: t.phone, identifierKey: 'phonenumber' }] }, body: { type: 'text', text: { text } } }); }
     catch (e) { return fail(502, 'WhatsApp gönderilemedi: ' + String(e.message || e)); }
-    const at = now(), msg = { dir: 'out', at, kind: 'text', text, birdId: str(j.id, 80), by: me.name };
-    await s.set('wamsgs/' + k + '/' + at + '~' + id(), msg);
-    Object.assign(t, { lastAt: at, lastText: text.slice(0, 160), lastDir: 'out', readAt: at }); await s.set('wathreads/' + k, t);
-    return json({ message: msg, thread: t });
+    const msg = await waRecordOut(s, t.phone, { birdId: str(j.id, 80), at: now(), text, by: me.name, read: true });
+    return json({ message: msg, thread: await s.get('wathreads/' + k) });
   }
   return fail(404, 'Bulunamadı.');
 }

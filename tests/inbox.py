@@ -1,19 +1,20 @@
 # Incoming WhatsApp messages: Bird's signed webhook → HQ → reply (python3 tests/inbox.py).
 import sys, os, json, threading, http.server, hmac, hashlib, base64, time, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-SUBS=[]; SENT=[]; DEL=[]; LISTED=[]; HIST=[]
+SUBS=[]; SENT=[]; DEL=[]; LISTED=[]; HIST=[]; OUT=[]
 class Mock(http.server.BaseHTTPRequestHandler):
     def _out(self,code,obj): self.send_response(code); self.end_headers(); self.wfile.write(json.dumps(obj).encode())
     def do_GET(self):
         if '/messages' in self.path:
             LISTED.append(self.path); second='pageToken=p2' in self.path
+            if 'direction=outgoing' in self.path: return self._out(200,{'results':OUT})
             return self._out(200,{'results':HIST[25:] if second else HIST[:25], **({} if second else {'nextPageToken':'p2'})})
         self._out(200,{'results':[{'id':'ch-wa','platformId':'whatsapp','name':'WhatsApp','status':'active'}]})
     def do_DELETE(self): DEL.append(self.path); self.send_response(204); self.end_headers()
     def do_POST(self):
         b=json.loads(self.rfile.read(int(self.headers['content-length'])))
         if self.path.endswith('/webhook-subscriptions'): SUBS.append(b); return self._out(201,{'id':'sub-%d'%len(SUBS)})
-        SENT.append((self.path,b)); self._out(202,{'id':'out1','status':'accepted'})
+        SENT.append((self.path,b)); self._out(202,{'id':'out%d'%len(SENT),'status':'accepted'})
     def log_message(self,*a): pass
 m=http.server.ThreadingHTTPServer(('127.0.0.1',8992),Mock); threading.Thread(target=m.serve_forever,daemon=True).start()
 os.environ.update(BIRD_ACCESS_KEY='bk_test', BIRD_WORKSPACE_ID='ws1', BIRD_API_URL='http://127.0.0.1:8992')
@@ -77,6 +78,22 @@ try:
     st,j,_=a.req('/api/hq/inbox'); th={x['phone']:x for x in j['threads']}
     ok('old history arrives read; one inside 24 hours is unread', len(j['threads'])==before+26 and not th['+905550000003']['unread'] and th['+905559990001']['unread'] and th['+905559990001']['lastText']=='dün yazdım', (len(j['threads']),before))
     st,p3,_=a.req('/api/hq/inbox/import','POST',{}); ok('loading again adds nothing', p3['stored']==0, p3)
+    a.req('/api/hq/whatsapp/settings','PUT',{'invite':{'projectId':'aaaaaaaa-0000-0000-0000-000000000001','version':'bbbbbbbb-0000-0000-0000-000000000001'}})
+    rc=lambda ph:{'contacts':[{'identifierValue':ph,'identifierKey':'phonenumber'}]}
+    OUT.extend([{'id':'o1','direction':'outgoing','status':'delivered','receiver':rc('+905559990001'),'createdAt':ago(60),'template':{'projectId':'aaaaaaaa-0000-0000-0000-000000000001','version':'x','parameters':[{'key':'name','value':'Deniz'},{'key':'title','value':'Santa’s Guestlist'},{'key':'line','value':'19 December 2026 · 22:00'},{'key':'token','value':'secret-token'}]},'body':{}},
+      {'id':'o2','direction':'outgoing','status':'delivered','receiver':rc('+905559990001'),'createdAt':ago(1),'body':{'type':'text','text':{'text':'Bird’den yazılan yanıt'}}},
+      {'id':'o3','direction':'outgoing','status':'delivered','receiver':rc('+905558887766'),'createdAt':ago(60),'template':{'projectId':'zz','version':'x','parameters':[{'key':'event','value':'WA Night'}]}},
+      {'id':'o4','direction':'outgoing','status':'sending_failed','receiver':rc('+905559990001'),'createdAt':ago(3),'body':{'type':'text','text':{'text':'gitmedi'}}}])
+    n0=len(a.req('/api/hq/inbox')[1]['threads']); st,po,_=a.req('/api/hq/inbox/import','POST',{'direction':'outgoing'}); st,j,_=a.req('/api/hq/inbox'); dz=[x for x in j['threads'] if x['phone']=='+905559990001'][0]
+    ok('sent messages are loaded; a failed one is not; a number that never wrote gets no conversation', po['stored']==3 and len(j['threads'])==n0 and 'direction=outgoing' in LISTED[-1], (po,len(j['threads']),n0))
+    st,j,_=a.req('/api/hq/inbox/'+dz['key']); ms=j['messages']; tp=[x for x in ms if x['kind']=='template']
+    ok('template sits in the conversation in time order, named by what it was about, without its link key', [x['birdId'] for x in ms]==['o1','h91','h90','o2'] and tp[0]['dir']=='out' and tp[0]['text']=='Davet: Santa’s Guestlist · 19 December 2026 · 22:00' and 'secret-token' not in json.dumps(ms), ms)
+    ok('conversation shows the later reply last and stays unread', dz['lastDir']=='out' and dz['lastText'].startswith('Bird’den') and dz['unread'], dz)
+    st,po,_=a.req('/api/hq/inbox/import','POST',{'direction':'outgoing'}); ok('loading sent messages again adds nothing', po['stored']==0, po)
+    hook(inbound('n1','+905558887766','ben de geliyorum','Can'),KEY); st,j,_=a.req('/api/hq/inbox'); cn=[x for x in j['threads'] if x['phone']=='+905558887766'][0]; st,j,_=a.req('/api/hq/inbox/'+cn['key'])
+    ok('when that number writes, the earlier template is already in its history', [x['birdId'] for x in j['messages']]==['o3','n1'] and j['messages'][0]['text']=='Şablon mesajı: WA Night', j['messages'])
+    n=len(SENT); st,j,_=a.req('/api/hq/whatsapp/test','POST',{'to':'+905558887766','projectId':'aaaaaaaa-0000-0000-0000-000000000001','version':'bbbbbbbb-0000-0000-0000-000000000001','parameters':{'title':'Yeni Gece','line':'1 January 2027'}}); st2,j2,_=a.req('/api/hq/inbox/'+cn['key'])
+    ok('a template sent from HQ is written to the conversation as it goes out', st==200 and len(SENT)==n+1 and j2['messages'][-1]['kind']=='template' and j2['messages'][-1]['text']=='Davet: Yeni Gece · 1 January 2027', (st,j2['messages'][-1]))
     st,j,_=a.req('/api/hq/audit'); ok('connect and reply are in the record of actions', any('gelen mesaj' in x['action'] for x in j['entries']) and any('yanıtladı' in x['action'] for x in j['entries']), [x['action'] for x in j.get('entries',[])][:8])
     st,j,_=a.req('/api/hq/inbox/connect','POST',{}); ok('reconnect removes the old subscription and makes a new key', st==200 and DEL[-1].endswith('/webhook-subscriptions/sub-1') and SUBS[-1]['signingKey']!=KEY, (st,DEL))
     st,j=hook(inbound('m5','+905321112233','x'),KEY); ok('old key stops working after reconnect', st==401, st)
