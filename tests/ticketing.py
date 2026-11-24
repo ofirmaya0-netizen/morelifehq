@@ -95,9 +95,9 @@ try:
     ok('transfers can be switched off', a.req(T+'/shop','PUT',{'transfers':False})[0]==200 and anon.req('/api/public/ticket','POST',{'o':tok2,'ticketId':order(tok2)['tickets'][1]['id'],'name':'Baş Ka','email':'b@x.com'})[0]==403)
 
     # ---------- admin: orders, refunds, comps, box office ----------
-    st,j,_=a.req(T+'/orders'); os={o['buyer']['email']:o for o in j['orders']}; ok('orders listed without stock keys or payment internals', 'ada@x.com' in os and os['ada@x.com']['slots'] is None if 'slots' in os['ada@x.com'] else True)
+    st,j,_=a.req(T+'/orders'); ords={o['buyer']['email']:o for o in j['orders']}; ok('orders listed without stock keys or payment internals', 'ada@x.com' in ords and 'slots' not in ords['ada@x.com'] and 'items' not in (ords['ada@x.com'].get('payment') or {}), ords.get('ada@x.com'))
     ok('search', a.req(T+'/orders?q=bora')[1]['total']==1)
-    oid=os['bora@x.com']['id']; d=a.req(T+'/orders/'+oid)[1]; tids=[t['id'] for t in d['tickets']]
+    oid=ords['bora@x.com']['id']; d=a.req(T+'/orders/'+oid)[1]; tids=[t['id'] for t in d['tickets']]
     st,j,_=a.req(T+'/orders/'+oid+'/refund','POST',{'ticketIds':[tids[1]],'reason':'gelemiyor'}); ok('one ticket refunded with its fee', st==200 and j['refund']['amount']==1325 and j['order']['status']=='partial' and j['order']['refunded']==1325, j)
     ok('refunded ticket is dead, the other lives', [t['status'] for t in order(tok2)['tickets']]==['valid','void'])
     ok('cannot refund more than was paid', a.req(T+'/orders/'+oid+'/refund','POST',{'amount':5000})[0]==400)
