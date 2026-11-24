@@ -19,6 +19,7 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 | `checkins/<eventId>/<rsvpId>` | Giriş kaydı. **Atomik oluşturulur**: aynı kart iki cihazda okutulursa yalnızca biri yazar |
 | `contacts/<id>` | CRM kişisi |
 | `contactEmail/<hash>`, `contactPhone/<hash>` | Normalleştirilmiş e-posta / telefon → kişi id |
+| `audiences/<id>` | CRM kitlesi: ad, not ve kurallar (`tags`, `tagMode`, `exclude`, `source`, `reach`, `eventId`, `eventState`). Üyeler saklanmaz, her seferinde CRM'den hesaplanır |
 | `tasks/<id>` | Görev |
 | `enquiries/<id>` | Site formlarından gelen talep (iletişim, brief, community, partnerlik) |
 | `images/<id>` | Yüklenen görsel (ikili) |
