@@ -185,3 +185,10 @@ button.g-pill:hover{background:rgba(243,238,230,.2)}
 .sh-picked{font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--z);white-space:nowrap}
 .g-form .field select{width:100%;height:52px;padding:0 14px;border-radius:12px;border:1px solid rgba(243,238,230,.3);background:rgba(14,11,10,.5);color:inherit;font:inherit}
 .sh-light .sh-plan{border-color:rgba(23,17,15,.2);background-color:rgba(23,17,15,.04)}.sh-light .sh-tb{background:#fff}.sh-light .g-form .field select{background:#fff;border-color:rgba(23,17,15,.2)}
+
+/* add-ons and the way back to bought tickets */
+.sh-group{display:flex;flex-direction:column;gap:2px;padding:18px 0 6px;border-top:1px solid var(--line,rgba(255,255,255,.12))}
+.sh-group b{font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+.sh-group span{font-size:13px;opacity:.7}
+.sh-mine{margin-top:16px;text-align:center}
+.sh-mine a{color:inherit;text-decoration:underline;text-underline-offset:3px}

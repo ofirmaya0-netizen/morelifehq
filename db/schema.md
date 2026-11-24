@@ -94,3 +94,11 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `tmap/<eventId>` — table plan: optional floor-plan image and tables `{ id, label, typeId, n, seats, x, y }`. A table is unit `n` of its type's stock (`tstock/<typeId>/<n>`); numbers are never reused. `tickets/….slot` is the unit a ticket came from and `.table` its table name.
 - `tshop/<eventId>.questions` — up to five extra questions asked at checkout; answers are kept in `orders/….answers`.
 - `settings/webhooks` — up to five outgoing hooks `{ url, events, secret, active, last }`; calls are signed with HMAC-SHA256 (`x-morelife-signature`).
+
+## Ticketing: add-ons, deposits, door without a connection
+
+- `ttypes/<eventId>/<id>` gains `addon` (sold only together with a ticket, not counted as a ticket, 0 guests at the door) and `deposit` (the part charged online; the rest is due at the venue).
+- `orders/...` items gain `unitPay` (charged online per unit), `unitDue` (left to pay at the venue) and `addon`; the order gains `due` and, once taken at the door, `collected { at, by, amount, method }`. `total` is always what was charged online.
+- `tickets/<eventId>/<id>` gains `addon` and `due` (on the first ticket of a unit, cleared when collected).
+- Door lists (`/api/door/list`, `rsvps/<eventId>` for HQ) carry `h`: the first 20 hex characters of sha256 of the QR key. The key itself never leaves the server; a device without a connection matches scans against `h`, queues the entries in its own storage and sends them later with `at` (accepted when within the last 24 hours).
+- Nothing new is stored for notices to ticket holders, "My tickets" or the settlement report: they read orders and tickets. Rate-limit counters: `mine/<ip>`, `mine-to/<email>`.

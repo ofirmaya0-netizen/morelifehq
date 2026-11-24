@@ -76,17 +76,33 @@
   H.parts.door = async function (root, eventId) {
     var d = await H.api('rsvps/' + eventId), list = d.rsvps.filter(function (x) { return x.status === 'approved'; }).concat(d.tickets || []), stop = null; // approved guests and bought tickets, one list
     root.innerHTML = '<div id="k-res" class="door" role="status" aria-live="assertive"><span class="st">Hazır</span><span class="ex">QR okutun ya da isim arayın</span></div>' +
-      '<div class="row" style="margin:14px 0"><button class="btn pri lg" id="k-scan" type="button" style="flex:1">' + H.ico('qr') + 'QR tara</button><span class="pill plain" id="k-count" style="height:36px;font-size:14px"></span></div><video id="k-video" playsinline muted hidden></video>' +
+      '<div class="row" style="margin:14px 0"><button class="btn pri lg" id="k-scan" type="button" style="flex:1">' + H.ico('qr') + 'QR tara</button><span class="pill plain" id="k-count" style="height:36px;font-size:14px"></span></div><video id="k-video" playsinline muted hidden></video><div id="k-live"></div>' +
       '<label class="search" style="max-width:none;display:block;margin:14px 0"><span class="sr">İsim, e-posta veya telefon</span>' + H.ico('search') + '<input id="k-q" type="search" autocomplete="off" placeholder="İsim, e-posta veya telefon" style="min-height:52px;font-size:17px"></label><div class="card flat"><div class="list" id="k-list"></div></div>';
     var res = root.querySelector('#k-res'), qEl = root.querySelector('#k-q');
     function draw() {
       var t = qEl.value.trim().toLocaleLowerCase('tr'), rows = list.filter(function (x) { return !t || (x.name + ' ' + (x.email || '') + ' ' + (x.phone || '')).toLocaleLowerCase('tr').indexOf(t) > -1; }).slice(0, 80);
       root.querySelector('#k-list').innerHTML = rows.length ? rows.map(function (x) {
-        return '<div class="item"><span class="av' + (x.checkedInAt ? ' in' : '') + '">' + H.initials(x.name) + '</span><div class="main"><span class="t">' + e(x.name) + '</span><span class="mute small">' + (x.ticket ? 'Bilet · ' + e(x.ticket) : x.guests + ' kişi') + (x.email ? ' · ' + e(x.email) : '') + '</span></div><div class="acts">' +
+        return '<div class="item"><span class="av' + (x.checkedInAt ? ' in' : '') + '">' + H.initials(x.name) + '</span><div class="main"><span class="t">' + e(x.name) + '</span><span class="mute small">' + (x.addon ? 'Ek ürün · ' + e(x.ticket) : x.ticket ? 'Bilet · ' + e(x.ticket) : x.guests + ' kişi') + (x.email ? ' · ' + e(x.email) : '') + (x.due ? ' · <b style="color:var(--warn)">Kapıda ' + H.money(x.due, x.currency) + ' alınacak</b>' : '') + '</span></div><div class="acts">' +
           (x.checkedInAt ? H.pill('checkedin', 'Giriş ' + H.fmtTime(x.checkedInAt)) + '<button class="btn sm ghost" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div></div>';
       }).join('') : '<div class="item"><span class="mute">' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</span></div>';
       root.querySelector('#k-count').textContent = list.filter(function (x) { return x.checkedInAt; }).reduce(function (n, x) { return n + x.guests; }, 0) + ' / ' + list.reduce(function (n, x) { return n + x.guests; }, 0) + ' içeride';
+      live();
     }
+    // The night at a glance: who is in by ticket type, and how fast the door is moving. Counted from the same list, refreshed every 20 s.
+    function live() {
+      var box = root.querySelector('#k-live'), ins = list.filter(function (x) { return x.checkedInAt; }); if (!ins.length) { box.innerHTML = ''; return; }
+      var groups = {}, order = []; list.forEach(function (x) { var k = x.addon ? 'Ek ürün · ' + x.ticket : x.ticket || 'Davetli listesi', g = groups[k] || (order.push(k), groups[k] = { n: 0, i: 0 }), w = x.addon ? 1 : x.guests; g.n += w; if (x.checkedInAt) g.i += w; });
+      var nowMs = Date.now(), slots = [], m15 = ins.filter(function (x) { return nowMs - Date.parse(x.checkedInAt) < 9e5; }).reduce(function (n, x) { return n + x.guests; }, 0);
+      for (var i = 7; i >= 0; i--) { var a = nowMs - (i + 1) * 18e5, b = nowMs - i * 18e5; slots.push({ at: b, n: ins.filter(function (x) { var t = Date.parse(x.checkedInAt); return t > a && t <= b; }).reduce(function (n, x) { return n + x.guests; }, 0) }); }
+      var top = Math.max.apply(null, slots.map(function (s) { return s.n; })) || 1, hm = function (ms) { return new Date(ms).toLocaleTimeString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit' }); };
+      box.innerHTML = '<div class="grid g2" style="margin:0 0 14px"><div class="card"><h3 class="h2" style="margin-bottom:10px">Türe göre içeride</h3>' + order.map(function (k) { var g = groups[k]; return '<div style="margin-bottom:10px"><div class="row" style="justify-content:space-between"><span class="small">' + e(k) + '</span><span class="small num-t"><b>' + g.i + '</b> / ' + g.n + '</span></div><div class="meter"><i style="width:' + (g.n ? Math.round(g.i / g.n * 100) : 0) + '%"></i></div></div>'; }).join('') + '</div>' +
+        '<div class="card"><h3 class="h2" style="margin-bottom:4px">Kapı temposu</h3><p class="small mute" style="margin-bottom:12px">Son 15 dakikada <b style="color:var(--ink)">' + m15 + '</b> kişi girdi</p><div class="k-bars" role="img" aria-label="Son dört saatte yarım saatlik girişler">' + slots.map(function (s) { return '<div><span class="small num-t">' + (s.n || '') + '</span><i style="height:' + Math.max(2, Math.round(s.n / top * 56)) + 'px"></i><span class="small mute">' + hm(s.at) + '</span></div>'; }).join('') + '</div></div></div>';
+    }
+    var beat = setInterval(async function () {
+      if (!document.body.contains(root)) { clearInterval(beat); return; }
+      if (document.visibilityState !== 'visible') return;
+      try { var n = await H.api('rsvps/' + eventId); list = n.rsvps.filter(function (x) { return x.status === 'approved'; }).concat(n.tickets || []); draw(); } catch (err) {}
+    }, 20000);
     var LBL = { ok: ['ok', 'Giriş onaylandı'], duplicate: ['duplicate', 'Daha önce kullanıldı'], invalid: ['bad', 'Geçersiz kart'], 'wrong-event': ['wrong', 'Başka etkinliğin kartı'], 'not-approved': ['bad', 'Onaylı değil'], undone: ['', 'Giriş geri alındı'] };
     function show(r) {
       var L = LBL[r.result] || ['bad', r.message]; res.className = 'door ' + L[0];

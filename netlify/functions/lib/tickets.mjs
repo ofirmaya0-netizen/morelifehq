@@ -6,7 +6,7 @@ import { id, token, hash } from './auth.mjs';
 import { json, fail, now, str, int, emailOk, normEmail, normPhone, body, istNow, istToday, csv } from './util.mjs';
 import { live, isListed, SITE_URL } from './model.mjs';
 import { provider, providerStatus } from './payments.mjs';
-import { sendOrder, sendRefund, sendWaitlist, sendCart, orderMail, emailStatus } from './email.mjs';
+import { sendOrder, sendRefund, sendWaitlist, sendCart, sendNotice, sendMyTickets, orderMail, emailStatus } from './email.mjs';
 
 export const CURRENCIES = ['TRY', 'EUR', 'USD', 'GBP'];
 const HOLD_MIN = 12, GRACE_MIN = 8; // a basket is held for 12 minutes; its stock is released 8 minutes after that
@@ -70,12 +70,15 @@ function typeInput(b, prev) {
   if ('hidden' in b) t.hidden = !!b.hidden;
   if ('status' in b) t.status = b.status === 'off' ? 'off' : 'on';
   if ('after' in b) t.after = str(b.after, 40);
+  if ('addon' in b) t.addon = !!b.addon;
+  if ('deposit' in b) { if (b.deposit === '' || b.deposit == null) t.deposit = null; else { t.deposit = money(b.deposit); if (t.deposit == null) return { error: 'Depozito tutarı geçersiz.' }; } }
   if ('earlyFor' in b) t.earlyFor = str(b.earlyFor, 40);
   if ('earlyUntil' in b) { t.earlyUntil = str(b.earlyUntil, 16); if (t.earlyUntil && !isDT(t.earlyUntil)) return { error: 'Erken erişim bitiş zamanı geçersiz.' }; }
   if (!t.name) return { error: 'Bilet türüne bir ad verin.' };
   if (t.min > t.max) return { error: 'En az adet, en fazla adetten büyük olamaz.' };
   if (t.saleStart && t.saleEnd && t.saleEnd <= t.saleStart) return { error: 'Satış bitişi başlangıçtan sonra olmalı.' };
   if (t.after && t.after === t.id) return { error: 'Bir bilet türü kendisinden sonra açılamaz.' };
+  if (t.deposit != null && (t.deposit <= 0 || t.deposit >= t.price)) return { error: 'Depozito, fiyattan küçük ve sıfırdan büyük olmalı.' };
   if (!!t.earlyFor !== !!t.earlyUntil) return { error: 'Erken erişim için hem kitle hem bitiş zamanı gerekli.' };
   return { type: t };
 }
@@ -156,23 +159,25 @@ const usesOf = async (s, c) => (await s.list('tcodeUse/' + c.eventId + '/' + c.c
 
 /* ---------- pricing ---------- */
 function price(lines, code, set) { // lines: [{ t, qty }]
-  let subtotal = 0, discount = 0, fee = 0; const items = [];
+  let subtotal = 0, discount = 0, fee = 0, due = 0; const items = [];
   for (const { t, qty } of lines) { // a picked table is its own line: named after the table, admitting its seats
     let unitNet = t.price;
     if (covers(code, t.id) && code.value > 0) unitNet = Math.max(0, r2(code.kind === 'percent' ? t.price * (1 - code.value / 100) : t.price - code.value));
-    const unitFee = set.feeMode === 'buyer' && unitNet > 0 ? r2(unitNet * (set.feePct || 0) / 100 + (set.feeFixed || 0)) : 0;
-    subtotal += t.price * qty; discount += (t.price - unitNet) * qty; fee += unitFee * qty;
-    items.push({ typeId: t.id, name: t.name, qty, unit: t.price, unitNet, unitFee, admits: t.admits || 1, ...(t.table ? { table: t.table } : {}) });
+    // with a deposit only that part is paid online; the rest is collected at the venue and shown at the door
+    const unitPay = t.deposit != null && t.deposit < unitNet ? t.deposit : unitNet, unitDue = r2(unitNet - unitPay);
+    const unitFee = set.feeMode === 'buyer' && unitPay > 0 ? r2(unitPay * (set.feePct || 0) / 100 + (set.feeFixed || 0)) : 0;
+    subtotal += t.price * qty; discount += (t.price - unitNet) * qty; fee += unitFee * qty; due += unitDue * qty;
+    items.push({ typeId: t.id, name: t.name, qty, unit: t.price, unitNet, unitPay, unitDue, unitFee, admits: t.admits || 1, ...(t.table ? { table: t.table } : {}), ...(t.addon ? { addon: true } : {}) });
   }
-  subtotal = r2(subtotal); discount = r2(discount); fee = r2(fee);
-  return { items, subtotal, discount, fee, total: r2(subtotal - discount + fee) };
+  subtotal = r2(subtotal); discount = r2(discount); fee = r2(fee); due = r2(due);
+  return { items, subtotal, discount, fee, due, total: r2(subtotal - discount - due + fee) };
 }
 
 /* ---------- orders + tickets ---------- */
 const orderKey = (o) => 'orders/' + o.eventId + '/' + o.id;
 const ordersOf = (eventId) => all('orders/' + eventId + '/');
 const ticketsOf = (eventId) => all('tickets/' + eventId + '/');
-export const ticketGuest = (t) => ({ id: 'tk-' + t.id, name: t.name, guests: 1, checkedInAt: t.checkedInAt || '', scanCount: t.scanCount || 0, eventId: t.eventId, ticket: t.typeName });
+export const ticketGuest = (t) => ({ id: 'tk-' + t.id, name: t.name, guests: t.addon ? 0 : 1, checkedInAt: t.checkedInAt || '', scanCount: t.scanCount || 0, eventId: t.eventId, ticket: t.typeName, h: hash(t.token).slice(0, 20), ...(t.due ? { due: t.due, currency: t.currency } : {}), ...(t.addon ? { addon: true } : {}) });
 async function releaseStock(s, o) { await pool(o.slots || [], 8, (k) => s.del(k)); o.slots = []; if (o.code) await s.del('tcodeUse/' + o.eventId + '/' + o.code + '/' + o.id); await s.del('pending/' + o.eventId + '/' + o.id); }
 // Baskets that were never paid give their stock back. Called before stock is shown or taken, and by the scheduled run.
 // opt.reconcile (scheduled run only): first ask the provider about baskets that may have been paid without the buyer coming
@@ -229,7 +234,7 @@ async function issue(s, e, o, origin, quiet) {
   if (o.tickets && o.tickets.length) return;
   o.tickets = []; let seq = 0, unit = 0; // every ticket remembers the unit of stock it came from, so a refund frees exactly that unit
   for (const it of o.items) for (let q = 0; q < it.qty; q++, unit++) for (let n = 0; n < it.admits; n++) {
-    const t = { id: id(), eventId: e.id, orderId: o.id, orderNo: o.no, typeId: it.typeId, typeName: it.name, name: o.buyer.name, email: o.buyer.email, token: token(24), slot: (o.slots || [])[unit] || '', table: it.table || '', status: 'valid', checkedInAt: '', scanCount: 0, seq: ++seq, paid: r2((it.unitNet + it.unitFee) / it.admits), net: r2(it.unitNet / it.admits), createdAt: now() };
+    const t = { id: id(), eventId: e.id, orderId: o.id, orderNo: o.no, typeId: it.typeId, typeName: it.name, name: o.buyer.name, email: o.buyer.email, token: token(24), slot: (o.slots || [])[unit] || '', table: it.table || '', status: 'valid', checkedInAt: '', scanCount: 0, seq: ++seq, paid: r2(((it.unitPay != null ? it.unitPay : it.unitNet) + it.unitFee) / it.admits), net: r2((it.unitPay != null ? it.unitPay : it.unitNet) / it.admits), ...(it.unitDue && n === 0 ? { due: it.unitDue, currency: o.currency } : {}), ...(it.addon ? { addon: true } : {}), createdAt: now() };
     await s.set('tickets/' + e.id + '/' + t.id, t); await s.set('passes/' + t.token, { eventId: e.id, ticketId: t.id }); o.tickets.push(t.id);
   }
   o.status = 'paid'; o.paidAt = o.paidAt || now(); await s.del('pending/' + e.id + '/' + o.id);
@@ -275,7 +280,7 @@ async function shopView(s, e, rawCode) {
   const code = await findCode(s, e.id, rawCode), full = code && code.maxUses && await usesOf(s, code) >= code.maxUses, c = full ? null : code;
   const all = await typesView(s, e.id), types = all.filter((t) => t.state !== 'off' && (!t.hidden || covers(c, t.id))).map((t) => {
     const p = price([{ t, qty: 1 }], c, set).items[0];
-    return { id: t.id, name: t.name, description: t.description || '', price: t.price, now: p.unitNet, fee: p.unitFee, state: t.state, min: t.min, max: t.left == null ? t.max : Math.min(t.max, t.left), admits: t.admits || 1, low: t.left != null && t.left > 0 && t.left <= Math.max(5, Math.round(t.stock * 0.1)), opens: t.state === 'soon' ? t.saleStart || '' : '', resale: t.state === 'on' && t.left != null && t.left <= t.resale && t.resale > 0, left: t.left != null && t.left > 0 && t.left <= 10 ? t.left : null, ends: t.state === 'on' && t.saleEnd ? t.saleEnd : '', early: isEarly(t) ? t.earlyUntil : '',
+    return { id: t.id, name: t.name, description: t.description || '', price: t.price, now: p.unitNet, pay: p.unitPay, fee: p.unitFee, addon: !!t.addon, state: t.state, min: t.min, max: t.left == null ? t.max : Math.min(t.max, t.left), admits: t.admits || 1, low: t.left != null && t.left > 0 && t.left <= Math.max(5, Math.round(t.stock * 0.1)), opens: t.state === 'soon' ? t.saleStart || '' : '', resale: t.state === 'on' && t.left != null && t.left <= t.resale && t.resale > 0, left: t.left != null && t.left > 0 && t.left <= 10 ? t.left : null, ends: t.state === 'on' && t.saleEnd ? t.saleEnd : '', early: isEarly(t) ? t.earlyUntil : '',
       next: (() => { const n = all.find((x) => x.after === t.id && x.status !== 'off' && !x.hidden && x.price > t.price); return n ? n.price : null; })(), // what the same ticket costs once this phase is gone
       notify: shop.waitlist !== false && (t.state === 'soldout' ? 'waitlist' : t.state === 'soon' ? 'onsale' : '') };
   });
@@ -339,6 +344,7 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
       lines.push({ t, qty });
     }
     if (!lines.length) return fail(400, say('Please choose at least one ticket.', 'Lütfen en az bir bilet seçin.'));
+    if (lines.every((x) => x.t.addon)) return fail(400, say('Extras are sold together with a ticket. Please add a ticket.', 'Ek ürünler biletle birlikte satılır. Lütfen bir bilet ekleyin.'));
     for (const { t } of lines.filter((x) => isEarly(x.t))) {
       const { audienceMembers } = await import('./admin2.mjs'), au = await s.get('audiences/' + t.earlyFor);
       if (!au || !(await audienceMembers(au)).some((c) => c.email === buyer.email)) return fail(403, t.name + say(' is in early access for invited guests until ' + t.earlyUntil.replace('T', ' ') + '. Use the email address we invited you on.', ' şu an yalnızca davetli misafirlere açık (' + t.earlyUntil.replace('T', ' ') + ' tarihine kadar). Sizi davet ettiğimiz e-posta adresini kullanın.'));
@@ -378,6 +384,20 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
     try { const p = provider(set.provider), st = await p.start(o, { origin: url.origin, ip: h.ip, installments: !!set.installments }); o.payment = { provider: set.provider, session: st.session || '' }; await s.set(orderKey(o), o); return json({ ok: true, url: st.url, expiresAt: o.expiresAt }); }
     catch (err) { o.status = 'cancelled'; await releaseStock(s, o); o.payment = { lastError: String(err.message || err) }; await s.set(orderKey(o), o); console.error('pay start', err); return fail(502, say('The payment page could not be opened. Please try again.', 'Ödeme sayfası açılamadı. Lütfen tekrar deneyin.')); }
   }
+  // "My tickets": the buyer types their e-mail and gets the links to their orders by mail. The answer on screen is the same
+  // whether or not the address is known, so the form cannot be used to find out who bought tickets.
+  if (parts[0] === 'mytickets' && m === 'POST') {
+    const b = await body(req), email = normEmail(b.email), L = langOf(b.lang);
+    if (str(b.website)) return json({ ok: true });
+    if (!emailOk(email)) return fail(400, tx(L, 'Please enter a valid email.', 'Lütfen geçerli bir e-posta girin.'));
+    if (await h.limited('mine/' + hash(h.ip), 6, 3600) || await h.limited('mine-to/' + hash(email), 3, 3600)) return fail(429, tx(L, 'Too many attempts. Please try again later.', 'Çok fazla deneme. Lütfen biraz sonra tekrar deneyin.'));
+    const found = [], td = istToday();
+    for (const e of (await all('events/')).filter((x) => x.status === 'published' && (!x.date || (x.endDate || x.date) >= td))) {
+      for (const o of (await ordersOf(e.id)).filter((x) => x.buyer.email === email && ['paid', 'partial'].includes(x.status))) found.push({ title: (live(e) || e).title, date: e.date, no: o.no, url: url.origin + '/order?t=' + o.token });
+    }
+    if (found.length) await sendMyTickets(email, found, L);
+    return json({ ok: true });
+  }
   // A promoter's own page, opened with their private link: their sales link and what was sold through it. No buyer contact details.
   if (parts[0] === 'promoter' && m === 'GET') {
     const r = await s.get('tpromoTok/' + str(url.searchParams.get('t'), 60)), pm = r && await s.get('tpromo/' + r.eventId + '/' + r.code), e = pm && await s.get('events/' + r.eventId);
@@ -415,7 +435,7 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
       const pr = provider(o.provider), res = pr.error || !pr.check ? null : await pr.check(o).catch(() => null); if (res && res.paid) await settle(s, e, o, res, url.origin);
     }
     const le = live(e) || e, shop = await shopOf(s, e.id), ts = await ticketsFor(s, o), set = await tixSettings(s), types = await typesOf(e.id), started = !!le.date && le.date < istToday();
-    return json({ order: { no: o.no, status: o.status, items: o.items.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, unitNet: i.unitNet })), subtotal: o.subtotal, discount: o.discount, fee: o.fee, total: o.total, currency: o.currency, refunded: refunded(o), name: o.buyer.name, email: o.buyer.email, paidAt: o.paidAt || '', expiresAt: o.expiresAt, error: (o.payment && o.payment.lastError) || '',
+    return json({ order: { no: o.no, status: o.status, items: o.items.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, unitNet: i.unitPay != null ? i.unitPay : i.unitNet })), subtotal: o.subtotal, discount: o.discount, fee: o.fee, due: o.collected ? 0 : o.due || 0, total: o.total, currency: o.currency, refunded: refunded(o), name: o.buyer.name, email: o.buyer.email, paidAt: o.paidAt || '', expiresAt: o.expiresAt, error: (o.payment && o.payment.lastError) || '',
         payUrl: o.status === 'pending' && o.provider === 'test' ? '/pay/test?o=' + o.token : '' },
       lang: o.lang || 'en', tickets: ts.map((t) => ({ id: t.id, type: t.typeName, name: t.name, status: t.status, checkedIn: !!t.checkedInAt, url: t.status === 'valid' ? '/pass?t=' + t.token : '', resold: !!t.resoldTo, listed: !!t.listed,
         canResell: shop.resale === true && !started && !t.table && t.status === 'valid' && !t.checkedInAt && ((types.find((x) => x.id === t.typeId) || {}).admits || 1) === 1, back: t.net != null ? t.net : t.paid || 0 })), transfers: shop.transfers !== false,
@@ -480,8 +500,8 @@ function salesOf(orders, tickets, types) {
     bySource[src] = bySource[src] || { name: src, orders: 0, tickets: 0, revenue: 0 }; bySource[src].orders += 1; bySource[src].tickets += n; bySource[src].revenue = r2(bySource[src].revenue + net);
     if (o.code) { byCode[o.code] = byCode[o.code] || { code: o.code, orders: 0, discount: 0 }; byCode[o.code].orders += 1; byCode[o.code].discount = r2(byCode[o.code].discount + o.discount); }
   }
-  const valid = tickets.filter((t) => t.status === 'valid'), w = Date.now() - 7 * 864e5, w2 = Date.now() - 14 * 864e5, at = (o) => Date.parse(o.paidAt || o.createdAt), cnt = (list) => list.reduce((a, o) => a + o.items.reduce((b, i) => b + i.qty * i.admits, 0), 0);
-  return { orders: paid.length, tickets: valid.length, checkedIn: valid.filter((t) => t.checkedInAt).length, gross: sum((o) => o.total), fees: sum((o) => o.fee), discounts: sum((o) => o.discount), refunds: sum(refunded), net: r2(sum((o) => o.total) - sum(refunded)),
+  const valid = tickets.filter((t) => t.status === 'valid' && !t.addon), extras = tickets.filter((t) => t.status === 'valid' && t.addon).length, dueOpen = r2(paid.filter((o) => o.status !== 'refunded' && !o.collected).reduce((n, o) => n + (o.due || 0), 0)), collected = r2(paid.reduce((n, o) => n + ((o.collected && o.collected.amount) || 0), 0)), w = Date.now() - 7 * 864e5, w2 = Date.now() - 14 * 864e5, at = (o) => Date.parse(o.paidAt || o.createdAt), cnt = (list) => list.reduce((a, o) => a + o.items.reduce((b, i) => b + i.qty * i.admits, 0), 0);
+  return { extras, dueOpen, collected, orders: paid.length, tickets: valid.length, checkedIn: valid.filter((t) => t.checkedInAt).length, gross: sum((o) => o.total), fees: sum((o) => o.fee), discounts: sum((o) => o.discount), refunds: sum(refunded), net: r2(sum((o) => o.total) - sum(refunded)),
     last7: cnt(paid.filter((o) => at(o) >= w)), prev7: cnt(paid.filter((o) => at(o) < w && at(o) >= w2)), pending: orders.filter((o) => o.status === 'pending').length,
     referrers: paid.map((o) => ({ o, got: paid.filter((x) => x.referredBy === o.id && x.buyer.email !== o.buyer.email) })).filter((x) => x.got.length).map((x) => ({ name: x.o.buyer.name, email: x.o.buyer.email, orders: x.got.length, tickets: cnt(x.got) })).sort((a, b) => b.tickets - a.tickets).slice(0, 30), // buying again through your own link does not count
     byType: Object.values(byType), byDay: Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day)).slice(-60), bySource: Object.values(bySource).sort((a, b) => b.revenue - a.revenue || b.tickets - a.tickets), byCode: Object.values(byCode) };
@@ -646,6 +666,31 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
     const os = (await ordersOf(e.id)).filter((o) => o.status !== 'pending' && o.status !== 'expired' && o.status !== 'cancelled').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     return csv('siparisler-' + e.slug + '.csv', [['Sipariş', 'Durum', 'Kanal', 'Ad Soyad', 'E-posta', 'Telefon', 'Biletler', 'Ara toplam', 'İndirim', 'Hizmet bedeli', 'Toplam', 'İade', 'Para birimi', 'Kod', 'Promoter', 'Kaynak', 'Kampanya', 'Ödeme', 'Sağlayıcı ref.', 'Yanıtlar']].concat(os.map((o) => [o.no, o.status, o.channel, o.buyer.name, o.buyer.email, o.buyer.phone, o.items.map((i) => i.qty + '× ' + i.name).join(' + '), o.subtotal, o.discount, o.fee, o.total, refunded(o), o.currency, o.code, o.promoter || '', (o.utm && o.utm.source) || '', (o.utm && o.utm.campaign) || '', o.paidAt, (o.payment && o.payment.ref) || '', (o.answers || []).map((x) => x.label + ': ' + x.value).join(' | ')])));
   }
+  if (sub === 'report' && m === 'GET') { // settlement sheet for the venue or the agency: counts and money, no buyer data
+    const [types, os, ts, shop] = await Promise.all([typesView(s, e.id), ordersOf(e.id), ticketsOf(e.id), shopOf(s, e.id)]), x = salesOf(os, ts, types), paid = os.filter((o) => ['paid', 'partial', 'refunded'].includes(o.status));
+    const rows = types.map((ty) => { const mine = ts.filter((k) => k.typeId === ty.id), on = (ch) => mine.filter((k) => k.status === 'valid' && (paid.find((o) => o.id === k.orderId) || {}).channel === ch).length; return { name: ty.name, price: ty.price, online: on('online'), door: on('boxoffice'), comp: on('comp'), refunded: mine.filter((k) => k.status === 'void').length, in: mine.filter((k) => k.status === 'valid' && k.checkedInAt).length }; });
+    const tot = { gross: x.gross, fees: x.fees, discounts: x.discounts, refunds: x.refunds, net: x.net, dueOpen: x.dueOpen, collected: x.collected, door: r2(paid.filter((o) => o.channel === 'boxoffice').reduce((n, o) => n + o.total - refunded(o), 0)), orders: x.orders, tickets: x.tickets, checkedIn: x.checkedIn };
+    if (url.searchParams.get('format') === 'json') return json({ rows, totals: tot, currency: shop.currency });
+    const h = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])), mny = (n) => new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n) + ' ' + shop.currency, sumOf = (k) => rows.reduce((n, r) => n + r[k], 0);
+    const line = (a, b2, bold) => '<tr' + (bold ? ' class="b"' : '') + '><td>' + a + '</td><td class="r">' + b2 + '</td></tr>';
+    return new Response('<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Mutabakat raporu · ' + h(e.title) + '</title><style>body{font:14px/1.5 -apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#111;max-width:820px;margin:32px auto;padding:0 20px}h1{font-size:22px;margin:0 0 4px}h2{font-size:14px;margin:28px 0 8px;text-transform:uppercase;letter-spacing:.06em}p{margin:0;color:#555}table{width:100%;border-collapse:collapse}th,td{padding:7px 8px;border-bottom:1px solid #ddd;text-align:left}th{font-size:12px;color:#555}.r{text-align:right;font-variant-numeric:tabular-nums}.b td{font-weight:700;border-top:2px solid #111;border-bottom:0}.sign{display:flex;gap:40px;margin-top:56px}.sign div{flex:1;border-top:1px solid #111;padding-top:6px;color:#555}button{font:inherit;padding:8px 14px;margin-bottom:20px}@media print{button{display:none}body{margin:0}}</style></head><body><button type="button" onclick="print()">Yazdır / PDF olarak kaydet</button>' +
+      '<h1>Mutabakat raporu</h1><p><b>' + h(e.title) + '</b> · ' + h([e.date, e.venue, e.city].filter(Boolean).join(' · ')) + '</p><p>Hazırlayan: ' + h(me.name) + ' · ' + h(new Date().toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })) + '</p>' +
+      '<h2>Bilet türüne göre</h2><table><thead><tr><th>Tür</th><th class="r">Fiyat</th><th class="r">İnternet</th><th class="r">Kapı</th><th class="r">Davetiye</th><th class="r">İade / iptal</th><th class="r">Giriş yapan</th></tr></thead><tbody>' + rows.map((r) => '<tr><td>' + h(r.name) + '</td><td class="r">' + mny(r.price) + '</td><td class="r">' + r.online + '</td><td class="r">' + r.door + '</td><td class="r">' + r.comp + '</td><td class="r">' + r.refunded + '</td><td class="r">' + r.in + '</td></tr>').join('') + '<tr class="b"><td>Toplam</td><td></td><td class="r">' + sumOf('online') + '</td><td class="r">' + sumOf('door') + '</td><td class="r">' + sumOf('comp') + '</td><td class="r">' + sumOf('refunded') + '</td><td class="r">' + sumOf('in') + '</td></tr></tbody></table>' +
+      '<h2>Para</h2><table><tbody>' + line('Brüt tahsilat (hizmet bedeli dahil)', mny(tot.gross)) + line('İçindeki hizmet bedeli', mny(tot.fees)) + line('Uygulanan indirimler (bilgi)', mny(tot.discounts)) + line('İadeler', (tot.refunds ? '−' : '') + mny(tot.refunds)) + line('Net tahsilat', mny(tot.net), 1) + '</tbody></table>' +
+      '<table style="margin-top:14px"><tbody>' + line('Net tahsilatın kapıda satılan kısmı', mny(tot.door)) + line('Depozitolu siparişlerde kapıda tahsil edilen', mny(tot.collected)) + line('Depozitolu siparişlerde henüz tahsil edilmeyen', mny(tot.dueOpen)) + line('Toplam tahsilat (internet + kapıda alınan kalanlar)', mny(r2(tot.net + tot.collected)), 1) + '</tbody></table>' +
+      '<p style="margin-top:14px;font-size:12px">Ödeme sağlayıcısının kendi komisyonu bu raporda yoktur; sağlayıcı ekstresinden alınır. Sipariş: ' + tot.orders + ' · Geçerli bilet: ' + tot.tickets + ' · Giriş yapan: ' + tot.checkedIn + '</p><div class="sign"><div>More Life</div><div>Mekân / ajans</div></div></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-robots-tag': 'noindex', 'x-frame-options': 'DENY' } });
+  }
+  // A notice to the people who hold tickets (door time moved, rain plan…). Sent in windows the browser drives; one mail per address.
+  if (sub === 'message' && m === 'POST') {
+    const b = await body(req), subject = str(b.subject, 140), text = str(b.text, 3000), seg = str(b.segment, 60);
+    if (!subject || !text) return fail(400, 'Konu ve mesaj gerekli.');
+    if (!emailStatus().connected && !b.dryRun) return fail(409, 'E-posta servisi bağlı değil.');
+    const ts = (await ticketsOf(e.id)).filter((k) => k.status === 'valid' && k.email && (seg === 'out' ? !k.checkedInAt : seg.startsWith('type:') ? k.typeId === seg.slice(5) : true)), to = [...new Set(ts.map((k) => k.email))].sort();
+    if (b.dryRun) return json({ count: to.length });
+    const from = int(b.from, 0, to.length), part = to.slice(from, from + 20); let sent = 0, failed = 0;
+    for (const addr of part) { const r = await sendNotice(live(e) || e, addr, subject, text, url.origin); if (r.status === 'sent') sent += 1; else failed += 1; }
+    return json({ sent, failed, total: to.length, next: from + part.length < to.length ? from + part.length : null, eventTitle: e.title });
+  }
   if (sub === 'waitlist.csv') { const ts = await typesOf(e.id); return csv('bekleme-listesi-' + e.slug + '.csv', [['Tür', 'Ad', 'E-posta', 'Adet', 'Liste', 'Durum', 'Kayıt', 'Bildirim']].concat((await all('twait/' + e.id + '/')).sort((a, b) => a.at.localeCompare(b.at)).map((w) => [(ts.find((x) => x.id === w.typeId) || {}).name || '', w.name, w.email, w.qty, w.kind === 'onsale' ? 'satış açılışı' : 'bekleme', w.status === 'waiting' ? 'bekliyor' : 'bildirildi', w.at, w.notifiedAt || '']))); }
   if (sub === 'tickets.csv') return csv('biletler-' + e.slug + '.csv', [['Bilet', 'Tür', 'Ad Soyad', 'E-posta', 'Sipariş', 'Durum', 'Giriş', 'Girişi yapan']].concat((await ticketsOf(e.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((t) => [t.id, t.typeName, t.name, t.email, t.orderNo, t.status === 'valid' ? 'geçerli' : 'iptal', t.checkedInAt, t.checkedInBy || ''])));
   if (sub === 'orders') {
@@ -673,6 +718,12 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
     const o = await s.get('orders/' + e.id + '/' + parts[3]); if (!o) return fail(404, 'Sipariş bulunamadı.');
     if (!parts[4] && m === 'GET') return json({ order: orderView(o), tickets: await ticketsFor(s, o), mail: emailStatus() });
     if (parts[4] === 'refund' && m === 'POST') { if (!['paid', 'partial'].includes(o.status)) return fail(409, 'Bu sipariş iade edilemez.'); return refund(s, e, o, await body(req), me, url, ip); }
+    if (parts[4] === 'collect' && m === 'POST') { // the rest of a deposit order, taken at the venue
+      if (!o.due || o.collected) return fail(409, 'Bu siparişte tahsil edilecek kalan tutar yok.');
+      const b = await body(req); o.collected = { at: now(), by: me.name, amount: o.due, method: b.method === 'card' ? 'card' : 'cash' };
+      for (const x of await ticketsFor(s, o)) if (x.due) { x.due = 0; await s.set('tickets/' + e.id + '/' + x.id, x); }
+      await s.set(orderKey(o), o); return json({ order: orderView(o), eventTitle: e.title });
+    }
     if (parts[4] === 'resend' && m === 'POST') {
       if (!['paid', 'partial'].includes(o.status) || !o.buyer.email) return fail(400, 'Gönderilecek geçerli bilet ya da e-posta adresi yok.');
       if (!emailStatus().connected) return fail(409, 'E-posta servisi bağlı değil.');

@@ -128,6 +128,7 @@ export async function describe(s, parts, m, b, j) {
   if (a === 'tickets') {
     const t = j.eventTitle || await title(p1);
     if (p1 === 'webhooks') return p3 === 'test' ? null : [del ? 'Webhook sildi' : put ? 'Webhook ayarını değiştirdi' : 'Webhook ekledi', '', (j.hook && j.hook.url) || ''];
+    if (p2 === 'message') return b.dryRun || parseInt(b.from, 10) > 0 ? null : ['Bilet sahiplerine mesaj gönderdi', t, str(b.subject, 100) + ' · ' + j.total + ' kişi'];
     if (p2 === 'map') return ['Masa planını kaydetti', t, (j.map ? j.map.tables.length : 0) + ' masa'];
     if (p1 === 'settings') return ['Bilet satış ayarlarını düzenledi', '', b.provider != null ? 'sağlayıcı: ' + (b.provider || 'yok') : ''];
     if (p2 === 'shop') return ['enabled' in b ? (b.enabled ? 'Bilet satışını açtı' : 'Bilet satışını kapattı') : 'Bilet satış ayarını düzenledi', t];
@@ -139,6 +140,7 @@ export async function describe(s, parts, m, b, j) {
       if (!p3) return [o.channel === 'boxoffice' ? 'Kapıda bilet sattı' : 'Davetiye bileti verdi', who, t + ' · ' + (o.items || []).map((i) => i.qty + '× ' + i.name).join(', ') + (o.total ? ' · ' + o.total + ' ' + o.currency : '')];
       if (parts[4] === 'refund') return ['Bilet iadesi yaptı', who, t + ' · ' + o.no + ' · ' + j.refund.tickets + ' bilet · ' + j.refund.amount + ' ' + j.refund.currency];
       if (parts[4] === 'resend') return ['Biletleri yeniden gönderdi', who, t + ' · ' + o.no];
+      if (parts[4] === 'collect') return ['Kalan tutarı kapıda tahsil etti', who, t + ' · ' + o.no + ' · ' + o.collected.amount + ' ' + o.currency];
     }
     return null;
   }

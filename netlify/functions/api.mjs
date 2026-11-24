@@ -149,7 +149,7 @@ async function publicApi(req, ctx, parts, url) {
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
-  if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale', 'promoter'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
+  if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale', 'promoter', 'mytickets'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
     if (ref && ref.ticketId) { // a bought ticket opens in the same pass page as an approved guest
@@ -198,11 +198,12 @@ async function publicApi(req, ctx, parts, url) {
 // The check-in record is created atomically: of two devices scanning the same pass, exactly one gets true.
 // Whoever walks through the door is tagged in the CRM, so the regulars are visible later.
 async function markAttended(s, r) { const c = r.contactId && await s.get('contacts/' + r.contactId); if (c && !(c.tags || []).includes('katıldı')) { c.tags = (c.tags || []).concat('katıldı'); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
-async function checkIn(s, r, undo, by) {
+async function checkIn(s, r, undo, by, when) {
   // r is an RSVP or a bought ticket (r.ticket set); both get one atomic check-in record
   const key = 'checkins/' + r.eventId + '/' + (r.ticket ? 'tk-' : '') + r.id, save = () => s.set((r.ticket ? 'tickets/' : 'rsvps/') + r.eventId + '/' + r.id, r), out = (o) => (r.ticket ? { ...o, rsvp: { ...ticketGuest(r), email: r.email } } : o);
   if (undo) { await s.del(key); r.checkedInAt = ''; r.checkedInBy = ''; r.scanCount = 0; await save(); return out({ result: 'undone', rsvp: r }); }
-  const at = now(), first = await s.create(key, { at, by: by || '' });
+  // a device that was offline reports the time it let the guest in; accepted when it lies in the last 24 hours
+  const ms = Date.parse(when || ''), at = ms && ms <= Date.now() && Date.now() - ms < 864e5 ? new Date(ms).toISOString() : now(), first = await s.create(key, { at, by: by || '' });
   if (first) { r.checkedInAt = at; r.checkedInBy = by || ''; r.scanCount = 1; await save(); if (!r.ticket) await markAttended(s, r); else await emit(s, 'ticket.checked_in', { ticket: { id: r.id, type: r.typeName, name: r.name, orderNo: r.orderNo, eventId: r.eventId, at } }); return out({ result: 'ok', message: 'Giriş onaylandı.', rsvp: r }); }
   const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
   return out({ result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r });
@@ -220,17 +221,18 @@ async function findPass(s, b, eventId) {
 
 /* ---------- door link: check-in for one event, without an HQ account ---------- */
 // A door key opens only the check-in list of its own event: names and party size, no e-mail, phone or notes.
-const doorGuest = (r) => (r.ticket ? { id: /^tk-/.test(r.id) ? r.id : 'tk-' + r.id, name: r.name, guests: 1, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId, ticket: r.ticket } : { id: r.id, name: r.name, guests: r.guests, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId });
+// `h` is a one-way mark of the QR key: a door device that lost its connection can match a scanned code against its list without ever holding the keys
+const doorGuest = (r) => (r.ticket ? { id: /^tk-/.test(r.id) ? r.id : 'tk-' + r.id, name: r.name, guests: r.addon ? 0 : 1, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId, ticket: r.ticket, h: r.h || (r.token ? hash(r.token).slice(0, 20) : ''), ...(r.due ? { due: r.due, currency: r.currency } : {}), ...(r.addon ? { addon: true } : {}) } : { id: r.id, name: r.name, guests: r.guests, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId, h: r.passToken ? hash(r.passToken).slice(0, 20) : '' });
 const doorValid = (e) => e && e.status === 'published' && e.door && e.door.token && (!e.date || istToday() <= new Date(Date.parse(e.endDate || e.date) + 2 * 864e5).toISOString().slice(0, 10));
 async function doorApi(req, ctx, parts, url) {
   const s = await store(), key = str(req.headers.get('x-door') || '', 60), ref = key && await s.get('doors/' + key), e = ref && await s.get('events/' + ref.eventId);
-  if (await limited('door/' + hash(ipOf(req, ctx)), 600, 3600)) return fail(429, 'Çok fazla istek.');
+  if (await limited('door/' + hash(ipOf(req, ctx)), 3000, 3600)) return fail(429, 'Çok fazla istek.');
   if (!doorValid(e) || e.door.token !== key) return fail(401, 'Bu kapı linki geçerli değil.');
   if (parts[0] === 'list' && req.method === 'GET') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue }, guests: (await all('rsvps/' + e.id + '/')).filter((r) => r.status === 'approved').map(doorGuest).concat((await eventTickets(e.id)).map(ticketGuest)) });
   if (parts[0] === 'checkin' && req.method === 'POST') {
     const b = await body(req), f = await findPass(s, b, e.id);
     if (f.out) return json(f.r ? { ...f.out, rsvp: doorGuest(f.r) } : f.out);
-    const o = await checkIn(s, f.r, !!b.undo, 'Kapı linki'); return json({ ...o, rsvp: doorGuest(o.rsvp) });
+    const o = await checkIn(s, f.r, !!b.undo, 'Kapı linki', b.at); return json({ ...o, rsvp: doorGuest(o.rsvp) });
   }
   return fail(404, 'Bulunamadı.');
 }

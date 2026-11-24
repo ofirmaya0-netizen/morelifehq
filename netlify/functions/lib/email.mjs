@@ -122,3 +122,15 @@ export function sendCart(e, o, url, lang) {
   const html = shell(head(tr ? 'Biletlerin seni bekliyor' : 'Still coming?', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(x.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(x.where) + '</p><p style="margin:0 0 22px">' + body + '</p>' + btn(url, tr ? 'Etkinliğe dön' : 'Back to the event') + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">' + (tr ? 'Bu sipariş için başka hatırlatma gönderilmeyecek.' : 'You will not get another reminder about this order.') + '</p>');
   return send(o.buyer.email, (tr ? 'Ödeme tamamlanmadı — ' : 'Payment not completed — ') + e.title, html, (tr ? 'Etkinliğe dön: ' : 'Back to the event: ') + url);
 }
+
+// A notice from the organiser to ticket holders about the event they bought for. Plain text in, paragraphs out.
+export function sendNotice(e, to, subject, text, origin) {
+  const w = whenWhere(e), paras = esc(text).split(/\n{2,}/).map((p) => '<p style="margin:0 0 14px">' + p.replace(/\n/g, '<br>') + '</p>').join('');
+  const html = shell(head('Update', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' + paras + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">You are receiving this because you hold a ticket for this event.</p>');
+  return send(to, subject + ' — ' + e.title, html, text);
+}
+export function sendMyTickets(to, orders, lang) {
+  const tr = lang === 'tr', rows = orders.map((o) => '<tr><td style="padding:10px 0;border-top:1px solid #3a302c"><b>' + esc(o.title) + '</b><br><span style="color:#C9C0B5;font-size:13px">' + esc((tr ? 'Sipariş ' : 'Order ') + o.no) + '</span></td><td style="padding:10px 0;border-top:1px solid #3a302c;text-align:right"><a href="' + esc(o.url) + '" style="color:#F3EEE6;font-weight:600">' + (tr ? 'Biletleri aç' : 'Open tickets') + '</a></td></tr>').join('');
+  const html = shell('<h1 style="margin:0 0 14px;font-size:30px;line-height:1.1;font-weight:500">' + (tr ? 'Biletlerin' : 'Your tickets') + '</h1><p style="margin:0 0 14px">' + (tr ? 'Yaklaşan etkinlikler için siparişlerin burada. Bu linkleri kimseyle paylaşma: linke sahip olan biletleri açabilir.' : 'Here are your orders for upcoming events. Keep these links to yourself: whoever has a link can open the tickets.') + '</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + rows + '</table><p style="margin:18px 0 0;font-size:13px;color:#8F867D">' + (tr ? 'Bu e-postayı sen istemediysen bir şey yapmana gerek yok.' : 'If you did not ask for this email, you can ignore it.') + '</p>');
+  return send(to, tr ? 'Biletlerin — More Life' : 'Your tickets — More Life', html, orders.map((o) => o.title + ': ' + o.url).join('\n'));
+}

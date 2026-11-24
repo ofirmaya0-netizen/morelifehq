@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>My tickets — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/guest.css">
+</head>
+<body>
+<div class="g-wrap">
+<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
+<main class="g-card" id="card"></main>
+</div>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search), tr = q.get('lang') ? q.get('lang') === 'tr' : (function () { try { var l = localStorage.getItem('ml-lang'); if (l) return l === 'tr'; } catch (e) {} return (navigator.language || '').toLowerCase().indexOf('tr') === 0; })();
+  var S = function (en, t) { return tr ? t : en; }, card = document.getElementById('card');
+  document.documentElement.lang = tr ? 'tr' : 'en'; document.title = S('My tickets', 'Biletlerim') + ' — More Life';
+  function form(msg) {
+    card.innerHTML = '<p class="eyebrow">' + S('Tickets', 'Biletler') + '</p><h1 class="g-title">' + S('Find my ', 'Biletlerimi ') + '<span class="serif accent">' + S('tickets.', 'bul.') + '</span></h1>' +
+      '<p style="color:var(--mute)">' + S('Enter the email you bought with. We will send the links to your tickets for upcoming events to that address.', 'Bilet alırken kullandığınız e-postayı yazın. Yaklaşan etkinliklerdeki biletlerinizin linklerini o adrese göndeririz.') + '</p>' +
+      '<form class="g-form" id="f" novalidate><div class="field" style="grid-column:1/-1"><label for="em">' + S('Email', 'E-posta') + '</label><input id="em" name="email" type="email" autocomplete="email" required maxlength="160"></div>' +
+      '<input name="website" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px">' +
+      '<p class="g-msg bad" id="m" role="alert" style="grid-column:1/-1">' + (msg || '') + '</p><button class="btn" type="submit" style="grid-column:1/-1">' + S('Send me my tickets', 'Biletlerimi gönder') + '</button></form>';
+    document.getElementById('f').onsubmit = function (ev) {
+      ev.preventDefault(); var f = this, b = f.querySelector('button'), em = f.email.value.trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) { document.getElementById('m').textContent = S('Please enter a valid email.', 'Lütfen geçerli bir e-posta girin.'); return; }
+      b.disabled = true;
+      fetch('/api/public/mytickets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: em, website: f.website.value, lang: tr ? 'tr' : 'en' }) })
+        .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || S('Something went wrong.', 'Bir şeyler ters gitti.')); }); })
+        .then(function () { card.innerHTML = '<p class="eyebrow">' + S('Tickets', 'Biletler') + '</p><h1 class="g-title">' + S('Check your ', 'E-postanıza ') + '<span class="serif accent">' + S('inbox.', 'bakın.') + '</span></h1><p style="color:var(--mute)">' + S('If there are tickets for upcoming events under that address, the links are on their way. It can take a minute; look in spam too.', 'Bu adresle yaklaşan bir etkinliğe alınmış bilet varsa linkleri yola çıktı. Bir dakika sürebilir; spam klasörüne de bakın.') + '</p><p style="margin-top:18px"><a class="btn quiet" href="/">' + S('Back to More Life', 'More Life’a dön') + '</a></p>'; })
+        .catch(function (err) { b.disabled = false; document.getElementById('m').textContent = err.message; });
+    };
+  }
+  form();
+})();
+</script>
+</body>
+</html>

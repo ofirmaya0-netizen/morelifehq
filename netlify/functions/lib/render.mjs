@@ -132,4 +132,4 @@ export function sitemap(homeIndexable, events, set) {
   for (const e of events) { const s = eventSeo(e, set); if (!s.noindex && s.canonical === s.url) urls.push({ loc: s.url, lastmod: str(e.publishedAt, 10) }); }
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map((u) => '<url><loc>' + esc(u.loc) + '</loc>' + (u.lastmod ? '<lastmod>' + u.lastmod + '</lastmod>' : '') + '</url>').join('\n') + '\n</urlset>\n';
 }
-export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /order\nDisallow: /pay\nDisallow: /promoter\nDisallow: /offer\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';
+export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /order\nDisallow: /my-tickets\nDisallow: /pay\nDisallow: /promoter\nDisallow: /offer\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';

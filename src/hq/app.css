@@ -278,3 +278,6 @@ ul.dots{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--mu
 .plan .tb.sel{background:var(--z);color:#17110F}.plan .tb.sel i{color:#17110F}
 .z0{--z:#E0705F}.z1{--z:#F2C46B}.z2{--z:#7FD1A0}.z3{--z:#9DB8F2}
 .zdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--z);margin-right:5px}
+
+/* door: arrivals per half hour */
+.k-bars{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;align-items:end}.k-bars div{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}.k-bars i{display:block;width:100%;border-radius:4px 4px 0 0;background:var(--acc,var(--ink))}.k-bars .mute{font-size:10px;white-space:nowrap}
