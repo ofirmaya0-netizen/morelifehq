@@ -3,6 +3,7 @@
   var H = HQ, e = H.esc;
   var FIELDS = [['name', 'Ad soyad', 'text'], ['email', 'E-posta', 'email'], ['phone', 'Telefon', 'tel'], ['instagram', 'Instagram', 'text'], ['company', 'Şirket / mekân', 'text'], ['source', 'Kaynak', 'text'], ['tags', 'Etiketler', 'text']];
   var GUESS = { name: ['name', 'isim', 'ad', 'ad soyad', 'full name', 'adsoyad', 'ad-soyad'], email: ['email', 'e-posta', 'eposta', 'e-mail', 'mail'], phone: ['phone', 'telefon', 'tel', 'gsm', 'cep'], instagram: ['instagram', 'ig'], company: ['company', 'şirket', 'sirket', 'mekan', 'mekân', 'firma'], source: ['source', 'kaynak'], tags: ['tags', 'etiket', 'etiketler'], notes: ['notes', 'not', 'notlar'] };
+  H.crmTabs = function (cur) { return '<div class="tabs" role="tablist">' + [['kisiler', 'Kişiler', 'view=crm'], ['kitleler', 'Kitleler', 'view=crm&tab=kitleler']].map(function (t) { return '<button type="button" role="tab" aria-selected="' + (t[0] === cur) + '" data-nav="' + t[2] + '">' + t[1] + '</button>'; }).join('') + '</div>'; };
   function parseCsv(text) {
   var rows = [], row = [], cur = '', inq = false, sep = (text.split('\n')[0].split(';').length > text.split('\n')[0].split(',').length) ? ';' : ',';
   text = text.replace(/^\uFEFF/, '');
@@ -18,12 +19,14 @@
   return rows;
 }
   H.views.crm = async function (main) {
+    if (H.q().get('tab') === 'kitleler') return H.audiences(main);
     var d = await H.api('contacts'), st = { q: H.q().get('ara') || '', tag: H.q().get('etiket') || '' }, tags = [];
     d.contacts.forEach(function (c) { (c.tags || []).forEach(function (t) { if (tags.indexOf(t) < 0) tags.push(t); }); }); tags.sort();
     function rows() { var t = st.q.trim().toLocaleLowerCase('tr'); return d.contacts.filter(function (c) { return (!t || [c.name, c.email, c.phone, c.instagram, c.company, c.source, (c.tags || []).join(' '), c.notes].join(' ').toLocaleLowerCase('tr').indexOf(t) > -1) && (!st.tag || (c.tags || []).indexOf(st.tag) > -1); }); }
     function draw(focus) {
       var r = rows(), qs = (st.q ? '&q=' + encodeURIComponent(st.q) : '') + (st.tag ? '&tag=' + encodeURIComponent(st.tag) : '');
       main.innerHTML = H.head({ title: 'CRM', sub: 'Kişiler, etiketler ve etkinlik geçmişi. Başvuru yapan herkes tek bir kişi kartında toplanır.', acts: '<button class="btn pri" type="button" id="c-new">' + H.ico('plus') + 'Kişi ekle</button><label class="btn" for="csv-file">CSV içe aktar</label><input class="sr" id="csv-file" type="file" accept=".csv,text/csv"><a class="btn" href="/api/hq/contacts.csv?' + qs.slice(1) + '">' + H.ico('down') + (qs ? 'Filtreyi dışa aktar (' + r.length + ')' : 'CSV dışa aktar') + '</a>' }) +
+        H.crmTabs('kisiler') +
         '<div class="row" style="margin-bottom:14px"><label class="search"><span class="sr">Ara</span>' + H.ico('search') + '<input id="c-q" type="search" placeholder="İsim, e-posta, telefon, etiket…" value="' + e(st.q) + '"></label><label class="sr" for="c-tag">Etiket</label><select id="c-tag" style="width:auto;min-width:160px"><option value="">Tüm etiketler</option>' + tags.map(function (x) { return '<option' + (x === st.tag ? ' selected' : '') + '>' + e(x) + '</option>'; }).join('') + '</select><span class="small dim">' + r.length + ' / ' + d.contacts.length + ' kişi</span></div>' +
         (r.length ? '<div class="card flat"><div class="scroll"><table><thead><tr><th>Kişi</th><th>İletişim</th><th>Etiketler</th><th>Kaynak</th><th></th></tr></thead><tbody>' + r.slice(0, 400).map(function (c) {
           return '<tr class="click" data-open="' + c.id + '" style="cursor:pointer"><td><div class="row" style="flex-wrap:nowrap"><span class="av">' + H.initials(c.name) + '</span><b>' + e(c.name) + '</b></div></td><td class="small mute">' + [c.email, c.phone].filter(Boolean).map(e).join('<br>') + '</td><td>' + (c.tags || []).map(function (x) { return '<span class="pill plain">' + e(x) + '</span>'; }).join(' ') + '</td><td class="small mute">' + e(c.source || '—') + '</td><td class="r"><button class="btn sm" type="button" data-open="' + c.id + '">Aç</button></td></tr>';

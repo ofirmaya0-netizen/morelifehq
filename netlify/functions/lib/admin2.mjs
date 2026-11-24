@@ -3,7 +3,7 @@
 import crypto from 'node:crypto';
 import { all, pool } from './store.mjs';
 import { id, hash } from './auth.mjs';
-import { json, fail, now, str, int, emailOk, normEmail, normPhone, tagList, body, istToday, csv } from './util.mjs';
+import { json, fail, now, str, int, emailOk, normEmail, normPhone, tagList, body, istToday, csv, slugify } from './util.mjs';
 import { seoInput, eventSeo, homeSeo, eventJsonLd, orgJsonLd, isListed, live, isDirty, DEFAULT_SEO_SETTINGS, SITE_URL } from './model.mjs';
 import { HOME_FIELDS, homeDefaults } from './render.mjs';
 import { SCHEMA_VERSION } from './migrations.mjs';
@@ -104,6 +104,76 @@ async function contacts(req, parts, url, s) {
     if ((o.byE && o.byE !== c.id) || (o.byP && o.byP !== c.id)) return fail(409, 'Bu e-posta veya telefon başka bir kişide kayıtlı. Otomatik birleştirme yapılmaz.');
     const next = { ...r.contact, updatedAt: now() }; await saveContact(s, next, c); return json({ contact: next });
   }
+  return fail(405, 'Desteklenmiyor.');
+}
+
+/* ---------- audiences: saved CRM segments ---------- */
+// An audience stores rules, not a list of people: it is worked out from the CRM each time, so new contacts that fit join by themselves.
+const A_REACH = ['any', 'phone', 'email', 'both'], A_STATE = ['applied', 'approved', 'attended', 'noshow', 'none'];
+const hasPhone = (c) => !!c.phone && normPhone(c.phone).length >= 7;
+function audienceRules(b) {
+  const r = b && typeof b === 'object' ? b : {};
+  return { tags: tagList(r.tags), tagMode: r.tagMode === 'all' ? 'all' : 'any', exclude: tagList(r.exclude), source: str(r.source, 80), reach: A_REACH.includes(r.reach) ? r.reach : 'any', eventId: str(r.eventId, 40), eventState: A_STATE.includes(r.eventState) ? r.eventState : 'applied' };
+}
+async function audienceEvents(list) { // the RSVPs of every event a rule points at, read once
+  const ev = {};
+  await pool([...new Set(list.map((r) => r.eventId).filter(Boolean))], 4, async (eid) => {
+    const byId = new Map(), byEmail = new Map();
+    for (const r of await all('rsvps/' + eid + '/')) { if (r.contactId) byId.set(r.contactId, r); if (r.email) byEmail.set(r.email, r); }
+    ev[eid] = { byId, byEmail };
+  });
+  return ev;
+}
+function inAudience(c, r, ev) {
+  const t = c.tags || [];
+  if (r.tags.length && !(r.tagMode === 'all' ? r.tags.every((x) => t.includes(x)) : r.tags.some((x) => t.includes(x)))) return false;
+  if (r.exclude.some((x) => t.includes(x))) return false;
+  if (r.source && (c.source || '') !== r.source) return false;
+  if ((r.reach === 'phone' || r.reach === 'both') && !hasPhone(c)) return false;
+  if ((r.reach === 'email' || r.reach === 'both') && !c.email) return false;
+  if (r.eventId) {
+    const e = ev[r.eventId], v = e && (e.byId.get(c.id) || (c.email && e.byEmail.get(c.email)));
+    if (r.eventState === 'none') return !v;
+    if (!v) return false;
+    if (r.eventState === 'approved') return v.status === 'approved';
+    if (r.eventState === 'attended') return !!v.checkedInAt;
+    if (r.eventState === 'noshow') return v.status === 'approved' && !v.checkedInAt;
+  }
+  return true;
+}
+const audienceSize = (m) => ({ count: m.length, phone: m.filter(hasPhone).length, email: m.filter((c) => c.email).length });
+async function audiences(req, parts, s) {
+  const m = req.method, people = async () => (await all('contacts/')).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  const shape = async (b, prev = {}) => {
+    const a = { ...prev, name: 'name' in b ? str(b.name, 80) : prev.name, note: 'note' in b ? str(b.note, 300) : prev.note || '', rules: audienceRules(b.rules || prev.rules) };
+    if (!a.name) return { error: 'Kitleye bir ad verin.' };
+    if (a.rules.eventId && !(await s.get('events/' + a.rules.eventId))) return { error: 'Seçilen etkinlik bulunamadı.' };
+    return { audience: a };
+  };
+  if (!parts[1] && m === 'GET') {
+    const [cs, list, evs] = await Promise.all([people(), all('audiences/'), all('events/')]), ev = await audienceEvents(list.map((a) => a.rules));
+    const tags = {}, sources = {};
+    for (const c of cs) { for (const t of c.tags || []) tags[t] = (tags[t] || 0) + 1; if (c.source) sources[c.source] = (sources[c.source] || 0) + 1; }
+    const top = (o) => Object.entries(o).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'tr')).map(([name, count]) => ({ name, count }));
+    return json({ audiences: list.sort((a, b) => a.name.localeCompare(b.name, 'tr')).map((a) => ({ ...a, ...audienceSize(cs.filter((c) => inAudience(c, a.rules, ev))) })), total: cs.length,
+      options: { tags: top(tags), sources: top(sources), events: evs.filter((e) => e.status !== 'archived' || list.some((a) => a.rules.eventId === e.id)).sort((a, b) => (b.date || '').localeCompare(a.date || '')).map((e) => ({ id: e.id, title: e.title, date: e.date })) } });
+  }
+  if (parts[1] === 'preview' && m === 'POST') { // live count while the rules are being edited; saves nothing
+    const rules = audienceRules((await body(req)).rules), mem = (await people()).filter(((ev) => (c) => inAudience(c, rules, ev))(await audienceEvents([rules])));
+    return json({ ...audienceSize(mem), sample: mem.slice(0, 6).map((c) => c.name) });
+  }
+  if (!parts[1] && m === 'POST') {
+    const r = await shape(await body(req)); if (r.error) return fail(400, r.error);
+    const a = { ...r.audience, id: id(), createdAt: now(), updatedAt: now() }; await s.set('audiences/' + a.id, a); return json({ audience: a }, 201);
+  }
+  const isCsv = /\.csv$/.test(parts[1] || ''), a = await s.get('audiences/' + (parts[1] || '').replace(/\.csv$/, '')); if (!a) return fail(404, 'Kitle bulunamadı.');
+  if (m === 'GET') {
+    const ev = await audienceEvents([a.rules]), mem = (await people()).filter((c) => inAudience(c, a.rules, ev));
+    if (isCsv) return csv('kitle-' + (slugify(a.name) || a.id) + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Instagram', 'Şirket', 'Etiketler', 'Kaynak']].concat(mem.map((c) => [c.name, c.email, c.phone, c.instagram, c.company, (c.tags || []).join(', '), c.source])));
+    return json({ audience: { ...a, ...audienceSize(mem) }, members: mem.map((c) => ({ id: c.id, name: c.name, email: c.email, phone: c.phone, tags: c.tags || [] })) });
+  }
+  if (m === 'PUT') { const r = await shape(await body(req), a); if (r.error) return fail(400, r.error); const n = { ...r.audience, updatedAt: now() }; await s.set('audiences/' + n.id, n); return json({ audience: n }); }
+  if (m === 'DELETE') { await s.del('audiences/' + a.id); return json({ ok: true }); } // removes the saved rules only, never a contact
   return fail(405, 'Desteklenmiyor.');
 }
 
@@ -343,6 +413,7 @@ async function settings(s, storeNameNow) {
 export async function admin2(req, ctx, parts, url, s, h) {
   const { storeName } = await import('./store.mjs');
   if (parts[0] === 'contacts' || parts[0] === 'contacts.csv') return contacts(req, parts, url, s);
+  if (parts[0] === 'audiences') return audiences(req, parts, s);
   if (parts[0] === 'whatsapp') return whatsapp(req, parts, s);
   if (parts[0] === 'enquiries' || parts[0] === 'enquiries.csv') return enquiries(req, parts, url, s);
   if (parts[0] === 'tasks') return tasks(req, parts, s);
