@@ -45,11 +45,14 @@
   var tix = document.getElementById('g-tix'); if (tix) tix.addEventListener('click', function () { hit('ticket'); });
   var form = document.getElementById('g-form'); if (!form) return;
   var msg = document.getElementById('g-msg'), btn = form.querySelector('button[type=submit]');
+  // The number always leaves the form in international form: the chosen country code is put in front unless one was typed.
+  function mlPhone(cc, raw) { var d = String(raw || '').replace(/[^0-9+]/g, ''); if (!d) return ''; if (/^00/.test(d)) d = '+' + d.slice(2); if (d.charAt(0) !== '+') d = (cc || '+') + d.replace(/^0+/, ''); return /^\+[1-9][0-9]{7,14}$/.test(d) ? d : null; }
   form.addEventListener('submit', function (ev) {
     ev.preventDefault(); msg.className = 'g-msg'; msg.textContent = '';
-    var el = form.elements, data = { t: C.t, slug: C.slug, name: el.name.value, email: el.email.value, phone: el.phone ? el.phone.value : '', plus: el.plus ? el.plus.value : 0, note: el.note ? el.note.value : '', website: el.website.value, consent: el.consent.checked, showName: !!(el.showName && el.showName.checked), ref: ref, utm: utm };
+    var el = form.elements, data = { t: C.t, slug: C.slug, name: el.name.value, email: el.email.value, phone: el.phone ? mlPhone(el.cc ? el.cc.value : '', el.phone.value) : '', plus: el.plus ? el.plus.value : 0, note: el.note ? el.note.value : '', website: el.website.value, consent: el.consent.checked, showName: !!(el.showName && el.showName.checked), ref: ref, utm: utm };
     if (!data.name.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your name and a valid email.'; return; }
-    if (el.phone && el.phone.required && !data.phone.trim()) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your phone number.'; return; }
+    if (data.phone === null) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your phone number with its country code, for example +90 532 123 45 67.'; return; }
+    if (el.phone && el.phone.required && !data.phone) { msg.className = 'g-msg bad'; msg.textContent = 'Please enter your phone number.'; return; }
     if (!data.consent) { msg.className = 'g-msg bad'; msg.textContent = 'Please tick the box so we can manage your attendance.'; return; }
     btn.disabled = true; btn.textContent = 'Sending…';
     fetch('/api/public/rsvp', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) })

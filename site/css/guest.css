@@ -260,3 +260,5 @@ button.g-pill:hover{background:rgba(243,238,230,.2)}
 .sh-light .sh-row,.sh-light .sh-sum,.sh-light .sh-bar,.sh-light .sh-qty,.sh-light .sh-code input,.sh-light #g-shop .g-form .field input{box-shadow:var(--gl-shine),0 14px 34px -20px rgba(23,17,15,.3);border-color:rgba(23,17,15,.08)}
 .sh-light .sh-bar{background:linear-gradient(135deg,rgba(255,255,255,.9),rgba(255,255,255,.6))}
 .sh-light .sh-qty button{background:rgba(23,17,15,.08)}
+
+.g-form .g-tel{display:grid;grid-template-columns:118px minmax(0,1fr);gap:8px}.g-form .field .g-tel select{height:54px;padding:0 10px;border-radius:14px;font:500 16px var(--sans)}.g-form .field .g-tel input{width:100%;min-width:0}

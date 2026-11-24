@@ -7,7 +7,7 @@ import { bookingsRoute, bookingAlerts } from './lib/bookings.mjs';
 import { backupsRoute } from './lib/backup.mjs';
 import { pnlRoute } from './lib/pnl.mjs';
 import { ticketsPublic, ticketsAdmin, testPayPage, eventSales, eventTickets, ticketGuest, findTicket, shopOf, emit } from './lib/tickets.mjs';
-import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
+import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, intlPhone, PHONE_HINT, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
 import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, guestList, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
 import { renderHome, renderEvent, renderShop, notFound, sitemap, robots } from './lib/render.mjs';
 import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.mjs';
@@ -92,6 +92,12 @@ async function publicApi(req, ctx, parts, url) {
     const evs = (await all('events/')).filter(isListed).map(live).filter((e) => url.searchParams.get('scope') === 'all' || !e.date || (e.endDate || e.date) >= istToday());
     return json({ events: evs.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(guestEvent) });
   }
+  // Events a table can be asked for: every published event that has not passed, private ones included. Title and date only;
+  // nothing here opens a private event's page.
+  if (parts[0] === 'table-events' && req.method === 'GET') {
+    const evs = (await all('events/')).filter((e) => e.status === 'published' && e.live && (!e.live.date || (e.live.endDate || e.live.date) >= istToday()));
+    return json({ events: evs.map((e) => ({ id: e.id, title: e.live.title, date: e.live.date || '' })).sort((a, b) => (a.date || '9').localeCompare(b.date || '9')) }, 200, { 'cache-control': 'no-store' });
+  }
   if (parts[0] === 'image' && req.method === 'GET') {
     const key = str(parts[1], 60).replace(/[^A-Za-z0-9_-]/g, ''), img = key && await s.getBin('images/' + key);
     if (!img) return fail(404, 'Not found');
@@ -118,7 +124,9 @@ async function publicApi(req, ctx, parts, url) {
     if (st !== 'open') return fail(409, st === 'early' ? 'Requests for this event are not open yet.' : 'Requests for this event are closed.');
     const iv = e.invite || {}, r = { name: str(b.name, 120), email: normEmail(b.email), phone: iv.askPhone === 'off' ? '' : str(b.phone, 40), note: iv.askNote ? str(b.note, 600) : '', guests: 1 + int(b.plus, 0, iv.plusOnes || 0) };
     if (!r.name || !emailOk(r.email)) return fail(400, 'Please enter your name and a valid email.');
-    if (iv.askPhone === 'required' && normPhone(r.phone).length < 7) return fail(400, 'Please enter your phone number.');
+    if (iv.askPhone === 'required' && !r.phone) return fail(400, 'Please enter your phone number.');
+    // kept in international form, so the entry pass can always go out by WhatsApp
+    if (r.phone) { r.phone = intlPhone(r.phone); if (!r.phone) return fail(400, PHONE_HINT); }
     if (b.consent !== true) return fail(400, 'Please tick the box so we can manage your attendance.');
     const u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
@@ -143,15 +151,15 @@ async function publicApi(req, ctx, parts, url) {
     const table = kind === 'table';
     if (table) {
       q.phone = str(b.phone, 40); q.party = int(b.party, 0, 200, 0); q.area = ['backstage', 'standard', 'either'].includes(b.area) ? b.area : 'either';
-      const ref = b.eventSlug ? await s.get('slugs/' + slugify(b.eventSlug)) : null, te = ref && await s.get('events/' + ref.id);
-      q.eventId = te && isListed(te) ? te.id : ''; q.eventTitle = q.eventId ? (live(te) || te).title : '';
+      const ref = b.eventSlug ? await s.get('slugs/' + slugify(b.eventSlug)) : null, te = await s.get('events/' + (ref ? ref.id : str(b.eventId, 40).replace(/[^A-Za-z0-9_-]/g, '') || '-'));
+      q.eventId = te && te.status === 'published' && te.live ? te.id : ''; q.eventTitle = q.eventId ? te.live.title : '';
     }
     const bio = q.path === '/links';
     if (bio) { q.phone = str(b.phone, 40); q.instagram = str(b.instagram, 60).replace(/^@+/, ''); }
     const tags = [kind === 'community' ? 'community' : table ? 'masa-talebi' : 'site-talebi'].concat(bio ? ['instagram-bio'] : []);
     if (!q.name || !emailOk(q.email)) return fail(400, 'Please enter your name and a valid email.');
     if (kind === 'community' && !q.consent) return fail(400, 'Please tick the consent box to join the list.');
-    if (table && (normPhone(q.phone).length < 7 || q.party < 1)) return fail(400, 'Please enter your phone number and how many guests.');
+    if (table) { q.phone = intlPhone(q.phone); if (!q.phone) return fail(400, PHONE_HINT); if (q.party < 1) return fail(400, 'Please tell us how many guests.'); }
     if (kind !== 'community' && !table && !q.message) return fail(400, 'Please write a message.');
     // one CRM person per e-mail; the form never overwrites what HQ already knows about them
     const hit = await s.get('contactEmail/' + hash(q.email));

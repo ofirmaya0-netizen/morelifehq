@@ -8,8 +8,11 @@ export const str = (v, max = 300) => String(v == null ? '' : v).trim().slice(0, 
 export const int = (v, min, max, d = 0) => { const n = parseInt(v, 10); return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : d; };
 export const emailOk = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
 export const normEmail = (e) => str(e, 200).toLowerCase();
-// Phones compare on digits; a Turkish local 05xx… number matches its +90 form.
-export const normPhone = (p) => { let d = str(p, 40).replace(/[^\d+]/g, ''); if (/^0[1-9]\d{9}$/.test(d)) d = '+90' + d.slice(1); else if (/^00/.test(d)) d = '+' + d.slice(2); else if (/^90\d{10}$/.test(d)) d = '+' + d; return d; };
+// Phones compare on digits; a Turkish local 05xx… number, or the same mobile typed without its 0 (5xx…), matches its +90 form.
+export const normPhone = (p) => { let d = str(p, 40).replace(/[^\d+]/g, ''); if (/^0[1-9]\d{9}$/.test(d)) d = '+90' + d.slice(1); else if (/^00/.test(d)) d = '+' + d.slice(2); else if (/^90\d{10}$/.test(d)) d = '+' + d; else if (/^5\d{9}$/.test(d)) d = '+90' + d; return d; };
+// The number in international form (+country code…), or '' when it cannot be read as one. WhatsApp needs this form.
+export const intlPhone = (p) => { const d = normPhone(p); return /^\+[1-9]\d{7,14}$/.test(d) ? d : ''; };
+export const PHONE_HINT = 'Please enter your phone number with its country code, for example +90 532 123 45 67.';
 export const tagList = (t) => [...new Set((Array.isArray(t) ? t : String(t || '').split(',')).map((x) => str(x, 40).toLowerCase()).filter(Boolean))].slice(0, 20);
 export const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export async function body(req) { try { return await req.json(); } catch { return {}; } }
