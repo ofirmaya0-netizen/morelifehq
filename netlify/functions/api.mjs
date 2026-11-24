@@ -5,6 +5,7 @@ import { missingConfig, initSecret, checkLogin, verifyPassword, sessionCookie, c
 import { currentUser, ownerUser, findMember, allowed, screens, ROLES, logAudit, describe, auditRoute, teamRoute, setupRoute, meRoute } from './lib/team.mjs';
 import { bookingsRoute, bookingAlerts } from './lib/bookings.mjs';
 import { backupsRoute } from './lib/backup.mjs';
+import { ticketsPublic, ticketsAdmin, testPayPage, eventSales, eventTickets, ticketGuest, findTicket } from './lib/tickets.mjs';
 import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
 import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, guestList, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
 import { renderHome, renderEvent, notFound, sitemap, robots } from './lib/render.mjs';
@@ -18,7 +19,7 @@ import { waStatus, waSettings, sendPassWa, passParams, invitePreview } from './l
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
 
-export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
+export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/pay/*', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
 
 export async function limited(key, max, windowSec) {
   const s = await store(), k = 'rate/' + key, t = Date.now();
@@ -140,8 +141,14 @@ async function publicApi(req, ctx, parts, url) {
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
+  if (['shop', 'checkout', 'pay', 'order', 'ticket'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
+    if (ref && ref.ticketId) { // a bought ticket opens in the same pass page as an approved guest
+      const tk = await findTicket(s, ref.eventId, ref.ticketId), ev = tk && await s.get('events/' + tk.eventId);
+      if (!tk || !ev || tk.status !== 'valid') return fail(404, 'This ticket is not valid.');
+      return json({ eventId: ev.id, pass: { name: tk.name, guests: 1, checkedIn: !!tk.checkedInAt, canCancel: false, friendUrl: '', type: tk.typeName, order: tk.orderNo }, event: guestEvent(live(ev) || ev) });
+    }
     const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
     if (!r || !e || r.status !== 'approved') return fail(404, 'This pass is not valid.');
     const le = live(e) || e, iv = e.invite || {}, open = !r.checkedInAt && (!e.date || Date.now() < Date.parse(e.date + 'T23:59:00+03:00'));
@@ -150,6 +157,7 @@ async function publicApi(req, ctx, parts, url) {
   }
   if (parts[0] === 'pass' && req.method === 'POST') { // the guest gives the place back
     const b = await body(req), ref = await s.get('passes/' + str(b.t, 60));
+    if (ref && ref.ticketId) return fail(403, 'Tickets are refunded by More Life, not from this page.');
     const r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId), e = r && await s.get('events/' + r.eventId);
     if (!r || !e || r.status !== 'approved' || b.action !== 'cancel') return fail(404, 'This pass is not valid.');
     if (r.checkedInAt) return fail(409, 'This pass has already been used.');
@@ -183,32 +191,34 @@ async function publicApi(req, ctx, parts, url) {
 // Whoever walks through the door is tagged in the CRM, so the regulars are visible later.
 async function markAttended(s, r) { const c = r.contactId && await s.get('contacts/' + r.contactId); if (c && !(c.tags || []).includes('katıldı')) { c.tags = (c.tags || []).concat('katıldı'); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
 async function checkIn(s, r, undo, by) {
-  const key = 'checkins/' + r.eventId + '/' + r.id, save = () => s.set('rsvps/' + r.eventId + '/' + r.id, r);
-  if (undo) { await s.del(key); r.checkedInAt = ''; r.checkedInBy = ''; r.scanCount = 0; await save(); return { result: 'undone', rsvp: r }; }
+  // r is an RSVP or a bought ticket (r.ticket set); both get one atomic check-in record
+  const key = 'checkins/' + r.eventId + '/' + (r.ticket ? 'tk-' : '') + r.id, save = () => s.set((r.ticket ? 'tickets/' : 'rsvps/') + r.eventId + '/' + r.id, r), out = (o) => (r.ticket ? { ...o, rsvp: { ...ticketGuest(r), email: r.email } } : o);
+  if (undo) { await s.del(key); r.checkedInAt = ''; r.checkedInBy = ''; r.scanCount = 0; await save(); return out({ result: 'undone', rsvp: r }); }
   const at = now(), first = await s.create(key, { at, by: by || '' });
-  if (first) { r.checkedInAt = at; r.checkedInBy = by || ''; r.scanCount = 1; await save(); await markAttended(s, r); return { result: 'ok', message: 'Giriş onaylandı.', rsvp: r }; }
+  if (first) { r.checkedInAt = at; r.checkedInBy = by || ''; r.scanCount = 1; await save(); if (!r.ticket) await markAttended(s, r); return out({ result: 'ok', message: 'Giriş onaylandı.', rsvp: r }); }
   const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
-  return { result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r };
+  return out({ result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r });
 }
 async function findPass(s, b, eventId) {
   let r = null;
-  if (b.token) { const ref = await s.get('passes/' + str(b.token, 60)); r = ref && await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId); }
+  if (b.token) { const ref = await s.get('passes/' + str(b.token, 60)); r = ref && (ref.ticketId ? await findTicket(s, ref.eventId, ref.ticketId) : await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId)); if (r && ref.ticketId) r.ticket = r.typeName; }
+  else if (eventId && /^tk-/.test(b.rsvpId || '')) { r = await findTicket(s, eventId, str(b.rsvpId, 44).slice(3)); if (r) r.ticket = r.typeName; }
   else if (eventId && b.rsvpId) r = await s.get('rsvps/' + eventId + '/' + str(b.rsvpId, 40));
   if (!r) return { out: { result: 'invalid', message: 'Geçersiz kart.' } };
   if (eventId && r.eventId !== eventId) { const other = await s.get('events/' + r.eventId); return { out: { result: 'wrong-event', message: 'Bu kart başka bir etkinliğe ait' + (other ? ': ' + other.title : '') + '.' } }; }
-  if (r.status !== 'approved') return { out: { result: 'not-approved', message: 'Bu başvuru onaylı değil.' }, r };
+  if (r.ticket ? r.status !== 'valid' : r.status !== 'approved') return { out: { result: 'not-approved', message: r.ticket ? 'Bu bilet iptal edilmiş ya da iade edilmiş.' : 'Bu başvuru onaylı değil.' }, r: r.ticket ? { ...ticketGuest(r) } : r };
   return { r };
 }
 
 /* ---------- door link: check-in for one event, without an HQ account ---------- */
 // A door key opens only the check-in list of its own event: names and party size, no e-mail, phone or notes.
-const doorGuest = (r) => ({ id: r.id, name: r.name, guests: r.guests, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId });
+const doorGuest = (r) => (r.ticket ? { id: /^tk-/.test(r.id) ? r.id : 'tk-' + r.id, name: r.name, guests: 1, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId, ticket: r.ticket } : { id: r.id, name: r.name, guests: r.guests, checkedInAt: r.checkedInAt, scanCount: r.scanCount, eventId: r.eventId });
 const doorValid = (e) => e && e.status === 'published' && e.door && e.door.token && (!e.date || istToday() <= new Date(Date.parse(e.endDate || e.date) + 2 * 864e5).toISOString().slice(0, 10));
 async function doorApi(req, ctx, parts, url) {
   const s = await store(), key = str(req.headers.get('x-door') || '', 60), ref = key && await s.get('doors/' + key), e = ref && await s.get('events/' + ref.eventId);
   if (await limited('door/' + hash(ipOf(req, ctx)), 600, 3600)) return fail(429, 'Çok fazla istek.');
   if (!doorValid(e) || e.door.token !== key) return fail(401, 'Bu kapı linki geçerli değil.');
-  if (parts[0] === 'list' && req.method === 'GET') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue }, guests: (await all('rsvps/' + e.id + '/')).filter((r) => r.status === 'approved').map(doorGuest) });
+  if (parts[0] === 'list' && req.method === 'GET') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue }, guests: (await all('rsvps/' + e.id + '/')).filter((r) => r.status === 'approved').map(doorGuest).concat((await eventTickets(e.id)).map(ticketGuest)) });
   if (parts[0] === 'checkin' && req.method === 'POST') {
     const b = await body(req), f = await findPass(s, b, e.id);
     if (f.out) return json(f.r ? { ...f.out, rsvp: doorGuest(f.r) } : f.out);
@@ -288,6 +298,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
   if (parts[0] === 'audit' && m === 'GET') return auditRoute(url, s);
   if (parts[0] === 'bookings') return bookingsRoute(req, parts, url, s, me);
   if (parts[0] === 'backups') return backupsRoute(req, parts, url, s, me);
+  if (parts[0] === 'tickets') return ticketsAdmin(req, parts, url, s, me, ipOf(req, ctx));
 
   if (parts[0] === 'summary') {
     // One read for the Özet screen: what is waiting for a decision today, and how each upcoming event is doing.
@@ -305,6 +316,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       v.daysLeft = e.date ? Math.round((Date.parse(e.date) - Date.parse(td)) / 864e5) : null;
       // requests in the last 7 days against the 7 before, plus page visits and ticket-link clicks of the last 7 days (clicks are not sales)
       v.pace = { last7: rs.filter((r) => Date.parse(r.createdAt) >= w1).length, prev7: rs.filter((r) => Date.parse(r.createdAt) < w1 && Date.parse(r.createdAt) >= w2).length, views7: keys.filter((k) => recent(k) && k.split('/')[3] === 'view').length, clicks7: keys.filter((k) => recent(k) && k.split('/')[3] === 'ticket').length };
+      v.sales = full ? await eventSales(s, e.id) : null; // tickets sold here: count, net revenue and the 7-day pace
       up.push(v);
     }
     const out = { role: me.role, name: me.name, upcoming: up.sort((a, b) => (a.date || '9').localeCompare(b.date || '9')), waiting: waiting.sort((a, b) => (a.oldest || '').localeCompare(b.oldest || '')), pendingRsvps: pending, approvedGuests: approved,
@@ -397,8 +409,8 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     const rs = await rsvpsOf(e.id);
     if (!parts[2] && m === 'GET') {
       // the door role gets what a door link gets: approved guests, name and party size only
-      if (me.role === 'door') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue, status: e.status, counts: counts(rs) }, rsvps: rs.filter((r) => r.status === 'approved').map((r) => ({ ...doorGuest(r), status: r.status, email: '', phone: '' })), email: { connected: false }, whatsapp: { connected: false } });
-      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), email: emailStatus(), whatsapp: waStatus() });
+      if (me.role === 'door') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue, status: e.status, counts: counts(rs) }, rsvps: rs.filter((r) => r.status === 'approved').map((r) => ({ ...doorGuest(r), status: r.status, email: '', phone: '' })), tickets: (await eventTickets(e.id)).map(ticketGuest), email: { connected: false }, whatsapp: { connected: false } });
+      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: waStatus() });
     }
     let freed = false;
     const decide = async (r, dec) => {
@@ -489,6 +501,7 @@ async function route(req, ctx) {
     }
     if (parts[0] === 'api' && parts[1] === 'public') return await publicApi(req, ctx, parts.slice(2), url);
     if (parts[0] === 'api' && parts[1] === 'door') return await doorApi(req, ctx, parts.slice(2), url);
+    if (parts[0] === 'pay' && parts[1] === 'test') { const html = await testPayPage(s, url); return html ? page(html, 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex' }) : new Response(null, { status: 303, headers: { location: url.searchParams.get('o') ? '/order?t=' + encodeURIComponent(url.searchParams.get('o')) : '/' } }); }
     if (parts[0] === 'door') return page(DOOR_HTML, 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return fail(405, 'Method not allowed');
     return await publicPage(req, url, parts);

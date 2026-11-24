@@ -48,13 +48,13 @@ input{width:100%;min-height:54px;padding:0 14px;border-radius:12px;border:1px so
   }
   function draw() {
     var t = $('q').value.trim().toLocaleLowerCase('tr'), rows = list.filter(function (x) { return !t || x.name.toLocaleLowerCase('tr').indexOf(t) > -1; }).slice(0, 80);
-    $('list').innerHTML = rows.length ? rows.map(function (x) { return '<div class="item"><div class="m"><b>' + esc(x.name) + '</b><small>' + x.guests + ' kişi</small></div>' + (x.checkedInAt ? '<span class="in">Giriş ' + tm(x.checkedInAt) + '</span><button class="btn" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div>'; }).join('') : '<div class="item"><small>' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</small></div>';
+    $('list').innerHTML = rows.length ? rows.map(function (x) { return '<div class="item"><div class="m"><b>' + esc(x.name) + '</b><small>' + (x.ticket ? 'Bilet · ' + esc(x.ticket) : x.guests + ' kişi') + '</small></div>' + (x.checkedInAt ? '<span class="in">Giriş ' + tm(x.checkedInAt) + '</span><button class="btn" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div>'; }).join('') : '<div class="item"><small>' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</small></div>';
     $('count').textContent = list.filter(function (x) { return x.checkedInAt; }).reduce(function (n, x) { return n + x.guests; }, 0) + ' / ' + list.reduce(function (n, x) { return n + x.guests; }, 0) + ' içeride';
   }
   var L = { ok: ['ok', 'Giriş onaylandı'], duplicate: ['duplicate', 'Daha önce kullanıldı'], invalid: ['bad', 'Geçersiz kart'], 'wrong-event': ['wrong', 'Başka etkinliğin kartı'], 'not-approved': ['bad', 'Onaylı değil'], undone: ['', 'Giriş geri alındı'] };
   function show(r) {
     var l = L[r.result] || ['bad', r.message], res = $('res'); res.className = 'door ' + l[0];
-    res.innerHTML = '<span class="st">' + esc(l[1]) + '</span>' + (r.rsvp ? '<span class="who">' + esc(r.rsvp.name) + ' · ' + r.rsvp.guests + ' kişi</span>' : '') + '<span class="ex">' + esc(r.result === 'duplicate' ? 'İlk giriş: ' + tm(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? tm(r.rsvp.checkedInAt) : r.result === 'undone' ? '' : r.message) + '</span>';
+    res.innerHTML = '<span class="st">' + esc(l[1]) + '</span>' + (r.rsvp ? '<span class="who">' + esc(r.rsvp.name) + ' · ' + (r.rsvp.ticket ? esc(r.rsvp.ticket) : r.rsvp.guests + ' kişi') + '</span>' : '') + '<span class="ex">' + esc(r.result === 'duplicate' ? 'İlk giriş: ' + tm(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? tm(r.rsvp.checkedInAt) : r.result === 'undone' ? '' : r.message) + '</span>';
     if (navigator.vibrate) navigator.vibrate(r.result === 'ok' ? 60 : [80, 60, 80]);
     if (r.rsvp) { list = list.map(function (x) { return x.id === r.rsvp.id ? r.rsvp : x; }); draw(); }
   }

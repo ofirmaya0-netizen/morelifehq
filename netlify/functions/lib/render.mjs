@@ -103,10 +103,10 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
     (state === 'open' ? '<a class="btn g-rsvp" data-rsvp href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '<span aria-hidden="true">↓</span></a>' : '') +
     (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') +
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
-    tickets + (form ? '<div class="g-panel">' + form + '</div>' : '') + (mode === 'public' ? '<p><a class="link" href="/#events">All events</a></p>' : '') + '</div></main>\n</div>\n' +
+    tickets + (mode !== 'preview' && e.eventStatus !== 'cancelled' ? '<section id="g-shop" class="g-panel" aria-label="Tickets" hidden></section>' : '') + (form ? '<div class="g-panel">' + form + '</div>' : '') + (mode === 'public' ? '<p><a class="link" href="/#events">All events</a></p>' : '') + '</div></main>\n</div>\n' +
     (state === 'open' ? '<a class="btn g-cta" id="g-cta" data-rsvp href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '</a>\n' : '') +
     (mode === 'preview' ? banner('Taslak önizleme — yayında değil') : '') +
-    '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guests.js" defer></script>\n<script src="/js/guest.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
+    '<script>window.ML=' + JSON.stringify(cfg).replace(/</g, '\\u003c') + ';</script>\n<script src="/js/guests.js" defer></script>\n<script src="/js/guest.js" defer></script>\n<script src="/js/shop.js" defer></script>\n' + (mode === 'public' ? gaTag() : '') + '</body>\n</html>';
 }
 
 export const notFound = (title, text) => '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>' + esc(title) + ' — More Life</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap"><link rel="stylesheet" href="/css/site.css"><link rel="stylesheet" href="/css/guest.css"></head><body><div class="g-wrap"><a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a><main class="g-card"><h1 class="g-title">' + esc(title) + '</h1><p style="color:var(--mute)">' + esc(text) + '</p><a class="btn" href="/">Go to morelife.events</a></main></div></body></html>';
@@ -118,4 +118,4 @@ export function sitemap(homeIndexable, events, set) {
   for (const e of events) { const s = eventSeo(e, set); if (!s.noindex && s.canonical === s.url) urls.push({ loc: s.url, lastmod: str(e.publishedAt, 10) }); }
   return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + urls.map((u) => '<url><loc>' + esc(u.loc) + '</loc>' + (u.lastmod ? '<lastmod>' + u.lastmod + '</lastmod>' : '') + '</url>').join('\n') + '\n</urlset>\n';
 }
-export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /offer\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';
+export const robots = () => 'User-agent: *\nAllow: /\nDisallow: /hq\nDisallow: /api/\nDisallow: /invite\nDisallow: /pass\nDisallow: /order\nDisallow: /pay\nDisallow: /offer\nDisallow: /door\n\nSitemap: ' + SITE_URL() + '/sitemap.xml\n';

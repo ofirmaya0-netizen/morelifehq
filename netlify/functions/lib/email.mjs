@@ -76,3 +76,22 @@ export function notifyEnquiry(q, origin) {
   const html = shell('<h1 style="margin:0 0 16px;font-size:22px;font-weight:500">Yeni site talebi</h1>' + rows.map((x) => '<p style="margin:0 0 8px"><span style="color:#8F867D">' + x[0] + ':</span> ' + esc(x[1]).replace(/\n/g, '<br>') + '</p>').join('') + '<a href="' + origin + '/hq?view=talepler" style="display:inline-block;margin-top:14px;background:#F3EEE6;color:#0E0B0A;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px">HQ’da aç</a>');
   return send(to, 'Yeni talep: ' + q.kindLabel + ' — ' + q.name, html, rows.map((x) => x[0] + ': ' + x[1]).join('\n'), q.email);
 }
+
+/* ---------- ticket orders ---------- */
+const amount = (n, cur) => { try { return new Intl.NumberFormat('en-GB', { style: 'currency', currency: cur }).format(n); } catch { return n.toFixed(2) + ' ' + cur; } };
+// transfer: the mail goes to someone who was handed a ticket, not to the buyer, so it carries no order total or order link
+export function orderMail(e, o, tickets, origin, transfer) {
+  const w = whenWhere(e), rows = tickets.filter((t) => t.status === 'valid').map((t) => '<tr><td style="padding:10px 0;border-top:1px solid #3a302c"><b>' + esc(t.typeName) + '</b><br><span style="color:#C9C0B5;font-size:13px">' + esc(t.name) + '</span></td><td style="padding:10px 0;border-top:1px solid #3a302c;text-align:right"><a href="' + esc(origin + '/pass?t=' + t.token) + '" style="color:#F3EEE6;font-weight:600">Open ticket</a></td></tr>').join('');
+  const img = e.imageId ? '<img src="' + esc(origin + '/api/public/image/' + e.imageId) + '" alt="' + esc(e.imageAlt || '') + '" width="520" style="display:block;width:100%;height:auto;border-radius:12px;margin:0 0 22px">' : '';
+  const html = shell(img + head(transfer ? 'A ticket for you' : 'Your tickets', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + (e.doors ? ' · doors ' + esc(e.doors) : '') + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' +
+    '<p style="margin:0 0 14px">Hi ' + first(o.buyer) + ', ' + (transfer ? 'a ticket has been put in your name.' : 'thank you for your order <b>' + esc(o.no) + '</b>.') + ' Each ticket has its own QR code and is scanned once at the door.</p>' +
+    '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 22px">' + rows + '</table>' +
+    (transfer ? '' : (o.total > 0 ? '<p style="margin:0 0 22px;color:#C9C0B5">Total paid: <b style="color:#F3EEE6">' + esc(amount(o.total, o.currency)) + '</b>' + (o.fee > 0 ? ' (includes ' + esc(amount(o.fee, o.currency)) + ' service fee)' : '') + '</p>' : '') + btn(origin + '/order?t=' + o.token, 'View your order') + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">From your order page you can put a ticket in a friend’s name.</p>'));
+  const text = (transfer ? 'A ticket for you: ' : 'Your tickets: ') + e.title + '\n' + w.when + '\n' + w.where + '\n\n' + tickets.filter((t) => t.status === 'valid').map((t) => t.typeName + ' — ' + t.name + ': ' + origin + '/pass?t=' + t.token).join('\n') + (transfer ? '' : '\n\nOrder ' + o.no + ': ' + origin + '/order?t=' + o.token);
+  return { subject: (transfer ? 'Your ticket — ' : 'Your tickets — ') + e.title, html, text };
+}
+export function sendOrder(e, o, tickets, origin, transfer) { const m = orderMail(e, o, tickets, origin, transfer); return send(o.buyer.email, m.subject, m.html, m.text); }
+export function sendRefund(e, o, sum, count, origin) {
+  const html = shell(head('Refund', e) + '<p style="margin:0 0 14px">Hi ' + first(o.buyer) + ', we have refunded <b>' + esc(amount(sum, o.currency)) + '</b> for ' + count + ' ticket' + (count === 1 ? '' : 's') + ' on order <b>' + esc(o.no) + '</b>. The refunded tickets are no longer valid.</p><p style="margin:0 0 22px;color:#C9C0B5">Depending on your bank, the amount can take a few working days to appear on your statement.</p>' + btn(origin + '/order?t=' + o.token, 'View your order'));
+  return send(o.buyer.email, 'Refund — ' + e.title, html, 'We have refunded ' + amount(sum, o.currency) + ' for ' + count + ' ticket(s) on order ' + o.no + '.\n' + origin + '/order?t=' + o.token);
+}

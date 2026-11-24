@@ -65,3 +65,21 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `rsvps/<event>/<id>.decidedBy`, `.checkedInBy` and `checkins/<event>/<rsvp>.by` hold the name of the person who decided or checked the guest in.
 - The owner is not a record: it comes from `HQ_ADMIN_EMAIL` / `HQ_ADMIN_PASSWORD` (optional `HQ_ADMIN_NAME` for the name shown in the log).
 - Backups live in a second store, `<store>-backups`: `snap/<id>` (every record except `rate/`, `cache/`, `config/`, `setup/`, `hits/`), `meta/<id>`, `bin/<key>` (copies of `images/` and `files/`), `lock/<day>` (one automatic backup a day). A restore never touches `audit/`, `users/` or `userEmail/`.
+
+## Ticket sales (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `settings/tickets` | Provider (`test`, `iyzico`), service fee, seller details, terms of sale, refund policy, support e-mail |
+| `tshop/<eventId>` | Per event: sales on/off, currency, whether buyers may change the name on a ticket |
+| `ttypes/<eventId>/<id>` | Ticket type: name, price, `stock` (0 = unlimited), min/max per order, `admits` (tickets issued per unit), sale window, `hidden`, `after` (opens when that type is sold out or over) |
+| `tstock/<typeId>/<n>` | One unit of stock, held or sold. **Created atomically**: two buyers can never take the same unit. Unlimited types use `u<id>` keys |
+| `tcodes/<eventId>/<CODE>`, `tcodeUse/<eventId>/<CODE>/<orderId>` | Discount / access code and one record per order that used it |
+| `orders/<eventId>/<id>` | Order: number, buyer, items with prices at purchase, discount, fee, total, status (`pending`, `paid`, `partial`, `refunded`, `expired`, `cancelled`), channel (`online`, `comp`, `boxoffice`), stock keys, ticket ids, refunds, accepted terms, campaign tags |
+| `orderTok/<token>` | Private order link → order |
+| `pending/<eventId>/<orderId>` | Unpaid basket and when its hold ends; removed on payment or when the stock is given back |
+| `tickets/<eventId>/<id>` | One ticket per person admitted: type, holder name and e-mail, QR key, `valid` / `void`, check-in |
+| `passes/<token>` | Now also `{ eventId, ticketId }`: a bought ticket opens in the same pass page and scans at the same door as an approved guest |
+| `checkins/<eventId>/tk-<ticketId>` | Atomic check-in record of a ticket |
+
+- Card details never reach HQ. The provider adapters are in `lib/payments.mjs`; keys live only in `IYZICO_API_KEY`, `IYZICO_SECRET_KEY`, `IYZICO_BASE_URL`.
+- The `test` provider moves no money and is refused on the live store (`morelife-hq`) unless `HQ_PAYMENTS_TEST=1`.

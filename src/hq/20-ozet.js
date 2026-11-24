@@ -37,7 +37,7 @@
       (H.can('etkinlikler') ? stat('view=etkinlikler&durum=upcoming', s.upcoming.length, 'Yaklaşan etkinlik', 'cal') : '') +
       (canRsvp && !money ? stat('view=rsvp&durum=approved', s.approvedGuests, 'Onaylanan misafir', 'check') : '');
 
-    var sales = s.upcoming.some(function (x) { return x.useTickets && x.ticketUrl; });
+    var sales = s.upcoming.some(function (x) { return x.useTickets && x.ticketUrl && !x.sales; });
     var events = s.upcoming.length ? s.upcoming.map(function (x) {
       var p = x.pace, up = p.last7 > p.prev7, down = p.last7 < p.prev7, fill = x.capacity ? Math.round(x.counts.approved / x.capacity * 100) : null;
       var acts = (canRsvp ? '<button class="btn sm" type="button" data-nav="view=' + (H.can('etkinlikler') ? 'etkinlik&id=' + x.id + '&tab=basvurular' : 'rsvp&event=' + x.id) + '">Başvurular' + (x.counts.pending ? ' (' + x.counts.pending + ')' : '') + '</button>' : '') +
@@ -48,6 +48,7 @@
         '<p class="mute small">' + H.fmtDate(x.date) + (x.time ? ' · ' + e(x.time) : '') + (x.venue ? ' · ' + e(x.venue) : '') + '</p>' +
         '<div class="stats"><span><b>' + x.counts.pending + '</b> bekleyen</span><span><b>' + x.counts.approved + (x.capacity ? ' / ' + x.capacity : '') + '</b> onaylı' + (fill != null ? ' · %' + fill + ' dolu' : '') + '</span><span><b>' + x.counts.checkedIn + '</b> giriş</span></div>' + (x.capacity ? '<div style="margin-top:8px;max-width:320px">' + H.meter(x.counts.approved, x.capacity) + '</div>' : '') +
         (full ? '<p class="pace small"><span class="' + (up ? 'up' : down ? 'down' : '') + '">' + (up ? '▲' : down ? '▼' : '■') + ' Son 7 gün <b>' + p.last7 + '</b> başvuru</span><span class="dim">önceki 7 gün ' + p.prev7 + '</span><span class="dim">' + p.views7 + ' ziyaret</span>' + (x.useTickets && x.ticketUrl ? '<span class="dim">' + p.clicks7 + ' bilet linki tıklaması</span>' : '') + '</p>' : '') +
+        (x.sales ? '<p class="pace small"><span class="' + (x.sales.last7 > x.sales.prev7 ? 'up' : x.sales.last7 < x.sales.prev7 ? 'down' : '') + '">' + (x.sales.last7 > x.sales.prev7 ? '▲' : x.sales.last7 < x.sales.prev7 ? '▼' : '■') + ' Son 7 gün <b>' + x.sales.last7 + '</b> bilet</span><span class="dim">önceki 7 gün ' + x.sales.prev7 + '</span><span><b>' + x.sales.tickets + (x.sales.stock ? ' / ' + x.sales.stock : '') + '</b> bilet satıldı</span>' + (H.can('booking') ? '<span><b>' + H.money(x.sales.net, x.sales.currency) + '</b> net</span>' : '') + (x.sales.enabled ? '' : '<span class="dim">satış kapalı</span>') + '</p>' : '') +
         '</div><div class="acts">' + acts + '</div></article>';
     }).join('') : H.empty('cal', 'Yayında yaklaşan etkinlik yok.', H.can('etkinlikler') && !me.readOnly ? 'İlk etkinliği oluşturun; yayınladığınızda burada görünür.' : '', H.can('etkinlikler') && !me.readOnly ? '<button class="btn pri" type="button" data-nav="view=etkinlikler&yeni=1">Yeni etkinlik</button>' : '');
 
@@ -59,6 +60,6 @@
       (now.length ? '<div class="card flat"><div class="list">' + now.map(row).join('') + '</div></div>' : '<div class="card done-all">' + H.ico('check') + '<div><b>Hepsi tamam.</b><p class="mute small">' + (money ? 'Onay bekleyen başvuru, vadesi gelen ödeme ya da geciken görev yok.' : 'Onay bekleyen bir şey yok.') + '</p></div></div>') + '</div>' +
       (soon.length ? '<div><div class="sec-h"><h2 class="h2">Sırada</h2><span class="small dim">önümüzdeki günler</span></div><div class="card flat"><div class="list">' + soon.map(row).join('') + '</div></div></div>' : '') + '</div>' +
       '<div class="sec"><div class="sec-h"><h2 class="h2">Yaklaşan etkinlikler</h2>' + (s.drafts ? '<button class="btn ghost sm" type="button" data-nav="view=etkinlikler&durum=draft">' + s.drafts + ' taslak</button>' : '') + '</div>' + events +
-      (full && sales ? '<p class="small dim" style="margin-top:10px">Bilet satışı HQ’ya bağlı değil: tıklama satış sayısı değildir, yalnızca bilet linkine gidenleri gösterir.</p>' : '') + '</div>';
+      (full && sales ? '<p class="small dim" style="margin-top:10px">Harici bilet linki kullanan etkinliklerde satış HQ’da görünmez: tıklama satış sayısı değildir, yalnızca bilet linkine gidenleri gösterir.</p>' : '') + '</div>';
   };
 })();

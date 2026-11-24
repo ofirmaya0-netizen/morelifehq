@@ -1,7 +1,7 @@
-/* Etkinlik detayı: Genel Bilgiler · Public Sayfa · Davet Ayarları · Mesajlar · Başvurular · Check-in · Görevler · SEO */
+/* Etkinlik detayı: Genel Bilgiler · Public Sayfa · Davet Ayarları · Mesajlar · Biletler · Başvurular · Check-in · Görevler · SEO */
 (function () {
   var H = HQ, e = H.esc;
-  var TABS = [['genel', 'Genel Bilgiler'], ['public', 'Public Sayfa'], ['davet', 'Davet Ayarları'], ['mesajlar', 'Mesajlar'], ['basvurular', 'Başvurular'], ['checkin', 'Check-in'], ['gorevler', 'Görevler'], ['seo', 'SEO']];
+  var TABS = [['genel', 'Genel Bilgiler'], ['public', 'Public Sayfa'], ['davet', 'Davet Ayarları'], ['mesajlar', 'Mesajlar'], ['biletler', 'Biletler'], ['basvurular', 'Başvurular'], ['checkin', 'Check-in'], ['gorevler', 'Görevler'], ['seo', 'SEO']];
   H.views.etkinlik = async function (main) {
     var id = H.q().get('id'), tab = H.q().get('tab') || 'genel', d = await H.api('events/' + id), ev = d.event, changes = d.changes, clean = null;
     var nav = 'view=etkinlik&id=' + id, live = ev.status === 'published', canPub = ev.status !== 'published' || ev.dirty;
@@ -94,6 +94,7 @@
       H.inviteSend(box.querySelector('#inv-send'), id);
       saveForm(box.querySelector('#wf'), function (v) { return v; });
     }
+    else if (tab === 'biletler') await H.parts.tickets(box, id);
     else if (tab === 'basvurular') await H.parts.apps(box, id, { f: H.q().get('durum') || (ev.counts.pending ? 'pending' : 'all') });
     else if (tab === 'checkin') {
       if (!live) box.innerHTML = H.empty('qr', 'Check-in kapalı', 'Check-in ekranı etkinlik yayınlanınca açılır.');

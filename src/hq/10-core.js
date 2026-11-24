@@ -95,7 +95,7 @@ var HQ = (function () {
   async function upload(input) { var f = input && input.files[0]; if (!f) return null; return (await api('images', 'POST', { dataUrl: await shrink(f) })).id; }
 
   /* shell */
-  var NAV = [['ozet', 'Özet', 'home'], ['etkinlikler', 'Etkinlikler', 'cal'], ['booking', 'Booking', 'mic'], ['rsvp', 'Davetler & RSVP', 'mail'], ['kapi', 'Check-in', 'qr'], ['crm', 'CRM', 'users'], ['talepler', 'Talepler', 'info'], ['gorevler', 'Görevler', 'task'], null, ['website', 'Website', 'globe'], ['seo', 'SEO', 'search'], ['marketing', 'Marketing', 'chart'], null, ['ekip', 'Ekip & kayıt', 'shield'], ['yedekler', 'Yedekler', 'db'], ['ayarlar', 'Ayarlar', 'gear']];
+  var NAV = [['ozet', 'Özet', 'home'], ['etkinlikler', 'Etkinlikler', 'cal'], ['satislar', 'Satışlar', 'coin'], ['booking', 'Booking', 'mic'], ['rsvp', 'Davetler & RSVP', 'mail'], ['kapi', 'Check-in', 'qr'], ['crm', 'CRM', 'users'], ['talepler', 'Talepler', 'info'], ['gorevler', 'Görevler', 'task'], null, ['website', 'Website', 'globe'], ['seo', 'SEO', 'search'], ['marketing', 'Marketing', 'chart'], null, ['ekip', 'Ekip & kayıt', 'shield'], ['yedekler', 'Yedekler', 'db'], ['ayarlar', 'Ayarlar', 'gear']];
   var MBAR = [['ozet', 'Özet', 'home'], ['etkinlikler', 'Etkinlik', 'cal'], ['rsvp', 'RSVP', 'mail'], ['kapi', 'Check-in', 'qr'], ['menu', 'Menü', 'menu']];
   var PARENT = { etkinlik: 'etkinlikler', kapi: 'rsvp' };
   // The menu shows only what this person's role can open; the server refuses the rest whatever the menu says.

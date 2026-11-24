@@ -74,7 +74,7 @@
 
   /* ---------- Check-in ---------- */
   H.parts.door = async function (root, eventId) {
-    var d = await H.api('rsvps/' + eventId), list = d.rsvps.filter(function (x) { return x.status === 'approved'; }), stop = null;
+    var d = await H.api('rsvps/' + eventId), list = d.rsvps.filter(function (x) { return x.status === 'approved'; }).concat(d.tickets || []), stop = null; // approved guests and bought tickets, one list
     root.innerHTML = '<div id="k-res" class="door" role="status" aria-live="assertive"><span class="st">Hazır</span><span class="ex">QR okutun ya da isim arayın</span></div>' +
       '<div class="row" style="margin:14px 0"><button class="btn pri lg" id="k-scan" type="button" style="flex:1">' + H.ico('qr') + 'QR tara</button><span class="pill plain" id="k-count" style="height:36px;font-size:14px"></span></div><video id="k-video" playsinline muted hidden></video>' +
       '<label class="search" style="max-width:none;display:block;margin:14px 0"><span class="sr">İsim, e-posta veya telefon</span>' + H.ico('search') + '<input id="k-q" type="search" autocomplete="off" placeholder="İsim, e-posta veya telefon" style="min-height:52px;font-size:17px"></label><div class="card flat"><div class="list" id="k-list"></div></div>';
@@ -82,7 +82,7 @@
     function draw() {
       var t = qEl.value.trim().toLocaleLowerCase('tr'), rows = list.filter(function (x) { return !t || (x.name + ' ' + (x.email || '') + ' ' + (x.phone || '')).toLocaleLowerCase('tr').indexOf(t) > -1; }).slice(0, 80);
       root.querySelector('#k-list').innerHTML = rows.length ? rows.map(function (x) {
-        return '<div class="item"><span class="av' + (x.checkedInAt ? ' in' : '') + '">' + H.initials(x.name) + '</span><div class="main"><span class="t">' + e(x.name) + '</span><span class="mute small">' + x.guests + ' kişi' + (x.email ? ' · ' + e(x.email) : '') + '</span></div><div class="acts">' +
+        return '<div class="item"><span class="av' + (x.checkedInAt ? ' in' : '') + '">' + H.initials(x.name) + '</span><div class="main"><span class="t">' + e(x.name) + '</span><span class="mute small">' + (x.ticket ? 'Bilet · ' + e(x.ticket) : x.guests + ' kişi') + (x.email ? ' · ' + e(x.email) : '') + '</span></div><div class="acts">' +
           (x.checkedInAt ? H.pill('checkedin', 'Giriş ' + H.fmtTime(x.checkedInAt)) + '<button class="btn sm ghost" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div></div>';
       }).join('') : '<div class="item"><span class="mute">' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</span></div>';
       root.querySelector('#k-count').textContent = list.filter(function (x) { return x.checkedInAt; }).reduce(function (n, x) { return n + x.guests; }, 0) + ' / ' + list.reduce(function (n, x) { return n + x.guests; }, 0) + ' içeride';
@@ -90,7 +90,7 @@
     var LBL = { ok: ['ok', 'Giriş onaylandı'], duplicate: ['duplicate', 'Daha önce kullanıldı'], invalid: ['bad', 'Geçersiz kart'], 'wrong-event': ['wrong', 'Başka etkinliğin kartı'], 'not-approved': ['bad', 'Onaylı değil'], undone: ['', 'Giriş geri alındı'] };
     function show(r) {
       var L = LBL[r.result] || ['bad', r.message]; res.className = 'door ' + L[0];
-      res.innerHTML = '<span class="st">' + e(L[1]) + '</span>' + (r.rsvp ? '<span class="who">' + e(r.rsvp.name) + ' · ' + r.rsvp.guests + ' kişi</span>' : '') + '<span class="ex">' + e(r.result === 'duplicate' ? 'İlk giriş: ' + H.fmtTime(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? H.fmtTime(r.rsvp.checkedInAt) : r.result === 'undone' ? '' : r.message) + '</span>';
+      res.innerHTML = '<span class="st">' + e(L[1]) + '</span>' + (r.rsvp ? '<span class="who">' + e(r.rsvp.name) + ' · ' + (r.rsvp.ticket ? e(r.rsvp.ticket) : r.rsvp.guests + ' kişi') + '</span>' : '') + '<span class="ex">' + e(r.result === 'duplicate' ? 'İlk giriş: ' + H.fmtTime(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? H.fmtTime(r.rsvp.checkedInAt) : r.result === 'undone' ? '' : r.message) + '</span>';
       if (navigator.vibrate) navigator.vibrate(r.result === 'ok' ? 60 : [80, 60, 80]);
       if (r.rsvp && r.rsvp.eventId === eventId) { var hit = false; list = list.map(function (x) { if (x.id === r.rsvp.id) { hit = true; return r.rsvp; } return x; }); if (hit) draw(); }
     }

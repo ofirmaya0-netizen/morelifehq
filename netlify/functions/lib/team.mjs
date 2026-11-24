@@ -49,9 +49,9 @@ export function allowed(u, m, parts) {
 }
 // The screens each role gets in the menu (the server check above is what actually protects the data).
 export function screens(role) {
-  if (role === 'owner') return ['ozet', 'etkinlikler', 'booking', 'rsvp', 'kapi', 'crm', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ekip', 'yedekler', 'ayarlar'];
-  if (role === 'manager') return ['ozet', 'etkinlikler', 'booking', 'rsvp', 'kapi', 'crm', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ekip', 'ayarlar'];
-  if (role === 'viewer') return ['ozet', 'etkinlikler', 'rsvp', 'crm', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ayarlar'];
+  if (role === 'owner') return ['ozet', 'etkinlikler', 'satislar', 'booking', 'rsvp', 'kapi', 'crm', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ekip', 'yedekler', 'ayarlar'];
+  if (role === 'manager') return ['ozet', 'etkinlikler', 'satislar', 'booking', 'rsvp', 'kapi', 'crm', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ekip', 'ayarlar'];
+  if (role === 'viewer') return ['ozet', 'etkinlikler', 'satislar', 'rsvp', 'crm', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ayarlar'];
   if (role === 'rsvp') return ['ozet', 'rsvp', 'kapi'];
   return ['ozet', 'kapi'];
 }
@@ -123,6 +123,20 @@ export async function describe(s, parts, m, b, j) {
   if (a === 'backups') {
     if (!p1) return ['Yedek aldı', '', (j.backup && j.backup.total) + ' kayıt'];
     if (p2 === 'restore') return b.step === 'begin' ? ['Yedekten geri yüklemeyi başlattı', p1] : b.step === 'finish' ? ['Yedekten geri yükleme tamamlandı', p1] : null;
+    return null;
+  }
+  if (a === 'tickets') {
+    const t = j.eventTitle || await title(p1);
+    if (p1 === 'settings') return ['Bilet satış ayarlarını düzenledi', '', b.provider != null ? 'sağlayıcı: ' + (b.provider || 'yok') : ''];
+    if (p2 === 'shop') return ['enabled' in b ? (b.enabled ? 'Bilet satışını açtı' : 'Bilet satışını kapattı') : 'Bilet satış ayarını düzenledi', t];
+    if (p2 === 'types') return [del ? 'Bilet türünü sildi' : put ? 'Bilet türünü düzenledi' : 'Bilet türü ekledi', t, j.type ? j.type.name + ' · ' + j.type.price + (j.type.stock ? ' · stok ' + j.type.stock : '') : ''];
+    if (p2 === 'codes') return [del ? 'Kodu sildi' : put ? 'Kodu düzenledi' : 'Kod oluşturdu', t, j.code ? j.code.code : ''];
+    if (p2 === 'orders') {
+      const o = j.order || {}, who = (o.buyer && o.buyer.name) || '';
+      if (!p3) return [o.channel === 'boxoffice' ? 'Kapıda bilet sattı' : 'Davetiye bileti verdi', who, t + ' · ' + (o.items || []).map((i) => i.qty + '× ' + i.name).join(', ') + (o.total ? ' · ' + o.total + ' ' + o.currency : '')];
+      if (parts[4] === 'refund') return ['Bilet iadesi yaptı', who, t + ' · ' + o.no + ' · ' + j.refund.tickets + ' bilet · ' + j.refund.amount + ' ' + j.refund.currency];
+      if (parts[4] === 'resend') return ['Biletleri yeniden gönderdi', who, t + ' · ' + o.no];
+    }
     return null;
   }
   if (a === 'images' || a === 'me') return null;

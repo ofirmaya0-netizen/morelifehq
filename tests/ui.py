@@ -17,7 +17,7 @@ async def main():
         await pg.goto(B+'/hq?view=rsvp'); await pg.wait_for_selector('#email')
         await pg.fill('#email','admin@example.com'); await pg.fill('#password','test-password-123'); await pg.click('#go')
         await pg.wait_for_selector('#nav .navi'); ok('login returns to /hq?view=rsvp', 'view=rsvp' in pg.url and (await pg.inner_text('#nav [aria-current=page]')).startswith('Davetler & RSVP'), pg.url)
-        ok('menu sections', [x.strip() for x in await pg.locator('#nav .navi span:not(.ico):not(.cnt)').all_inner_texts()]==['Özet','Etkinlikler','Booking','Davetler & RSVP','CRM','Talepler','Görevler','Website','SEO','Marketing','Ekip & kayıt','Yedekler','Ayarlar'], await pg.locator('#nav .navi').all_inner_texts())
+        ok('menu sections', [x.strip() for x in await pg.locator('#nav .navi span:not(.ico):not(.cnt)').all_inner_texts()]==['Özet','Etkinlikler','Satışlar','Booking','Davetler & RSVP','CRM','Talepler','Görevler','Website','SEO','Marketing','Ekip & kayıt','Yedekler','Ayarlar'], await pg.locator('#nav .navi').all_inner_texts())
         await pg.wait_for_selector('.empty'); await shot('01-rsvp-empty')
         # create event from the drawer
         await pg.goto(B+'/hq?view=etkinlikler'); await pg.wait_for_selector('#new'); await pg.click('#new'); await pg.wait_for_selector('#nf')
@@ -34,7 +34,7 @@ async def main():
         await pg.click('#m-ok'); await pg.wait_for_selector('.pill.published'); ok('event published from UI', True)
         for t in ['public','davet','seo','gorevler','checkin']:
             await pg.goto(B+'/hq?view=etkinlik&id='+eid+'&tab='+t); await pg.wait_for_selector('#tab > *'); await pg.wait_for_timeout(250); await shot('05-tab-'+t)
-        ok('event tabs render (8)', await pg.locator('.tabs button').count()==8)
+        ok('event tabs render (9)', await pg.locator('.tabs button').count()==9)
         # guest submits via the public page in a second context
         g=await b.new_context(viewport={'width':390,'height':800}); gp=await g.new_page(); gp.on('pageerror',lambda e: errs.append('guest: '+str(e)))
         await gp.goto(B+'/events/test-night?utm_source=instagram&utm_medium=social&utm_campaign=ui-test'); await gp.fill('#g-name','Ayşe Yılmaz'); await gp.fill('#g-email','ayse@example.com'); await gp.check('#g-consent')
