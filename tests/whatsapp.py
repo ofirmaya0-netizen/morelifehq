@@ -34,6 +34,15 @@ try:
     ok('pass sent by WhatsApp with name, event, date and pass token', st==200 and j['rsvp']['wa']['status']=='sent' and b['receiver']['contacts'][0]['identifierValue']=='+905321112233' and prm['name']=='Ayşe' and prm['event']=='WA Night' and prm['token']==j['rsvp']['passToken'] and '16 June 2027' in prm['date'], (st,prm))
     n=len(SENT); st,j,_=a.req('/api/hq/rsvps/'+ev['id']+'/'+r2['id']+'/decision','POST',{'decision':'approved'}); ok('guest without phone: approved, no WhatsApp attempt', j['rsvp']['status']=='approved' and 'wa' not in j['rsvp'] and len(SENT)==n, j['rsvp'])
     st,j,_=a.req('/api/hq/rsvps/'+ev['id']+'/'+r2['id']+'/send-pass-wa','POST',{}); ok('manual send without phone refused', st==400, st)
+    ok('without the QR setting no qr variable is sent', 'qr' not in prm, prm)
+    st,j,_=a.req('/api/hq/whatsapp/settings','PUT',{'pass':{'projectId':'11111111-2222-3333-4444-555555555555','version':'66666666-7777-8888-9999-000000000000','qr':True}}); ok('QR setting saved', j['settings']['pass']['qr'] is True, j)
+    st,j,_=a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/send-pass-wa','POST',{}); p,auth,b=SENT[-1]; prm={x['key']:x['value'] for x in b['template']['parameters']}; tk=j['rsvp']['passToken']
+    ok('with the setting the pass carries the QR picture address', prm.get('qr')==B+'/api/public/pass-qr/'+tk+'.png', prm)
+    st,png,h=anon.req('/api/public/pass-qr/'+tk+'.png',raw=True); import urllib.request as U; raw=U.build_opener(U.ProxyHandler({})).open(B+'/api/public/pass-qr/'+tk+'.png').read()
+    ok('QR address answers with a PNG picture', st==200 and h.get('content-type')=='image/png' and raw[:8]==b'\x89PNG\r\n\x1a\n' and len(raw)>1500, (st,h.get('content-type'),len(raw)))
+    st,_,_=anon.req('/api/public/pass-qr/not-a-real-key.png',raw=True); ok('unknown pass key: no picture', st==404, st)
+    st,j,_=a.req('/api/hq/whatsapp/settings','PUT',{'invite':{'projectId':'aa','version':'bb'}}); ok('saving other templates keeps the QR setting', j['settings']['pass']['qr'] is True, j)
+    a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/decision','POST',{'decision':'rejected'}); st,_,_=anon.req('/api/public/pass-qr/'+tk+'.png',raw=True); ok('pass no longer approved: picture gone', st==404, st); a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/decision','POST',{'decision':'approved'})
     FAIL['on']=True; st,j,_=a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/send-pass-wa','POST',{}); ok('Bird rejection reported and stored as failed', st==502 and 'template not approved' in j['error'] and j['rsvp']['wa']['status']=='failed', (st,j))
     st,j,_=a.req('/api/hq/settings'); ok('settings: WhatsApp connected, key never shown', j['integrations']['whatsapp']['connected'] and 'bk_test' not in json.dumps(j))
 finally:
