@@ -25,6 +25,15 @@ try:
     e0=[x for x in j['enquiries'] if x['email']=='lara@venue.com'][0]; ok('enquiry shaped + admin notified by e-mail', e0['kindLabel']=='Proje brief’i' and e0['status']=='new' and e0['notify']['status']=='sent' and any(s[1]['to']==['admin@example.com'] and s[1]['reply_to']=='lara@venue.com' for s in SENT), e0)
     st,j,_=a.req('/api/hq/contacts'); ok('enquiries became CRM contacts with tags', sorted((c['email'],c['tags'][0]) for c in j['contacts'])==[('ali@example.com','community'),('lara@venue.com','site-talebi')], j['contacts'])
     st,j,_=a.req('/api/hq/enquiries/'+e0['id'],'PUT',{'status':'done','note':'Aradım'}); st,j,_=a.req('/api/hq/summary'); ok('status update; summary counts new enquiries', j['newEnquiries']==1, j)
+    st,j,_=a.req('/api/hq/events','POST',{'title':'Table Night','venue':'V','city':'Bodrum','date':'2027-07-01','visibility':'public'}); tev=j['event']; a.req('/api/hq/events/'+tev['id']+'/publish','POST',{})
+    st,j,_=anon.req('/api/public/enquiries','POST',{'kind':'table','name':'Masa Sahibi','email':'masa@example.com','party':8,'area':'backstage','eventSlug':tev['slug']}); ok('table request without a phone refused', st==400, (st,j))
+    st,j,_=anon.req('/api/public/enquiries','POST',{'kind':'table','name':'Masa Sahibi','email':'masa@example.com','phone':'0532 444 55 66','party':0,'area':'backstage'}); ok('table request without a party size refused', st==400, (st,j))
+    st,j,_=anon.req('/api/public/enquiries','POST',{'kind':'table','name':'Masa Sahibi','email':'masa@example.com','phone':'0532 444 55 66','party':8,'area':'backstage','eventSlug':tev['slug'],'analyticsPath':'/tables'}); ok('table request accepted without a message', st==200 and j.get('ok'), (st,j))
+    st,j,_=a.req('/api/hq/enquiries'); tq=[x for x in j['enquiries'] if x['kind']=='table']
+    ok('table request in HQ with party, area, event and phone', len(tq)==1 and tq[0]['party']==8 and tq[0]['area']=='backstage' and tq[0]['eventTitle']=='Table Night' and tq[0]['phone']=='0532 444 55 66' and tq[0]['kindLabel']=='Masa talebi', tq)
+    st,j,_=a.req('/api/hq/contacts'); tc=[x for x in j['contacts'] if x['email']=='masa@example.com']; ok('table request makes a CRM contact with phone and tag', len(tc)==1 and 'masa-talebi' in tc[0]['tags'] and tc[0]['phone']=='0532 444 55 66', tc)
+    st,j,_=anon.req('/api/public/enquiries','POST',{'kind':'table','name':'X','email':'x@example.com','phone':'+905324445577','party':4,'area':'nonsense','eventSlug':'does-not-exist'}); st,j,_=a.req('/api/hq/enquiries'); tx=[x for x in j['enquiries'] if x['email']=='x@example.com'][0]; ok('unknown area and event fall back safely', tx['area']=='either' and tx['eventTitle']=='', tx)
+    st,pg,_=anon.req('/tables',raw=True); ok('table page is served', st==200 and 'Table request' in pg, st)
     st,t,_=a.req('/api/hq/enquiries.csv?status=done',raw=True); ok('enquiries CSV with filter', 'Lara Demir' in t and 'Ali' not in t)
     # pass e-mail
     st,j,_=a.req('/api/hq/events','POST',{'title':'Mail Night','venue':'V','city':'Bodrum','date':'2027-06-16','time':'17:00'}); ev=j['event']; a.req('/api/hq/events/'+ev['id']+'/publish','POST',{})

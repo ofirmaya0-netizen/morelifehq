@@ -72,7 +72,7 @@ export const sendOffer = (e, r, origin) => out(r, offerMail(e, r, origin));
 export const sendThanks = (e, r, origin) => out(r, thanksMail(e, r, origin));
 export function notifyEnquiry(q, origin) {
   const to = process.env.HQ_NOTIFY_EMAIL || process.env.HQ_ADMIN_EMAIL; if (!to) return Promise.resolve({ status: 'off' });
-  const rows = [['Tür', q.kindLabel], ['Ad', q.name], ['E-posta', q.email], ['Şirket', q.company], ['Konu', q.topic || q.service], ['Şehir', q.city], ['Tarih', q.preferredDates], ['Mekân', q.venue], ['Kapasite', q.capacity], ['Bütçe', q.budget], ['Sanatçı', q.artist], ['Mesaj', q.message]].filter((x) => x[1]);
+  const rows = [['Tür', q.kindLabel], ['Ad', q.name], ['E-posta', q.email], ['Telefon', q.phone], ['Etkinlik', q.eventTitle], ['Kişi sayısı', q.party], ['Alan', q.area ? { backstage: 'Backstage', standard: 'Normal masa', either: 'Fark etmez' }[q.area] : ''], ['Şirket', q.company], ['Konu', q.topic || q.service], ['Şehir', q.city], ['Tarih', q.preferredDates], ['Mekân', q.venue], ['Kapasite', q.capacity], ['Bütçe', q.budget], ['Sanatçı', q.artist], ['Mesaj', q.message]].filter((x) => x[1]);
   const html = shell('<h1 style="margin:0 0 16px;font-size:22px;font-weight:500">Yeni site talebi</h1>' + rows.map((x) => '<p style="margin:0 0 8px"><span style="color:#8F867D">' + x[0] + ':</span> ' + esc(x[1]).replace(/\n/g, '<br>') + '</p>').join('') + '<a href="' + origin + '/hq?view=talepler" style="display:inline-block;margin-top:14px;background:#F3EEE6;color:#0E0B0A;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px">HQ’da aç</a>');
   return send(to, 'Yeni talep: ' + q.kindLabel + ' — ' + q.name, html, rows.map((x) => x[0] + ': ' + x[1]).join('\n'), q.email);
 }
