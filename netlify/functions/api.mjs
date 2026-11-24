@@ -75,7 +75,7 @@ async function publicPage(req, url, parts) {
     const slug = slugify(parts[1]), ref = await s.get('slugs/' + slug), e0 = ref && await s.get('events/' + ref.id);
     if (e0 && preview) return page(renderEvent(e0, set, { mode: 'preview' }), 200, cache);
     const e = e0 && live(e0);
-    if (e && e.slug === slug && e.visibility === 'public') return page(renderEvent(e, set, { mode: 'public', ga: process.env.GA4_MEASUREMENT_ID || '' }), 200, cache);
+    if (e && e.slug === slug && e.visibility === 'public') return page(renderEvent(e, set, { mode: 'public', ga: process.env.GA4_MEASUREMENT_ID || '', selling: !!(await shopOf(s, e.id)).enabled }), 200, cache);
     const red = await s.get('redirects/' + slug);
     if (red) return new Response(null, { status: 301, headers: { location: '/events/' + red.to } });
     return page(notFound('Event not found.', 'This event page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
@@ -104,6 +104,7 @@ async function publicApi(req, ctx, parts, url) {
     else if (b.slug) { const ref = await s.get('slugs/' + slugify(b.slug)); e0 = ref && await s.get('events/' + ref.id); if (e0 && !isListed(e0)) e0 = null; }
     const e = e0 && live(e0);
     if (!e) return fail(404, 'This event is not available.');
+    if (!b.t && (await shopOf(s, e.id)).enabled) return fail(409, 'This event is ticketed. Please get your ticket on the event page.');
     const st = formState(e);
     if (st !== 'open') return fail(409, st === 'early' ? 'Requests for this event are not open yet.' : 'Requests for this event are closed.');
     const iv = e.invite || {}, r = { name: str(b.name, 120), email: normEmail(b.email), phone: iv.askPhone === 'off' ? '' : str(b.phone, 40), note: iv.askNote ? str(b.note, 600) : '', guests: 1 + int(b.plus, 0, iv.plusOnes || 0) };
