@@ -40,7 +40,7 @@
   select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%); background-position: calc(100% - 20px) 22px, calc(100% - 15px) 22px; background-size: 5px 5px; background-repeat: no-repeat; }
   select option { color: #0e0b0a; }
   :focus-visible { outline: 2px solid var(--cream); outline-offset: 2px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tel { display: grid; grid-template-columns: 112px 1fr; gap: 8px; }
   .step { display: grid; grid-template-columns: 50px 1fr 50px; align-items: center; border: 1px solid var(--line); border-radius: 12px; background: rgba(243, 238, 230, 0.05); height: 50px; }
   .step button { height: 100%; background: none; border: 0; color: var(--cream); font: 500 22px var(--font); cursor: pointer; border-radius: 12px; }
   .step output { text-align: center; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -61,7 +61,6 @@
   .done { display: flex; flex-direction: column; gap: 12px; padding: 22px 20px; border-radius: 18px; border: 1px solid var(--line); background: var(--glass); }
   .done h2 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.03em; }
   .done p { margin: 0; color: var(--muted); }
-  @media (max-width: 380px) { .two { grid-template-columns: 1fr; } }
   @media (prefers-reduced-motion: reduce) { .opt span { transition: none; } }
 </style>
 </head>
@@ -75,11 +74,8 @@
   </header>
 
   <form id="tf" novalidate>
-    <div class="field" id="ev-wrap" hidden><label for="t-event">Event</label><select id="t-event" name="eventSlug"><option value="">Not sure yet</option></select></div>
-    <div class="two">
-      <div class="field"><label id="party-l">Guests</label><div class="step" role="group" aria-labelledby="party-l"><button type="button" id="minus" aria-label="One guest fewer">&minus;</button><output id="party" aria-live="polite">6</output><button type="button" id="plus" aria-label="One guest more">+</button></div></div>
-      <div class="field"><label for="t-date">Date (optional)</label><input id="t-date" name="preferredDates" type="date"></div>
-    </div>
+    <div class="field" id="ev-wrap" hidden><label for="t-event">Event</label><select id="t-event" name="eventId"><option value="">Choose an event</option></select></div>
+    <div class="field"><label id="party-l">Guests</label><div class="step" role="group" aria-labelledby="party-l"><button type="button" id="minus" aria-label="One guest fewer">&minus;</button><output id="party" aria-live="polite">6</output><button type="button" id="plus" aria-label="One guest more">+</button></div></div>
     <fieldset>
       <legend>Where</legend>
       <div class="opts">
@@ -89,10 +85,8 @@
       </div>
     </fieldset>
     <div class="field"><label for="t-name">Full name</label><input id="t-name" name="name" type="text" autocomplete="name" required maxlength="120"></div>
-    <div class="two">
-      <div class="field"><label for="t-phone">Phone / WhatsApp</label><input id="t-phone" name="phone" type="tel" autocomplete="tel" required maxlength="40" placeholder="+90"></div>
-      <div class="field"><label for="t-email">Email</label><input id="t-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="200"></div>
-    </div>
+    <div class="field"><label for="t-phone">Phone / WhatsApp</label><div class="tel"><select name="cc" aria-label="Country code"><option value="+90" selected>TR +90</option><option value="+44">UK +44</option><option value="+1">US/CA +1</option><option value="+49">DE +49</option><option value="+33">FR +33</option><option value="+31">NL +31</option><option value="+39">IT +39</option><option value="+34">ES +34</option><option value="+30">GR +30</option><option value="+41">CH +41</option><option value="+7">RU +7</option><option value="+971">UAE +971</option><option value="+972">IL +972</option><option value="+966">SA +966</option><option value="+994">AZ +994</option><option value="">Other</option></select><input id="t-phone" name="phone" type="tel" autocomplete="tel-national" inputmode="tel" required maxlength="40" placeholder="532 123 45 67"></div></div>
+    <div class="field"><label for="t-email">Email</label><input id="t-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="200"></div>
     <div class="field"><label for="t-note">Anything we should know (optional)</label><textarea id="t-note" name="message" rows="3" maxlength="2000"></textarea></div>
     <div class="hp" aria-hidden="true"><label for="t-web">Website</label><input id="t-web" name="website" type="text" tabindex="-1" autocomplete="off"></div>
     <p class="msg" id="msg" role="alert"></p>
@@ -110,23 +104,27 @@
 (function () {
   var f = document.getElementById('tf'), msg = document.getElementById('msg'), send = document.getElementById('send'), out = document.getElementById('party'), sel = document.getElementById('t-event');
   var q = new URLSearchParams(location.search), n = 6;
+  function mlPhone(cc, raw) { var d = String(raw || '').replace(/[^0-9+]/g, ''); if (!d) return ''; if (/^00/.test(d)) d = '+' + d.slice(2); if (d.charAt(0) !== '+') d = (cc || '+') + d.replace(/^0+/, ''); return /^\+[1-9][0-9]{7,14}$/.test(d) ? d : null; }
   function step(d) { n = Math.max(1, Math.min(60, n + d)); out.textContent = n; }
   document.getElementById('minus').onclick = function () { step(-1); };
   document.getElementById('plus').onclick = function () { step(1); };
   if (['backstage', 'standard'].indexOf(q.get('area')) > -1) f.elements.area.value = q.get('area');
-  // Upcoming events from HQ; ?e=<slug> preselects one
-  fetch('/api/public/events').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
+  // Events from HQ that have not passed; ?e=<event id> preselects one
+  fetch('/api/public/table-events').then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
     if (!j || !j.events || !j.events.length) return;
-    j.events.forEach(function (e) { var o = document.createElement('option'); o.value = e.slug; o.textContent = e.title + (e.date ? ' · ' + e.date.split('-').reverse().join('.') : ''); if (q.get('e') && q.get('e') === e.slug) o.selected = true; sel.appendChild(o); });
+    j.events.forEach(function (e) { var o = document.createElement('option'); o.value = e.id; o.textContent = e.title + (e.date ? ' · ' + e.date.split('-').reverse().join('.') : ''); if (q.get('e') === e.id || j.events.length === 1) o.selected = true; sel.appendChild(o); });
+    sel.required = true;
     document.getElementById('ev-wrap').hidden = false;
   }).catch(function () {});
   f.addEventListener('submit', function (ev) {
     ev.preventDefault(); msg.textContent = '';
     var v = f.elements;
     if (!v.name.value.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.email.value.trim())) { msg.textContent = 'Please enter your name and a valid email.'; return; }
-    if (v.phone.value.replace(/[^0-9]/g, '').length < 7) { msg.textContent = 'Please enter a phone number we can reach you on.'; return; }
+    if (sel.required && !sel.value) { msg.textContent = 'Please choose the event.'; sel.focus(); return; }
+    var phone = mlPhone(v.cc.value, v.phone.value);
+    if (!phone) { msg.textContent = 'Please enter your phone number with its country code, for example +90 532 123 45 67.'; return; }
     send.disabled = true; send.textContent = 'Sending…';
-    fetch('/api/public/enquiries', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'table', name: v.name.value, email: v.email.value, phone: v.phone.value, party: n, area: v.area.value, eventSlug: sel.value, preferredDates: v.preferredDates.value, message: v.message.value, website: v.website.value, analyticsPath: '/tables' }) })
+    fetch('/api/public/enquiries', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'table', name: v.name.value, email: v.email.value, phone: phone, party: n, area: v.area.value, eventId: sel.value, message: v.message.value, website: v.website.value, analyticsPath: '/tables' }) })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (r) {
         if (!r.ok) throw new Error(r.j.error || 'Something went wrong. Please try again.');
