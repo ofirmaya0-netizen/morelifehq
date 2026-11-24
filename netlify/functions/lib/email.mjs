@@ -33,6 +33,15 @@ const head = (kicker, e) => '<p style="margin:0 0 6px;font-size:12px;letter-spac
 const whenWhere = (e) => ({ when: [dateEn(e.date), e.time].filter(Boolean).join(' · '), where: [e.venue, e.city].filter(Boolean).join(', ') });
 const first = (r) => esc(r.name.split(' ')[0]);
 
+// The table page for this event (/tables?e=<event id>), sent from HQ to a guest on the list.
+export function tableMail(e, r, origin) {
+  const url = origin + '/tables?e=' + encodeURIComponent(e.id), w = whenWhere(e);
+  const html = shell(head('Tables', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p><p style="margin:0 0 22px">Hi ' + first(r) + ', tables for the night are open. Tell us how many you are and we will come back to you.</p>' + btn(url, 'Request a table'));
+  const text = 'Tables: ' + e.title + '\n' + w.when + '\n' + w.where + '\n\nTables for the night are open. Tell us how many you are and we will come back to you.\n\nRequest a table: ' + url;
+  return { subject: 'Tables — ' + e.title, html, text };
+}
+export function sendTable(e, r, origin) { const m = tableMail(e, r, origin); return send(r.email, m.subject, m.html, m.text); }
+
 // kind: 'd1' (the day before) or 'h4' (a few hours before doors)
 export function reminderMail(e, r, origin, kind) {
   const url = origin + '/pass?t=' + r.passToken, w = whenWhere(e), soon = kind === 'h4';

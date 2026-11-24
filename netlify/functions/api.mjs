@@ -15,8 +15,8 @@ import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { inviteRoute } from './lib/invites.mjs';
-import { emailStatus, sendPass, passMail, notifyEnquiry } from './lib/email.mjs';
-import { waStatus, waSettings, sendPassWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
+import { emailStatus, sendPass, sendTable, passMail, notifyEnquiry } from './lib/email.mjs';
+import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
@@ -463,7 +463,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     if (!parts[2] && m === 'GET') {
       // the door role gets what a door link gets: approved guests, name and party size only
       if (me.role === 'door') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue, status: e.status, counts: counts(rs) }, rsvps: rs.filter((r) => r.status === 'approved').map((r) => ({ ...doorGuest(r), status: r.status, email: '', phone: '' })), tickets: (await eventTickets(e.id)).map(ticketGuest), email: { connected: false }, whatsapp: { connected: false } });
-      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: waStatus() });
+      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: { ...waStatus(), table: !!(await waSettings(s)).table.projectId } });
     }
     let freed = false;
     const decide = async (r, dec) => {
@@ -492,6 +492,20 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
       r.wa = await sendPassWa(s, live(e) || e, r, url.origin); await s.set('rsvps/' + e.id + '/' + r.id, r);
       return r.wa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.wa.error || ''), { rsvp: r });
+    }
+    // The table page of this event, to an approved guest: by WhatsApp (needs its own approved template) or by e-mail.
+    if (parts[3] === 'send-table' && m === 'POST') {
+      const ch = (await body(req)).channel === 'wa' ? 'wa' : 'mail';
+      if (r.status !== 'approved') return fail(400, 'Masa linki yalnızca onaylı misafire gönderilir.');
+      if (ch === 'wa') {
+        if (!waStatus().connected) return fail(409, 'WhatsApp bağlı değil.');
+        if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
+        r.tableWa = await sendTableWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r);
+        return r.tableWa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.tableWa.error || ''), { rsvp: r });
+      }
+      if (!emailStatus().connected) return fail(409, 'E-posta servisi bağlı değil.');
+      r.tableMail = await sendTable(live(e) || e, r, url.origin); await s.set('rsvps/' + e.id + '/' + r.id, r);
+      return r.tableMail.status === 'sent' ? json({ rsvp: r }) : fail(502, 'E-posta gönderilemedi: ' + (r.tableMail.error || ''), { rsvp: r });
     }
     if (parts[3] === 'send-pass' && m === 'POST') {
       if (r.status !== 'approved' || !r.passToken) return fail(400, 'Giriş kartı yalnızca onaylı başvuruya gönderilir.');
