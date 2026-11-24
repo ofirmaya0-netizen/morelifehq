@@ -3,3 +3,4 @@ node_modules
 .netlify
 .data-blobs
 __pycache__
+.data-backups

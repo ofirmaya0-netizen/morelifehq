@@ -50,3 +50,18 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 ## Audience invitations (no migration needed)
 - `sent/<event>/c-<contactId>/invite-wa`, `.../invite-mail` — atomic claim so a contact gets an event's invitation once per channel; holds `{at, id, audienceId}` and is removed again when the provider refuses the message.
 - Contacts tagged `mesaj-istemiyor` are never sent an invitation.
+
+## Booking pipeline, team, record of actions, backups (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `bookings/<id>` | One artist deal: artist, agency, agent, `eventId`, date, venue, `fee` + `currency`, `stage` (`offer` → `confirmed` → `contract` → `deposit` → `balance`, or `cancelled`), `offerExpires`, `payments[]` (label, kind, amount, currency, due, `paidAt`, `paidBy`), `files[]` (metadata), `history[]` of stage changes |
+| `files/<id>` | Booking file (binary). Served only through `/api/hq/bookings/<id>/files/<fileId>` to owner and manager roles, always as a download |
+| `users/<id>` | Team member: name, e-mail, `role` (`manager`, `rsvp`, `door`, `viewer`), `active`, `pass` (scrypt salt + key), `sv` (session version; raising it signs the member out), `setup` (one-time link) |
+| `userEmail/<hash>` | Normalised e-mail → member id (atomic create: one member per e-mail) |
+| `setup/<token>` | One-time password link → member id. Valid 72 hours, deleted on use |
+| `audit/<iso time>~<id>` | One line of the record of actions: who, what, on what. Written after every successful change; keys sort by time |
+| `meta/contactsStamp`, `cache/contacts` | CRM snapshot: all contacts in one record, trusted only while its stamp matches (see `allContacts` in `store.mjs`) |
+
+- `rsvps/<event>/<id>.decidedBy`, `.checkedInBy` and `checkins/<event>/<rsvp>.by` hold the name of the person who decided or checked the guest in.
+- The owner is not a record: it comes from `HQ_ADMIN_EMAIL` / `HQ_ADMIN_PASSWORD` (optional `HQ_ADMIN_NAME` for the name shown in the log).
+- Backups live in a second store, `<store>-backups`: `snap/<id>` (every record except `rate/`, `cache/`, `config/`, `setup/`, `hits/`), `meta/<id>`, `bin/<key>` (copies of `images/` and `files/`), `lock/<day>` (one automatic backup a day). A restore never touches `audit/`, `users/` or `userEmail/`.

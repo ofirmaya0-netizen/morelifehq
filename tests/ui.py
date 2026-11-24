@@ -17,7 +17,7 @@ async def main():
         await pg.goto(B+'/hq?view=rsvp'); await pg.wait_for_selector('#email')
         await pg.fill('#email','admin@example.com'); await pg.fill('#password','test-password-123'); await pg.click('#go')
         await pg.wait_for_selector('#nav .navi'); ok('login returns to /hq?view=rsvp', 'view=rsvp' in pg.url and (await pg.inner_text('#nav [aria-current=page]')).startswith('Davetler & RSVP'), pg.url)
-        ok('menu sections', [x.strip() for x in await pg.locator('#nav .navi span:not(.ico):not(.cnt)').all_inner_texts()]==['Özet','Etkinlikler','Davetler & RSVP','CRM','Talepler','Görevler','Website','SEO','Marketing','Ayarlar'], await pg.locator('#nav .navi').all_inner_texts())
+        ok('menu sections', [x.strip() for x in await pg.locator('#nav .navi span:not(.ico):not(.cnt)').all_inner_texts()]==['Özet','Etkinlikler','Booking','Davetler & RSVP','CRM','Talepler','Görevler','Website','SEO','Marketing','Ekip & kayıt','Yedekler','Ayarlar'], await pg.locator('#nav .navi').all_inner_texts())
         await pg.wait_for_selector('.empty'); await shot('01-rsvp-empty')
         # create event from the drawer
         await pg.goto(B+'/hq?view=etkinlikler'); await pg.wait_for_selector('#new'); await pg.click('#new'); await pg.wait_for_selector('#nf')
@@ -103,8 +103,8 @@ async def main():
         for tb in ['gsc','ga4']:
             await pg.goto(B+'/hq?view=marketing&tab='+tb); await pg.wait_for_selector('.empty'); ok(tb+': not connected, steps, no numbers', 'bağlı değil' in await pg.inner_text('main') and await pg.locator('main table').count()==0)
         await shot('23-ga4'); await pg.goto(B+'/hq?view=ayarlar'); await pg.wait_for_selector('table'); await shot('24-settings'); ok('settings never shows secret values', 'test-password-123' not in await pg.content())
-        await pg.goto(B+'/hq?view=ozet'); await pg.wait_for_selector('.stat'); await shot('25-ozet'); nums=[x.strip() for x in await pg.locator('.stat .num').all_inner_texts()]; ok('summary counters', nums==['1','0','1','1'], nums)
-        await pg.click('.stat >> nth=3'); await pg.wait_for_selector('[data-ts]'); ok('counter opens filtered list', 'durum=overdue' in pg.url and await pg.get_attribute('[data-tf=overdue]','aria-pressed')=='true')
+        await pg.goto(B+'/hq?view=ozet'); await pg.wait_for_selector('.stat'); await shot('25-ozet'); nums=[x.strip() for x in await pg.locator('.stat .num').all_inner_texts()]; ok('summary counters', nums==['0','0','1','1'], nums)
+        await pg.click('.stat >> nth=2'); await pg.wait_for_selector('[data-ts]'); ok('counter opens filtered list', 'durum=overdue' in pg.url and await pg.get_attribute('[data-tf=overdue]','aria-pressed')=='true')
         await pg.goto(B+'/hq?view=etkinlikler'); await pg.wait_for_selector('.ev'); await shot('26-events')
         await pg.reload(); await pg.wait_for_selector('.ev'); ok('deep link survives refresh', 'view=etkinlikler' in pg.url)
         await pg.click('#logout'); await pg.wait_for_selector('#email'); ok('logout returns to login', True)

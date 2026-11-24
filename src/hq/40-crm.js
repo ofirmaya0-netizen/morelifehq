@@ -20,24 +20,28 @@
 }
   H.views.crm = async function (main) {
     if (H.q().get('tab') === 'kitleler') return H.audiences(main);
-    var d = await H.api('contacts'), st = { q: H.q().get('ara') || '', tag: H.q().get('etiket') || '' }, tags = [];
-    d.contacts.forEach(function (c) { (c.tags || []).forEach(function (t) { if (tags.indexOf(t) < 0) tags.push(t); }); }); tags.sort();
-    function rows() { var t = st.q.trim().toLocaleLowerCase('tr'); return d.contacts.filter(function (c) { return (!t || [c.name, c.email, c.phone, c.instagram, c.company, c.source, (c.tags || []).join(' '), c.notes].join(' ').toLocaleLowerCase('tr').indexOf(t) > -1) && (!st.tag || (c.tags || []).indexOf(st.tag) > -1); }); }
+    // The list comes one page at a time; search and the tag filter run on the server, so the screen stays quick however large the CRM gets.
+    var PAGE = 100, st = { q: H.q().get('ara') || '', tag: H.q().get('etiket') || '' }, d = { contacts: [], matched: 0, total: 0, next: null, tags: [] }, seq = 0;
+    async function load(more, focus) {
+      var n = ++seq, r = await H.api('contacts?limit=' + PAGE + '&offset=' + (more ? d.next : 0) + (st.q.trim() ? '&q=' + encodeURIComponent(st.q.trim()) : '') + (st.tag ? '&tag=' + encodeURIComponent(st.tag) : ''));
+      if (n !== seq) return; // a newer search has started
+      r.contacts = more ? d.contacts.concat(r.contacts) : r.contacts; d = r; draw(focus);
+    }
     function draw(focus) {
-      var r = rows(), qs = (st.q ? '&q=' + encodeURIComponent(st.q) : '') + (st.tag ? '&tag=' + encodeURIComponent(st.tag) : '');
-      main.innerHTML = H.head({ title: 'CRM', sub: 'Kişiler, etiketler ve etkinlik geçmişi. Başvuru yapan herkes tek bir kişi kartında toplanır.', acts: '<button class="btn pri" type="button" id="c-new">' + H.ico('plus') + 'Kişi ekle</button><label class="btn" for="csv-file">CSV içe aktar</label><input class="sr" id="csv-file" type="file" accept=".csv,text/csv"><a class="btn" href="/api/hq/contacts.csv?' + qs.slice(1) + '">' + H.ico('down') + (qs ? 'Filtreyi dışa aktar (' + r.length + ')' : 'CSV dışa aktar') + '</a>' }) +
+      var r = d.contacts, qs = (st.q.trim() ? '&q=' + encodeURIComponent(st.q.trim()) : '') + (st.tag ? '&tag=' + encodeURIComponent(st.tag) : '');
+      main.innerHTML = H.head({ title: 'CRM', sub: 'Kişiler, etiketler ve etkinlik geçmişi. Başvuru yapan herkes tek bir kişi kartında toplanır.', acts: '<button class="btn pri" type="button" id="c-new">' + H.ico('plus') + 'Kişi ekle</button><label class="btn" for="csv-file">CSV içe aktar</label><input class="sr" id="csv-file" type="file" accept=".csv,text/csv"><a class="btn" href="/api/hq/contacts.csv?' + qs.slice(1) + '">' + H.ico('down') + (qs ? 'Filtreyi dışa aktar (' + d.matched + ')' : 'CSV dışa aktar') + '</a>' }) +
         H.crmTabs('kisiler') +
-        '<div class="row" style="margin-bottom:14px"><label class="search"><span class="sr">Ara</span>' + H.ico('search') + '<input id="c-q" type="search" placeholder="İsim, e-posta, telefon, etiket…" value="' + e(st.q) + '"></label><label class="sr" for="c-tag">Etiket</label><select id="c-tag" style="width:auto;min-width:160px"><option value="">Tüm etiketler</option>' + tags.map(function (x) { return '<option' + (x === st.tag ? ' selected' : '') + '>' + e(x) + '</option>'; }).join('') + '</select><span class="small dim">' + r.length + ' / ' + d.contacts.length + ' kişi</span></div>' +
-        (r.length ? '<div class="card flat"><div class="scroll"><table><thead><tr><th>Kişi</th><th>İletişim</th><th>Etiketler</th><th>Kaynak</th><th></th></tr></thead><tbody>' + r.slice(0, 400).map(function (c) {
+        '<div class="row" style="margin-bottom:14px"><label class="search"><span class="sr">Ara</span>' + H.ico('search') + '<input id="c-q" type="search" placeholder="İsim, e-posta, telefon, etiket…" value="' + e(st.q) + '"></label><label class="sr" for="c-tag">Etiket</label><select id="c-tag" style="width:auto;min-width:160px"><option value="">Tüm etiketler</option>' + d.tags.map(function (x) { return '<option value="' + e(x.name) + '"' + (x.name === st.tag ? ' selected' : '') + '>' + e(x.name) + ' (' + x.count + ')</option>'; }).join('') + '</select><span class="small dim">' + d.matched + ' / ' + d.total + ' kişi</span></div>' +
+        (r.length ? '<div class="card flat"><div class="scroll"><table><thead><tr><th>Kişi</th><th>İletişim</th><th>Etiketler</th><th>Kaynak</th><th></th></tr></thead><tbody>' + r.map(function (c) {
           return '<tr class="click" data-open="' + c.id + '" style="cursor:pointer"><td><div class="row" style="flex-wrap:nowrap"><span class="av">' + H.initials(c.name) + '</span><b>' + e(c.name) + '</b></div></td><td class="small mute">' + [c.email, c.phone].filter(Boolean).map(e).join('<br>') + '</td><td>' + (c.tags || []).map(function (x) { return '<span class="pill plain">' + e(x) + '</span>'; }).join(' ') + '</td><td class="small mute">' + e(c.source || '—') + '</td><td class="r"><button class="btn sm" type="button" data-open="' + c.id + '">Aç</button></td></tr>';
-        }).join('') + '</tbody></table></div></div>' + (r.length > 400 ? '<p class="small dim" style="margin-top:8px">İlk 400 kişi gösteriliyor; aramayı daraltın.</p>' : '') : H.empty('users', d.contacts.length ? 'Kişi bulunamadı.' : 'Henüz kişi yok.', d.contacts.length ? 'Aramayı ya da etiket filtresini değiştirin.' : 'Kişileri elle ekleyin, CSV’den aktarın ya da başvurularla kendiliğinden oluşsun.'));
+        }).join('') + '</tbody></table></div></div>' + (d.next != null ? '<div class="row" style="justify-content:center;margin-top:14px"><button class="btn" type="button" id="c-more">Sonraki ' + Math.min(PAGE, d.matched - r.length) + ' kişiyi göster</button><span class="small dim">' + r.length + ' / ' + d.matched + '</span></div>' : '') : H.empty('users', d.total ? 'Kişi bulunamadı.' : 'Henüz kişi yok.', d.total ? 'Aramayı ya da etiket filtresini değiştirin.' : 'Kişileri elle ekleyin, CSV’den aktarın ya da başvurularla kendiliğinden oluşsun.'));
       var qi = main.querySelector('#c-q'); if (focus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); }
     }
-    draw();
-    var timer;
-    main.oninput = function (ev) { if (ev.target.id === 'c-q') { st.q = ev.target.value; clearTimeout(timer); timer = setTimeout(function () { draw(1); }, 200); } };
-    main.onchange = function (ev) { if (ev.target.id === 'c-tag') { st.tag = ev.target.value; draw(); } if (ev.target.id === 'csv-file') importCsv(ev.target); };
-    main.onclick = function (ev) { var o = ev.target.closest('[data-open]'); if (o) card(o.getAttribute('data-open')); if (ev.target.closest('#c-new')) card(null); };
+    await load();
+    var timer, oops = function (err) { H.toast(err.message, 'bad'); };
+    main.oninput = function (ev) { if (ev.target.id === 'c-q') { st.q = ev.target.value; clearTimeout(timer); timer = setTimeout(function () { load(false, 1).catch(oops); }, 250); } };
+    main.onchange = function (ev) { if (ev.target.id === 'c-tag') { st.tag = ev.target.value; load().catch(oops); } if (ev.target.id === 'csv-file') importCsv(ev.target); };
+    main.onclick = function (ev) { var more = ev.target.closest('#c-more'); if (more) { H.busy(more, 1, 'Yükleniyor…'); load(true).catch(oops); return; } var o = ev.target.closest('[data-open]'); if (o) card(o.getAttribute('data-open')); if (ev.target.closest('#c-new')) card(null); };
     if (H.q().get('kisi')) { var k = H.q().get('kisi'); history.replaceState(null, '', '/hq?view=crm'); card(k); }
 
     async function card(id) {

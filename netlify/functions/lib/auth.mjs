@@ -1,4 +1,4 @@
-// HQ access: one admin, defined entirely by server environment variables.
+// HQ access: the owner is defined entirely by server environment variables; team members sign in with their own password.
 import crypto from 'node:crypto';
 
 const COOKIE = 'hq_s';
@@ -27,20 +27,35 @@ const same = (a, b) => {
   return crypto.timingSafeEqual(x, y);
 };
 
+const ownerEmail = () => process.env.HQ_ADMIN_EMAIL.trim().toLowerCase();
+// The owner is defined by the environment variables; team members are records in the store (see team.mjs).
 export function checkLogin(email, password) {
-  const okE = same(String(email || '').trim().toLowerCase(), process.env.HQ_ADMIN_EMAIL.trim().toLowerCase());
+  const okE = same(String(email || '').trim().toLowerCase(), ownerEmail());
   const okP = same(password || '', process.env.HQ_ADMIN_PASSWORD);
   return okE && okP;
 }
 
-export function sessionCookie(req) {
-  const body = Buffer.from(JSON.stringify({ e: process.env.HQ_ADMIN_EMAIL.trim().toLowerCase(), x: Math.floor(Date.now() / 1000) + TTL })).toString('base64url');
+// Team passwords: scrypt with a per-user salt. Only the salt and the derived key are stored.
+export function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('base64url');
+  return { salt, key: crypto.scryptSync(String(password), salt, 64).toString('base64url') };
+}
+export function verifyPassword(password, rec) {
+  if (!rec || !rec.salt || !rec.key) { crypto.scryptSync(String(password || ''), 'x', 64); return false; } // same work whether or not the account exists
+  return same(crypto.scryptSync(String(password || ''), rec.salt, 64).toString('base64url'), rec.key);
+}
+
+// user: { id: 'owner' } or a team member { id, email, sv }. `sv` is the member's session version: raising it signs them out everywhere.
+export function sessionCookie(req, user) {
+  const u = user && user.id !== 'owner' ? { e: user.email, u: user.id, v: user.sv || 0 } : { e: ownerEmail(), u: 'owner' };
+  const body = Buffer.from(JSON.stringify({ ...u, x: Math.floor(Date.now() / 1000) + TTL })).toString('base64url');
   const secure = new URL(req.url).protocol === 'https:' ? '; Secure' : '';
   return `${COOKIE}=${body}.${sign(body)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${TTL}${secure}`;
 }
 
 export function clearCookie() { return `${COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`; }
 
+// Checks the signature and expiry only. Whether a team member is still active is decided by team.mjs → currentUser().
 export function session(req) {
   if (missingConfig().length || !secret) return null;
   const m = (req.headers.get('cookie') || '').match(/(?:^|;\s*)hq_s=([^;]+)/);
@@ -50,8 +65,9 @@ export function session(req) {
   try {
     const p = JSON.parse(Buffer.from(body, 'base64url').toString());
     if (p.x < Date.now() / 1000) return null;
-    if (p.e !== process.env.HQ_ADMIN_EMAIL.trim().toLowerCase()) return null; // changing the env var revokes old sessions
-    return { email: p.e };
+    const uid = p.u || 'owner';
+    if (uid === 'owner' && p.e !== ownerEmail()) return null; // changing the env var revokes old sessions
+    return { email: p.e, uid, v: p.v || 0 };
   } catch { return null; }
 }
 
