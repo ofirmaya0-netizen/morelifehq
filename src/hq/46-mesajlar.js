@@ -6,7 +6,7 @@
     var d = await H.api('inbox'), ro = H.me.readOnly, f = H.q().get('durum') || 'all', n = d.threads.filter(function (t) { return t.unread; }).length, rows = d.threads.filter(function (t) { return f === 'all' || t.unread; });
     var setup = !d.whatsapp.connected ? H.note('', 'WhatsApp bağlı değil. Ayarlar’daki Bird bağlantısı kurulunca gelen mesajlar buraya bağlanabilir.')
       : !d.hook.connected ? H.note('warn', 'Gelen mesajlar henüz HQ’ya bağlı değil: hatta yazılanlar şu an yalnızca Bird’de görünüyor.' + (ro ? '' : ' <button class="btn sm pri" type="button" id="wa-con" style="margin-left:8px">Gelen mesajları bağla</button>')) : '';
-    main.innerHTML = H.head({ title: 'Mesajlar', sub: 'More Life WhatsApp hattına yazanlar. Bir kişi yazdıktan sonra 24 saat boyunca serbest metinle yanıtlanabilir; sonrasında WhatsApp yalnızca onaylı şablona izin verir.', acts: '<button class="btn" type="button" id="wa-ref">Yenile</button>' }) +
+    main.innerHTML = H.head({ title: 'Mesajlar', sub: 'More Life WhatsApp hattına yazanlar. Bir kişi yazdıktan sonra 24 saat boyunca serbest metinle yanıtlanabilir; sonrasında WhatsApp yalnızca onaylı şablona izin verir.', acts: (d.whatsapp.connected && !ro ? '<button class="btn" type="button" id="wa-imp">' + H.ico('down') + 'Geçmiş mesajları yükle</button>' : '') + '<button class="btn" type="button" id="wa-ref">Yenile</button>' }) +
       (setup ? '<div style="margin-bottom:14px">' + setup + '</div>' : '') +
       '<div class="row" style="margin-bottom:14px">' + H.seg([['all', 'Tümü', d.threads.length], ['unread', 'Okunmamış', n]], f, 'data-mf') + '</div>' +
       (rows.length ? '<div class="card flat"><div class="list">' + rows.map(function (t) {
@@ -16,6 +16,13 @@
     main.onclick = async function (ev) {
       var b = ev.target.closest('[data-mf]'), o = ev.target.closest('[data-open]'), c = ev.target.closest('#wa-con'), x = ev.target.closest('#wa-dis');
       if (ev.target.closest('#wa-ref')) return H.render();
+      var im = ev.target.closest('#wa-imp');
+      if (im) { // Bird's list is read page by page; a message already in HQ is skipped
+        var tok = '', got = 0, seen = 0; H.busy(im, 1, 'Yükleniyor…');
+        try { for (var i = 0; i < 400; i++) { var p = await H.api('inbox/import', 'POST', { pageToken: tok }); got += p.stored; seen += p.read; im.textContent = 'Yükleniyor… ' + seen; tok = p.nextPageToken; if (!tok || !p.read) break; } H.toast(got ? got + ' geçmiş mesaj yüklendi' : 'Yeni yüklenecek mesaj yok (' + seen + ' mesaj zaten burada)', 'ok'); }
+        catch (err) { H.toast((got ? got + ' mesaj yüklendi, sonra durdu: ' : '') + err.message, 'bad'); }
+        return H.render();
+      }
       if (b) return H.go('view=mesajlar&durum=' + b.getAttribute('data-mf'));
       if (o) return open(o.getAttribute('data-open'));
       if (c) {

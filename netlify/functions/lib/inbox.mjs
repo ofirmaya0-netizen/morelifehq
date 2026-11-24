@@ -55,20 +55,31 @@ export async function waHook(req, s, url) {
   const cfg = (await s.get(CFG)) || {}, urls = [...new Set([req.url, url.origin + url.pathname, cfg.url].filter(Boolean))];
   if (!signedChannels(raw, req.headers, urls, key) && !signedStandard(raw, req.headers, key)) return fail(401, 'Bad signature');
   let j = null; try { j = JSON.parse(raw.toString('utf8')); } catch {}
-  const m = parseInbound(j);
-  if (!m || !m.birdId || !/^\+\d{8,15}$/.test(m.phone)) return json({ ok: true, stored: false }); // other events are acknowledged and dropped
-  if (!(await s.create('waseen/' + hash(m.birdId), { at: now() }))) return json({ ok: true, stored: false }); // Bird delivers at least once
+  return json({ ok: true, stored: await storeInbound(s, parseInbound(j)) }); // other events are acknowledged and dropped
+}
+// Stores one incoming message once. history: it comes from Bird's message list, so one older than the reply window arrives already read.
+async function storeInbound(s, m, history) {
+  if (!m || !m.birdId || !/^\+\d{8,15}$/.test(m.phone)) return false;
+  if (!(await s.create('waseen/' + hash(m.birdId), { at: now() }))) return false; // Bird delivers at least once
   const k = threadKey(m.phone), at = iso(m.at), hit = await s.get('contactPhone/' + hash(m.phone)), c = hit && await s.get('contacts/' + hit.id);
   const stop = m.kind === 'text' && OPT_OUT.test(m.text);
   await s.set('wamsgs/' + k + '/' + at + '~' + id(), { dir: 'in', at, kind: m.kind, text: m.text, birdId: m.birdId });
   const t = (await s.get('wathreads/' + k)) || { key: k, phone: m.phone, createdAt: now(), readAt: '' };
   Object.assign(t, { name: m.name || t.name || '', contactId: c ? c.id : '', lastAt: at > (t.lastAt || '') ? at : t.lastAt, lastInAt: at > (t.lastInAt || '') ? at : t.lastInAt });
   if (t.lastAt === at) { t.lastText = preview(m); t.lastDir = 'in'; }
-  if (stop) t.optOut = at;
+  if (history && Date.now() - Date.parse(at) > WINDOW && at > (t.readAt || '')) t.readAt = at;
+  if (stop && at > (t.optOut || '')) t.optOut = at;
   await s.set('wathreads/' + k, t);
   // "Reply STOP to opt out" is the promise in the invitation's footer: the contact is never sent an invitation again.
   if (stop && c && !(c.tags || []).includes(OPT_TAG)) { c.tags = (c.tags || []).concat(OPT_TAG); c.updatedAt = now(); await s.set('contacts/' + c.id, c); }
-  return json({ ok: true, stored: true });
+  return true;
+}
+// One page of the channel's incoming messages from Bird; the screen asks page by page until there is no next page.
+async function importPage(s, pageToken) {
+  const j = await waCall('/channels/' + (await channelId(s)) + '/messages?direction=incoming&limit=25' + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : ''), 'GET');
+  let stored = 0; const rows = Array.isArray(j.results) ? j.results : [];
+  for (const p of rows) if ((p.direction || 'incoming') === 'incoming' && await storeInbound(s, parseInbound({ event: 'whatsapp.inbound', payload: p }), true)) stored += 1;
+  return { read: rows.length, stored, nextPageToken: str(j.nextPageToken, 600) };
 }
 const preview = (m) => (m.kind === 'text' || !KIND[m.kind] ? m.text || (m.kind === 'text' ? '' : '[' + (KIND[m.kind] || 'Desteklenmeyen mesaj') + ']') : '[' + KIND[m.kind] + ']' + (m.text ? ' ' + m.text : '')).slice(0, 160);
 const unread = (t) => !!t.lastInAt && t.lastInAt > (t.readAt || '');
@@ -96,6 +107,10 @@ export async function inboxRoute(req, parts, url, s, me) {
     if (m === 'POST') { try { await connect(s, url.origin, me); } catch (e) { return fail(502, 'Bird bağlantıyı kabul etmedi: ' + String(e.message || e)); } return json({ hook: await hookStatus(s) }); }
     if (m === 'DELETE') { const c = (await s.get(CFG)) || {}; if (c.id) { try { await waCall('/webhook-subscriptions/' + c.id, 'DELETE'); } catch (e) { return fail(502, 'Bird bağlantıyı kaldırmadı: ' + String(e.message || e)); } } await s.del(CFG); return json({ hook: await hookStatus(s) }); }
     return fail(404, 'Bulunamadı.');
+  }
+  if (parts[1] === 'import' && m === 'POST') {
+    if (!waStatus().connected) return fail(409, 'WhatsApp bağlı değil.');
+    try { return json(await importPage(s, str((await body(req)).pageToken, 600))); } catch (e) { return fail(502, 'Bird mesaj listesini vermedi: ' + String(e.message || e)); }
   }
   const k = str(parts[1], 40).replace(/[^a-f0-9]/g, ''), t = k && await s.get('wathreads/' + k);
   if (!t) return fail(404, 'Konuşma bulunamadı.');

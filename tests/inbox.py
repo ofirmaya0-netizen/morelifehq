@@ -1,10 +1,14 @@
 # Incoming WhatsApp messages: Bird's signed webhook → HQ → reply (python3 tests/inbox.py).
 import sys, os, json, threading, http.server, hmac, hashlib, base64, time, datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-SUBS=[]; SENT=[]; DEL=[]
+SUBS=[]; SENT=[]; DEL=[]; LISTED=[]; HIST=[]
 class Mock(http.server.BaseHTTPRequestHandler):
     def _out(self,code,obj): self.send_response(code); self.end_headers(); self.wfile.write(json.dumps(obj).encode())
-    def do_GET(self): self._out(200,{'results':[{'id':'ch-wa','platformId':'whatsapp','name':'WhatsApp','status':'active'}]})
+    def do_GET(self):
+        if '/messages' in self.path:
+            LISTED.append(self.path); second='pageToken=p2' in self.path
+            return self._out(200,{'results':HIST[25:] if second else HIST[:25], **({} if second else {'nextPageToken':'p2'})})
+        self._out(200,{'results':[{'id':'ch-wa','platformId':'whatsapp','name':'WhatsApp','status':'active'}]})
     def do_DELETE(self): DEL.append(self.path); self.send_response(204); self.end_headers()
     def do_POST(self):
         b=json.loads(self.rfile.read(int(self.headers['content-length'])))
@@ -64,6 +68,15 @@ try:
     n=len(SENT); st,j,_=a.req('/api/hq/inbox/'+t2['key']+'/reply','POST',{'text':'hi'}); ok('reply after 24 hours refused, nothing sent', st==409 and len(SENT)==n, (st,j))
     st,j=hook({'type':'whatsapp.received','timestamp':datetime.datetime.utcnow().isoformat()+'Z','data':{'whatsapp_id':'wam_1','direction':'inbound','from':{'phone_number':'+14155550100','display_name':'Alex'},'to':{'phone_number':'+1'},'text':{'body':'new shape'}}},KEY)
     st2,j2,_=a.req('/api/hq/inbox'); ok('Bird’s newer payload shape is read too', j.get('stored') is True and any(x['phone']=='+14155550100' and x['lastText']=='new shape' for x in j2['threads']), (j,j2))
+    ago=lambda h:(datetime.datetime.utcnow()-datetime.timedelta(hours=h)).isoformat()+'Z'
+    HIST.extend([inbound('h%d'%i,'+9055500000%02d'%i,'eski %d'%i,'Eski',at=ago(200+i))['payload'] for i in range(25)])
+    HIST.extend([inbound('m1','+905321112233','Merhaba, yarın kaçta başlıyor?')['payload'], inbound('h90','+905559990001','dün yazdım','Deniz',at=ago(2))['payload'], inbound('h91','+905559990001','önce',at=ago(50))['payload'], dict(inbound('h92','+905559990002','giden')['payload'],direction='outgoing')])
+    before=len(a.req('/api/hq/inbox')[1]['threads']); st,p1,_=a.req('/api/hq/inbox/import','POST',{'pageToken':''}); st2,p2,_=a.req('/api/hq/inbox/import','POST',{'pageToken':p1.get('nextPageToken','')})
+    ok('history is read from Bird page by page, incoming only', st==200 and p1['stored']==25 and p1['nextPageToken']=='p2' and 'direction=incoming' in LISTED[0] and 'pageToken=p2' in LISTED[1] and p2['nextPageToken']=='', (p1,p2,LISTED))
+    ok('second page: already stored and outgoing ones skipped', p2['read']==4 and p2['stored']==2, p2)
+    st,j,_=a.req('/api/hq/inbox'); th={x['phone']:x for x in j['threads']}
+    ok('old history arrives read; one inside 24 hours is unread', len(j['threads'])==before+26 and not th['+905550000003']['unread'] and th['+905559990001']['unread'] and th['+905559990001']['lastText']=='dün yazdım', (len(j['threads']),before))
+    st,p3,_=a.req('/api/hq/inbox/import','POST',{}); ok('loading again adds nothing', p3['stored']==0, p3)
     st,j,_=a.req('/api/hq/audit'); ok('connect and reply are in the record of actions', any('gelen mesaj' in x['action'] for x in j['entries']) and any('yanıtladı' in x['action'] for x in j['entries']), [x['action'] for x in j.get('entries',[])][:8])
     st,j,_=a.req('/api/hq/inbox/connect','POST',{}); ok('reconnect removes the old subscription and makes a new key', st==200 and DEL[-1].endswith('/webhook-subscriptions/sub-1') and SUBS[-1]['signingKey']!=KEY, (st,DEL))
     st,j=hook(inbound('m5','+905321112233','x'),KEY); ok('old key stops working after reconnect', st==401, st)
