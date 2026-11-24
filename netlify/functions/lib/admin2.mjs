@@ -1,7 +1,7 @@
 // Admin API, part 2: CRM, tasks, website content, SEO, campaign links, marketing reports, settings.
 // Reached only from adminApi() in api.mjs, i.e. after the session and same-origin checks.
 import crypto from 'node:crypto';
-import { all, pool } from './store.mjs';
+import { all, pool, allContacts } from './store.mjs';
 import { id, hash } from './auth.mjs';
 import { json, fail, now, str, int, emailOk, normEmail, normPhone, tagList, body, istToday, csv, slugify } from './util.mjs';
 import { seoInput, eventSeo, homeSeo, eventJsonLd, orgJsonLd, isListed, live, isDirty, DEFAULT_SEO_SETTINGS, SITE_URL } from './model.mjs';
@@ -10,6 +10,7 @@ import { SCHEMA_VERSION } from './migrations.mjs';
 import { SITE_HTML } from './site-html.mjs';
 import { emailStatus } from './email.mjs';
 import { waStatus, waSettings, waChannels, waSend } from './whatsapp.mjs';
+import { eventSales } from './tickets.mjs';
 
 /* ---------- CRM ---------- */
 const C_TEXT = { name: 120, email: 200, phone: 40, instagram: 80, company: 120, source: 80, notes: 4000 };
@@ -40,10 +41,18 @@ async function contacts(req, parts, url, s) {
   const m = req.method;
   if (parts[0] === 'contacts.csv') {
     const q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr'), tag = url.searchParams.get('tag') || '';
-    const rows = (await all('contacts/')).filter((c) => matchC(c, q, tag)).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    const rows = (await allContacts()).filter((c) => matchC(c, q, tag)).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
     return csv('kisiler.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Instagram', 'Şirket', 'Etiketler', 'Kaynak', 'Not', 'Eklendi']].concat(rows.map((c) => [c.name, c.email, c.phone, c.instagram, c.company, (c.tags || []).join(', '), c.source, c.notes, c.createdAt])));
   }
-  if (!parts[1] && m === 'GET') return json({ contacts: (await all('contacts/')).sort((a, b) => a.name.localeCompare(b.name, 'tr')) });
+  if (!parts[1] && m === 'GET') {
+    const list = (await allContacts()).slice().sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    if (!url.searchParams.has('limit')) return json({ contacts: list });
+    // One page at a time for the CRM screen: search and tag filter run here, the browser only ever holds what it shows.
+    const q = (url.searchParams.get('q') || '').trim().toLocaleLowerCase('tr'), tag = url.searchParams.get('tag') || '', limit = int(url.searchParams.get('limit'), 1, 200, 100), offset = int(url.searchParams.get('offset'), 0, 1e6), tags = {};
+    for (const c of list) for (const x of c.tags || []) tags[x] = (tags[x] || 0) + 1;
+    const hit = list.filter((c) => matchC(c, q, tag));
+    return json({ contacts: hit.slice(offset, offset + limit), matched: hit.length, total: list.length, next: offset + limit < hit.length ? offset + limit : null, tags: Object.keys(tags).sort((a, b) => a.localeCompare(b, 'tr')).map((name) => ({ name, count: tags[name] })) });
+  }
   if (!parts[1] && m === 'POST') {
     const r = contactInput(await body(req)); if (r.error) return fail(400, r.error);
     const o = await owners(s, r.contact); if (o.byE || o.byP) return fail(409, 'Bu e-posta veya telefonla bir kişi zaten var.', { existingId: o.byE || o.byP });
@@ -141,10 +150,10 @@ function inAudience(c, r, ev) {
   }
   return true;
 }
-export async function audienceMembers(a) { const ev = await audienceEvents([a.rules]); return (await all('contacts/')).filter((c) => inAudience(c, a.rules, ev)); }
+export async function audienceMembers(a) { const ev = await audienceEvents([a.rules]); return (await allContacts()).filter((c) => inAudience(c, a.rules, ev)); }
 const audienceSize = (m) => ({ count: m.length, phone: m.filter(hasPhone).length, email: m.filter((c) => c.email).length });
 async function audiences(req, parts, s) {
-  const m = req.method, people = async () => (await all('contacts/')).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  const m = req.method, people = async () => (await allContacts()).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   const shape = async (b, prev = {}) => {
     const a = { ...prev, name: 'name' in b ? str(b.name, 80) : prev.name, note: 'note' in b ? str(b.note, 300) : prev.note || '', rules: audienceRules(b.rules || prev.rules) };
     if (!a.name) return { error: 'Kitleye bir ad verin.' };
@@ -344,6 +353,7 @@ async function marketing(req, parts, url, s) {
       if (r.status === 'approved') { row.approved += 1; b.approved += 1; }
       if (r.checkedInAt) { row.checkedIn += 1; b.checkedIn += 1; }
     }
+    const sold = await eventSales(s, e.id); if (sold) { row.tickets = sold.tickets; row.net = sold.net; row.currency = sold.currency; } // sold on More Life's own shop; null when the event sells elsewhere
     events.push(row);
   }
   // link-in-bio page (/links): views, presses per link, and sign-ups that came through its form
@@ -352,7 +362,7 @@ async function marketing(req, parts, url, s) {
   for (const q of await all('enquiries/')) if (q.path === '/links' && istDay(q.createdAt) >= from && istDay(q.createdAt) <= to) linkPage.signups += 1;
   const links2 = { views: linkPage.views, signups: linkPage.signups, clicks: Object.entries(linkPage.clicks).map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n) };
   return json({ from, to, links: links2, events: events.sort((a, b) => (b.date || '').localeCompare(a.date || '')), campaigns: Object.values(camp).sort((a, b) => b.rsvps - a.rsvps || b.views - a.views), truncated,
-    notes: ['Ziyaret ve bilet linki tıklaması More Life’ın kendi sayacından gelir; etkinlik ve davet sayfalarını kapsar, botlar hariç tutulur.', 'Bilet linki tıklaması satış değildir. Satış rakamı yalnızca bağlı bir bilet platformundan veya yüklenen satış raporundan gelebilir; şu an bağlı kaynak yok.'] });
+    notes: ['Ziyaret ve bilet linki tıklaması More Life’ın kendi sayacından gelir; etkinlik ve davet sayfalarını kapsar, botlar hariç tutulur.', 'Bilet linki tıklaması satış değildir. Satış sütunu yalnızca More Life’ın kendi sayfasında satılan biletleri sayar; harici bilet linki kullanan etkinliklerde boş kalır.'] });
 }
 
 /* ---------- Google (Search Console + GA4 Data API) ---------- */

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Your order — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/guest.css">
+</head>
+<body>
+<div class="g-bg" id="bg" aria-hidden="true" hidden></div>
+<div class="g-wrap">
+<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
+<main class="g-card" id="card"><p class="eyebrow">Loading…</p></main>
+</div>
+<script>
+(function () {
+  var t = new URLSearchParams(location.search).get('t') || '', card = document.getElementById('card'), open = '', tries = 0;
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function date(d) { if (!d) return ''; var p = d.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
+  function load() {
+    fetch('/api/public/order?t=' + encodeURIComponent(t)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (r) {
+      if (!r.ok) { card.innerHTML = '<h1 class="g-title">Order <span class="serif accent">not found.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p><a class="btn" href="/">Go to morelife.events</a>'; return; }
+      draw(r.j); purchase(r.j);
+      // the payment provider can answer a moment after the buyer is back: look again a few times
+      if (r.j.order.status === 'pending' && !r.j.order.payUrl && tries++ < 6) setTimeout(load, 2500);
+    }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Could not load your order. Please refresh.</p>'; });
+  }
+  var TR = { 'Order': 'Sipariş', 'used at the door': 'kapıda kullanıldı', 'refunded, no longer valid': 'iade edildi, artık geçerli değil', 'sold to another guest': 'başka bir misafire satıldı', 'Open ticket': 'Bileti aç', 'Change name': 'İsim değiştir', 'Sell back': 'Satışa geri koy', 'Listed for resale': 'Satışta', 'Take off sale': 'Satıştan kaldır',
+    'Full name on the ticket': 'Biletteki ad soyad', 'Their email': 'Yeni sahibinin e-postası', '(only when giving it to someone else)': '(yalnızca başkasına veriyorsanız)', 'With a new email, that person receives the ticket with a new QR code and this one stops working.': 'Yeni bir e-posta girerseniz bilet o kişiye yeni bir QR kodla gider ve bu QR geçersiz olur.', 'Save': 'Kaydet', 'Saving…': 'Kaydediliyor…',
+    'Service fee': 'Hizmet bedeli', 'Total': 'Toplam', 'Paid': 'Ödenen', 'To pay at the venue': 'Mekânda ödenecek', 'Free': 'Ücretsiz', 'Back to the event': 'Etkinliğe dön', 'Complete payment': 'Ödemeyi tamamla', 'Something went wrong.': 'Bir şeyler ters gitti.',
+    'No money was taken. Your tickets are held until': 'Hesabınızdan para çekilmedi. Biletleriniz şu saate kadar tutuluyor:', 'This order was not paid in time and its tickets went back on sale. No money was taken.': 'Bu siparişin ödemesi zamanında tamamlanmadı ve biletler yeniden satışa döndü. Hesabınızdan para çekilmedi.',
+    'Refunded': 'İade edilen', 'It can take a few working days to reach your account.': 'Hesabınıza yansıması birkaç iş günü sürebilir.', 'We also sent these tickets to': 'Biletleri şu adrese de gönderdik:', 'Keep this page private: anyone with the link can open the tickets.': 'Bu sayfayı kimseyle paylaşmayın: linke sahip olan herkes biletleri açabilir.', 'Questions about this order': 'Bu siparişle ilgili sorular',
+    'If someone buys it, this QR stops working and': 'Biri satın alırsa bu QR geçersiz olur ve', 'goes back to the card you paid with. The service fee is not returned. Until then the ticket stays yours.': 'ödeme yaptığınız karta iade edilir. Hizmet bedeli iade edilmez. O ana kadar bilet sizindir.', 'Tap again to put it on sale': 'Satışa koymak için tekrar dokunun',
+    'Bring your friends': 'Arkadaşlarını getir', 'bought with your link': 'bilet linkinle alındı', 'Share your link': 'Linkini paylaş', 'Link copied': 'Link kopyalandı',
+    'This ticket is on sale. It is still valid and yours until someone buys it.': 'Bu bilet satışta. Biri satın alana kadar geçerli ve sizin.' };
+  var HEADS = { en: { paid: ['You’re', 'in.'], partial: ['Your', 'order.'], refunded: ['Order', 'refunded.'], pending: ['Payment', 'not completed.'], expired: ['Order', 'expired.'], cancelled: ['Order', 'cancelled.'] }, tr: { paid: ['Biletlerin', 'hazır.'], partial: ['Siparişin', 'burada.'], refunded: ['Sipariş', 'iade edildi.'], pending: ['Ödeme', 'tamamlanmadı.'], expired: ['Siparişin', 'süresi doldu.'], cancelled: ['Sipariş', 'iptal edildi.'] } };
+  var lang = 'en', sure = '';
+  function S(k) { return lang === 'tr' && TR[k] ? TR[k] : k; }
+  function draw(d) {
+    lang = d.lang === 'tr' ? 'tr' : 'en'; document.documentElement.lang = lang;
+    var o = d.order, e = d.event, loc = lang === 'tr' ? 'tr-TR' : 'en-GB', money = function (n) { try { return new Intl.NumberFormat(loc, { style: 'currency', currency: o.currency, currencyDisplay: 'narrowSymbol', minimumFractionDigits: n % 1 ? 2 : 0 }).format(n); } catch (x) { return n + ' ' + o.currency; } };
+    var HEAD = HEADS[lang][o.status] || HEADS[lang].partial, dp = (e.date || '').split('-'), when = e.date ? new Date(+dp[0], +dp[1] - 1, +dp[2]).toLocaleDateString(loc, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    var where = [e.venue, e.city].filter(Boolean).join(', '), live = d.tickets.filter(function (x) { return x.status === 'valid'; });
+    if (e.image) { var bg = document.getElementById('bg'); bg.style.backgroundImage = 'url(' + e.image + ')'; bg.hidden = false; }
+    card.innerHTML = '<span class="g-pill">' + S('Order') + ' ' + esc(o.no) + '</span><h1 class="g-title">' + HEAD[0] + ' <span class="serif accent">' + HEAD[1] + '</span></h1>' +
+      '<p style="color:var(--mute)"><b style="color:var(--ink)">' + esc(e.title) + '</b><br>' + esc(when + (e.time ? ' · ' + e.time : '')) + (where ? '<br>' + esc(where) : '') + '</p>' +
+      (o.status === 'pending' ? '<p class="g-msg bad">' + (o.error ? esc(o.error) + ' ' : '') + S('No money was taken. Your tickets are held until') + ' ' + new Date(o.expiresAt).toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }) + '.</p>' + (o.payUrl ? '<a class="btn" href="' + esc(o.payUrl) + '">' + S('Complete payment') + '</a>' : (e.url ? '<a class="btn" href="' + esc(e.url) + '">' + S('Back to the event') + '</a>' : '')) : '') +
+      (o.status === 'expired' || o.status === 'cancelled' ? '<p class="g-msg bad">' + S('This order was not paid in time and its tickets went back on sale. No money was taken.') + '</p>' + (e.url ? '<a class="btn" href="' + esc(e.url) + '">' + S('Back to the event') + '</a>' : '') : '') +
+      (o.refunded ? '<p class="g-msg">' + S('Refunded') + ': ' + money(o.refunded) + '. ' + S('It can take a few working days to reach your account.') + '</p>' : '') +
+      (d.tickets.length ? '<div class="sh-list">' + d.tickets.map(function (x) {
+        var ok = x.status === 'valid';
+        return '<div class="sh-row' + (ok ? '' : ' off') + '"><div class="sh-main"><b>' + esc(x.type) + '</b><span>' + esc(x.name) + (x.checkedIn ? ' · ' + S('used at the door') : '') + (ok ? '' : ' · ' + S(x.resold ? 'sold to another guest' : 'refunded, no longer valid')) + '</span></div>' +
+          (ok ? '<div class="sh-acts"><a class="btn" href="' + esc(x.url) + '">' + S('Open ticket') + '</a>' + (d.transfers && !x.checkedIn && !x.listed ? '<button class="btn quiet" type="button" data-name="' + x.id + '">' + S('Change name') + '</button>' : '') +
+            (x.canResell ? (x.listed ? '<button class="btn quiet" type="button" data-unlist="' + x.id + '">' + S('Take off sale') + '</button>' : '<button class="btn quiet" type="button" data-list="' + x.id + '">' + S(sure === x.id ? 'Tap again to put it on sale' : 'Sell back') + '</button>') : '') + '</div>' : '') +
+          (ok && x.listed ? '<p class="sh-note" style="grid-column:1/-1">' + S('This ticket is on sale. It is still valid and yours until someone buys it.') + '</p>' : '') +
+          (ok && sure === x.id ? '<p class="sh-note" style="grid-column:1/-1">' + S('If someone buys it, this QR stops working and') + ' <b style="color:var(--ink)">' + money(x.back) + '</b> ' + S('goes back to the card you paid with. The service fee is not returned. Until then the ticket stays yours.') + '</p>' : '') +
+          (open === x.id ? '<form class="g-form sh-move" data-move="' + x.id + '"><div class="field"><label for="mv-n">' + S('Full name on the ticket') + '</label><input id="mv-n" name="name" required value="' + esc(x.name) + '"></div><div class="field"><label for="mv-e">' + S('Their email') + ' <span style="opacity:.6">' + S('(only when giving it to someone else)') + '</span></label><input id="mv-e" name="email" type="email" placeholder="' + esc(o.email) + '"></div><p class="sh-note" style="grid-column:1/-1">' + S('With a new email, that person receives the ticket with a new QR code and this one stops working.') + '</p><p class="g-msg" role="alert" style="grid-column:1/-1"></p><button class="btn" type="submit" style="grid-column:1/-1">' + S('Save') + '</button></form>' : '') +
+          '<p class="g-msg bad" data-err="' + x.id + '" role="alert" style="grid-column:1/-1" hidden></p></div>';
+      }).join('') + '</div>' : '') +
+      '<div class="sh-sum">' + o.items.map(function (i) { return '<div><span>' + i.qty + ' × ' + esc(i.name) + '</span><b>' + (i.unitNet ? money(i.unitNet * i.qty) : S('Free')) + '</b></div>'; }).join('') + (o.fee ? '<div><span>' + S('Service fee') + '</span><b>' + money(o.fee) + '</b></div>' : '') + (o.due ? '<div><span>' + S('To pay at the venue') + '</span><b>' + money(o.due) + '</b></div>' : '') + '<div class="tot"><span>' + S(o.due ? 'Paid' : 'Total') + '</span><b>' + (o.total ? money(o.total) : S('Free')) + '</b></div></div>' +
+      (d.friends ? '<div class="sh-sum"><div><span>' + S('Bring your friends') + '</span><b>' + d.friends.bought + ' ' + S('bought with your link') + '</b></div><button class="btn quiet" type="button" id="fr-link" data-url="' + esc(d.friends.url) + '">' + S('Share your link') + '</button></div>' : '') +
+      (live.length ? '<p class="sh-note">' + S('We also sent these tickets to') + ' ' + esc(o.email) + '. ' + S('Keep this page private: anyone with the link can open the tickets.') + '</p>' : '') +
+      (d.support ? '<p class="sh-note">' + S('Questions about this order') + ': <a class="link" href="mailto:' + esc(d.support) + '?subject=Order%20' + esc(o.no) + '">' + esc(d.support) + '</a></p>' : '');
+  }
+  // Reports the sale to Google Analytics once per order, and only if this visitor already allowed analytics on the site.
+  function purchase(d) {
+    var o = d.order, key = 'ml-purchase-' + o.no;
+    try { if (!d.ga || o.status !== 'paid' || localStorage.getItem('ml-analytics') !== 'yes' || localStorage.getItem(key) || navigator.doNotTrack === '1' || navigator.globalPrivacyControl === true) return; localStorage.setItem(key, '1'); } catch (e) { return; }
+    window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); };
+    window.gtag('js', new Date()); window.gtag('config', d.ga, { anonymize_ip: true, send_page_view: false, page_location: location.origin + '/order', page_path: '/order' }); // the order key never goes to analytics
+    window.gtag('event', 'purchase', { transaction_id: o.no, value: o.total, currency: o.currency, items: o.items.map(function (i) { return { item_name: i.name, quantity: i.qty, price: i.unitNet }; }) });
+    var s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(d.ga); document.head.appendChild(s);
+  }
+  function resale(id, list) {
+    fetch('/api/public/resale', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ o: t, ticketId: id, list: list }) }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || S('Something went wrong.')); }); })
+      .then(function () { sure = ''; tries = 9; load(); }).catch(function (err) { var m = card.querySelector('[data-err="' + id + '"]'); if (m) { m.hidden = false; m.textContent = err.message; } });
+  }
+  card.addEventListener('click', function (ev) {
+    var fl = ev.target.closest('#fr-link');
+    if (fl) { var fu = location.origin + fl.getAttribute('data-url'); if (navigator.share) navigator.share({ url: fu }).catch(function () {}); else if (navigator.clipboard) navigator.clipboard.writeText(fu).then(function () { fl.textContent = S('Link copied'); }); return; }
+    var l = ev.target.closest('[data-list]'), u = ev.target.closest('[data-unlist]');
+    if (u) { resale(u.getAttribute('data-unlist'), false); return; }
+    if (l) { var id = l.getAttribute('data-list'); if (sure !== id) { sure = id; open = ''; tries = 9; load(); } else resale(id, true); return; } // the first tap shows what happens to the money, the second lists it
+    var b = ev.target.closest('[data-name]'); if (b) { sure = ''; open = open === b.getAttribute('data-name') ? '' : b.getAttribute('data-name'); tries = 9; load(); }
+  });
+  card.addEventListener('submit', function (ev) {
+    var f = ev.target.closest('[data-move]'); if (!f) return; ev.preventDefault();
+    var msg = f.querySelector('.g-msg'), btn = f.querySelector('button'); btn.disabled = true; msg.className = 'g-msg'; msg.textContent = S('Saving…');
+    fetch('/api/public/ticket', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ o: t, ticketId: f.getAttribute('data-move'), name: f.querySelector('[name=name]').value, email: f.querySelector('[name=email]').value.trim() }) })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || 'Something went wrong.'); return j; }); })
+      .then(function () { open = ''; load(); }).catch(function (err) { btn.disabled = false; msg.className = 'g-msg bad'; msg.textContent = err.message; });
+  });
+  load();
+})();
+</script>
+</body>
+</html>

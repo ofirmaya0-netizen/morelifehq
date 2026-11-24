@@ -1,13 +1,15 @@
-/* Etkinlik detayı: Genel Bilgiler · Public Sayfa · Davet Ayarları · Mesajlar · Başvurular · Check-in · Görevler · SEO */
+/* Etkinlik detayı: Genel Bilgiler · Public Sayfa · Davet Ayarları · Mesajlar · Biletler · Başvurular · Check-in · Görevler · SEO */
 (function () {
   var H = HQ, e = H.esc;
-  var TABS = [['genel', 'Genel Bilgiler'], ['public', 'Public Sayfa'], ['davet', 'Davet Ayarları'], ['mesajlar', 'Mesajlar'], ['basvurular', 'Başvurular'], ['checkin', 'Check-in'], ['gorevler', 'Görevler'], ['seo', 'SEO']];
+  var TABS0 = [['genel', 'Genel Bilgiler'], ['public', 'Public Sayfa'], ['davet', 'Davet Ayarları'], ['mesajlar', 'Mesajlar'], ['biletler', 'Biletler'], ['basvurular', 'Başvurular'], ['checkin', 'Check-in'], ['gorevler', 'Görevler'], ['karzarar', 'Kâr/Zarar'], ['seo', 'SEO']];
   H.views.etkinlik = async function (main) {
+    var TABS = TABS0.filter(function (x) { return x[0] !== 'karzarar' || H.can('booking'); }); // money is for the owner and managers
     var id = H.q().get('id'), tab = H.q().get('tab') || 'genel', d = await H.api('events/' + id), ev = d.event, changes = d.changes, clean = null;
     var nav = 'view=etkinlik&id=' + id, live = ev.status === 'published', canPub = ev.status !== 'published' || ev.dirty;
     main.innerHTML = H.head({ back: ['view=etkinlikler', 'Etkinlikler'], title: e(ev.title), sub: H.fmtDate(ev.date) + (ev.time ? ' · ' + e(ev.time) : '') + (ev.venue ? ' · ' + e(ev.venue) : '') + (ev.city ? ', ' + e(ev.city) : ''),
       acts: '<a class="btn" href="/events/' + e(ev.slug) + '?preview=1" target="_blank" rel="noopener">' + H.ico('eye') + 'Önizle</a>' + (ev.listed ? '<a class="btn" href="' + e(ev.publicUrl) + '" target="_blank" rel="noopener">' + H.ico('ext') + 'Public sayfa</a>' : '') +
         (live ? '<button class="btn" type="button" data-copy="' + e(ev.inviteUrl) + '" data-copied="Davet linki kopyalandı">' + H.ico('copy') + 'Davet linki</button><button class="btn" type="button" data-nav="view=marketing&event=' + id + '&yeni=1">' + H.ico('link') + 'Kampanya linki</button>' : '') +
+        (H.can('booking') ? '<button class="btn" type="button" data-nav="view=booking&etkinlik=' + id + '">' + H.ico('mic') + 'Booking</button>' : '') +
         (canPub ? '<button class="btn acc" type="button" id="pub">' + (live ? 'Değişiklikleri yayınla' : 'Yayınla') + '</button>' : '') }) +
       '<div class="row" style="margin:-10px 0 18px">' + H.pill(ev.status) + H.pill(ev.visibility) + (ev.eventStatus !== 'scheduled' ? H.pill('bad', { cancelled: 'İptal edildi', postponed: 'Ertelendi', rescheduled: 'Tarihi değişti' }[ev.eventStatus]) : '') + (ev.dirty ? H.pill('warn', 'Yayınlanmamış değişiklik var') : '') +
       '<span style="flex:1"></span>' + (live ? '<button class="btn sm ghost" type="button" data-st="draft">Taslağa al</button>' : '') + (ev.status !== 'archived' ? '<button class="btn sm ghost" type="button" data-st="archived">Arşivle</button>' : '<button class="btn sm ghost" type="button" data-st="draft">Arşivden çıkar</button>') + '</div>' +
@@ -93,6 +95,8 @@
       H.inviteSend(box.querySelector('#inv-send'), id);
       saveForm(box.querySelector('#wf'), function (v) { return v; });
     }
+    else if (tab === 'biletler') await H.parts.tickets(box, id);
+    else if (tab === 'karzarar' && H.can('booking')) await H.parts.pnl(box, id);
     else if (tab === 'basvurular') await H.parts.apps(box, id, { f: H.q().get('durum') || (ev.counts.pending ? 'pending' : 'all') });
     else if (tab === 'checkin') {
       if (!live) box.innerHTML = H.empty('qr', 'Check-in kapalı', 'Check-in ekranı etkinlik yayınlanınca açılır.');

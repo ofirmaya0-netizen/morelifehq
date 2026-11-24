@@ -76,3 +76,61 @@ export function notifyEnquiry(q, origin) {
   const html = shell('<h1 style="margin:0 0 16px;font-size:22px;font-weight:500">Yeni site talebi</h1>' + rows.map((x) => '<p style="margin:0 0 8px"><span style="color:#8F867D">' + x[0] + ':</span> ' + esc(x[1]).replace(/\n/g, '<br>') + '</p>').join('') + '<a href="' + origin + '/hq?view=talepler" style="display:inline-block;margin-top:14px;background:#F3EEE6;color:#0E0B0A;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px">HQ’da aç</a>');
   return send(to, 'Yeni talep: ' + q.kindLabel + ' — ' + q.name, html, rows.map((x) => x[0] + ': ' + x[1]).join('\n'), q.email);
 }
+
+/* ---------- ticket orders ---------- */
+// Buyer mails are written in the language the buyer used on the shop page (English or Turkish).
+const amount = (n, cur, tr) => { try { return new Intl.NumberFormat(tr ? 'tr-TR' : 'en-GB', { style: 'currency', currency: cur, currencyDisplay: 'narrowSymbol' }).format(n); } catch { return n.toFixed(2) + ' ' + cur; } };
+const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+const ww = (e, tr) => { const w = whenWhere(e); if (tr && e.date) { const [y, m, d] = e.date.split('-'); w.when = [parseInt(d, 10) + ' ' + MONTHS_TR[m - 1] + ' ' + y, e.time].filter(Boolean).join(' · '); } return w; };
+// transfer: the mail goes to someone who was handed a ticket, not to the buyer, so it carries no order total or order link
+export function orderMail(e, o, tickets, origin, transfer) {
+  const tr = o.lang === 'tr', w = ww(e, tr), ok = tickets.filter((t) => t.status === 'valid');
+  const rows = ok.map((t) => '<tr><td style="padding:10px 0;border-top:1px solid #3a302c"><b>' + esc(t.typeName) + '</b><br><span style="color:#C9C0B5;font-size:13px">' + esc(t.name) + '</span></td><td style="padding:10px 0;border-top:1px solid #3a302c;text-align:right"><a href="' + esc(origin + '/pass?t=' + t.token) + '" style="color:#F3EEE6;font-weight:600">' + (tr ? 'Bileti aç' : 'Open ticket') + '</a></td></tr>').join('');
+  const img = e.imageId ? '<img src="' + esc(origin + '/api/public/image/' + e.imageId) + '" alt="' + esc(e.imageAlt || '') + '" width="520" style="display:block;width:100%;height:auto;border-radius:12px;margin:0 0 22px">' : '';
+  const hello = tr ? 'Merhaba ' + first(o.buyer) + ', ' + (transfer ? 'adına bir bilet düzenlendi.' : '<b>' + esc(o.no) + '</b> numaralı siparişin için teşekkürler.') + ' Her biletin kendi QR kodu var ve kapıda bir kez okutulur.'
+    : 'Hi ' + first(o.buyer) + ', ' + (transfer ? 'a ticket has been put in your name.' : 'thank you for your order <b>' + esc(o.no) + '</b>.') + ' Each ticket has its own QR code and is scanned once at the door.';
+  const html = shell(img + head(tr ? (transfer ? 'Senin için bir bilet' : 'Biletlerin') : (transfer ? 'A ticket for you' : 'Your tickets'), e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + (e.doors ? ' · ' + (tr ? 'kapı ' : 'doors ') + esc(e.doors) : '') + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' +
+    '<p style="margin:0 0 14px">' + hello + '</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 22px">' + rows + '</table>' +
+    (transfer ? '' : (o.total > 0 ? '<p style="margin:0 0 22px;color:#C9C0B5">' + (tr ? 'Ödenen toplam' : 'Total paid') + ': <b style="color:#F3EEE6">' + esc(amount(o.total, o.currency, tr)) + '</b>' + (o.fee > 0 ? ' (' + (tr ? esc(amount(o.fee, o.currency, tr)) + ' hizmet bedeli dahil' : 'includes ' + esc(amount(o.fee, o.currency)) + ' service fee') + ')' : '') + '</p>' : '') + btn(origin + '/order?t=' + o.token, tr ? 'Siparişini görüntüle' : 'View your order') +
+      '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">' + (tr ? 'Sipariş sayfandan bir bileti arkadaşının adına geçirebilirsin.' : 'From your order page you can put a ticket in a friend’s name.') + '</p>'));
+  const text = (tr ? (transfer ? 'Senin için bir bilet: ' : 'Biletlerin: ') : (transfer ? 'A ticket for you: ' : 'Your tickets: ')) + e.title + '\n' + w.when + '\n' + w.where + '\n\n' + ok.map((t) => t.typeName + ' — ' + t.name + ': ' + origin + '/pass?t=' + t.token).join('\n') + (transfer ? '' : '\n\n' + (tr ? 'Sipariş ' : 'Order ') + o.no + ': ' + origin + '/order?t=' + o.token);
+  return { subject: (tr ? (transfer ? 'Biletin — ' : 'Biletlerin — ') : (transfer ? 'Your ticket — ' : 'Your tickets — ')) + e.title, html, text };
+}
+export function sendOrder(e, o, tickets, origin, transfer) { const m = orderMail(e, o, tickets, origin, transfer); return send(o.buyer.email, m.subject, m.html, m.text); }
+// resold: the buyer listed the ticket for resale and someone bought it
+export function sendRefund(e, o, sum, count, origin, lang, resold) {
+  const tr = lang === 'tr', money = esc(amount(sum, o.currency, tr));
+  const kept = count === 0; // money back, tickets untouched
+  const body = kept ? (tr ? 'Merhaba ' + first(o.buyer) + ', <b>' + esc(o.no) + '</b> numaralı siparişin için <b>' + money + '</b> iade ettik. Biletlerin geçerliliğini koruyor.' : 'Hi ' + first(o.buyer) + ', we have refunded <b>' + money + '</b> on order <b>' + esc(o.no) + '</b>. Your tickets remain valid.') : tr ? 'Merhaba ' + first(o.buyer) + ', ' + (resold ? 'satışa koyduğun bilet satıldı. ' : '') + '<b>' + esc(o.no) + '</b> numaralı siparişindeki ' + count + ' bilet için <b>' + money + '</b> iade ettik. İade edilen biletler artık geçerli değil.'
+    : 'Hi ' + first(o.buyer) + ', ' + (resold ? 'the ticket you put on sale has been sold. ' : '') + 'we have refunded <b>' + money + '</b> for ' + count + ' ticket' + (count === 1 ? '' : 's') + ' on order <b>' + esc(o.no) + '</b>. The refunded tickets are no longer valid.';
+  const html = shell(head(tr ? 'İade' : 'Refund', e) + '<p style="margin:0 0 14px">' + body + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + (tr ? 'Tutarın hesabına yansıması bankana göre birkaç iş günü sürebilir.' : 'Depending on your bank, the amount can take a few working days to appear on your statement.') + '</p>' + btn(origin + '/order?t=' + o.token, tr ? 'Siparişini görüntüle' : 'View your order'));
+  return send(o.buyer.email, (tr ? 'İade — ' : 'Refund — ') + e.title, html, (tr ? count + ' bilet için ' + amount(sum, o.currency, true) + ' iade edildi. Sipariş ' : 'We have refunded ' + amount(sum, o.currency) + ' for ' + count + ' ticket(s) on order ') + o.no + '.\n' + origin + '/order?t=' + o.token);
+}
+// To someone who asked to be told. Nothing is held for them: the mail says so.
+export function sendWaitlist(e, w, typeName, url, onsale, lang) {
+  const tr = lang === 'tr', x = ww(e, tr), hi = w.name ? (tr ? 'Merhaba ' : 'Hi ') + esc(w.name.split(' ')[0]) + ', ' : '';
+  const body = tr ? hi + (onsale ? '<b>' + esc(typeName) + '</b> biletleri satışa çıktı.' : '<b>' + esc(typeName) + '</b> için yer açıldı.') + ' Biletler ilk gelene satılır; bu e-posta senin için bilet ayırmaz.'
+    : hi + (onsale ? '<b>' + esc(typeName) + '</b> tickets are now on sale.' : 'a place has opened up for <b>' + esc(typeName) + '</b>.') + ' Tickets go to whoever buys first; this email does not hold one for you.';
+  const html = shell(head(tr ? (onsale ? 'Satış açıldı' : 'Bilet açıldı') : (onsale ? 'On sale now' : 'Tickets available'), e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(x.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(x.where) + '</p><p style="margin:0 0 22px">' + body + '</p>' + btn(url, tr ? 'Bilet al' : 'Get tickets') + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">' + (tr ? 'Bu e-postayı, bu etkinlik için haber verilmesini istediğin için aldın. Başka e-posta gönderilmeyecek.' : 'You are receiving this because you asked to be told about this event. No further emails will follow.') + '</p>');
+  return send(w.email, (tr ? (onsale ? 'Satış açıldı — ' : 'Bilet açıldı — ') : (onsale ? 'On sale now — ' : 'Tickets available — ')) + e.title, html, (tr ? 'Bilet al: ' : 'Get tickets: ') + url);
+}
+// One note after an unpaid basket ran out. Sent only when the event has this switched on.
+export function sendCart(e, o, url, lang) {
+  const tr = lang === 'tr', x = ww(e, tr), list = o.items.map((i) => i.qty + ' × ' + esc(i.name)).join(', ');
+  const body = tr ? 'Merhaba ' + first(o.buyer) + ', sepetindeki biletlerin (' + list + ') ödemesi tamamlanmadı ve biletler yeniden satışa döndü. Hesabından para çekilmedi. Hâlâ gelmek istersen biletler satışta olduğu sürece yeniden alabilirsin.'
+    : 'Hi ' + first(o.buyer) + ', the payment for the tickets in your basket (' + list + ') was not completed and they went back on sale. No money was taken. If you still want to come, you can buy again while tickets last.';
+  const html = shell(head(tr ? 'Biletlerin seni bekliyor' : 'Still coming?', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(x.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(x.where) + '</p><p style="margin:0 0 22px">' + body + '</p>' + btn(url, tr ? 'Etkinliğe dön' : 'Back to the event') + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">' + (tr ? 'Bu sipariş için başka hatırlatma gönderilmeyecek.' : 'You will not get another reminder about this order.') + '</p>');
+  return send(o.buyer.email, (tr ? 'Ödeme tamamlanmadı — ' : 'Payment not completed — ') + e.title, html, (tr ? 'Etkinliğe dön: ' : 'Back to the event: ') + url);
+}
+
+// A notice from the organiser to ticket holders about the event they bought for. Plain text in, paragraphs out.
+export function sendNotice(e, to, subject, text, origin) {
+  const w = whenWhere(e), paras = esc(text).split(/\n{2,}/).map((p) => '<p style="margin:0 0 14px">' + p.replace(/\n/g, '<br>') + '</p>').join('');
+  const html = shell(head('Update', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' + paras + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">You are receiving this because you hold a ticket for this event.</p>');
+  return send(to, subject + ' — ' + e.title, html, text);
+}
+export function sendMyTickets(to, orders, lang) {
+  const tr = lang === 'tr', rows = orders.map((o) => '<tr><td style="padding:10px 0;border-top:1px solid #3a302c"><b>' + esc(o.title) + '</b><br><span style="color:#C9C0B5;font-size:13px">' + esc((tr ? 'Sipariş ' : 'Order ') + o.no) + '</span></td><td style="padding:10px 0;border-top:1px solid #3a302c;text-align:right"><a href="' + esc(o.url) + '" style="color:#F3EEE6;font-weight:600">' + (tr ? 'Biletleri aç' : 'Open tickets') + '</a></td></tr>').join('');
+  const html = shell('<h1 style="margin:0 0 14px;font-size:30px;line-height:1.1;font-weight:500">' + (tr ? 'Biletlerin' : 'Your tickets') + '</h1><p style="margin:0 0 14px">' + (tr ? 'Yaklaşan etkinlikler için siparişlerin burada. Bu linkleri kimseyle paylaşma: linke sahip olan biletleri açabilir.' : 'Here are your orders for upcoming events. Keep these links to yourself: whoever has a link can open the tickets.') + '</p><table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + rows + '</table><p style="margin:18px 0 0;font-size:13px;color:#8F867D">' + (tr ? 'Bu e-postayı sen istemediysen bir şey yapmana gerek yok.' : 'If you did not ask for this email, you can ignore it.') + '</p>');
+  return send(to, tr ? 'Biletlerin — More Life' : 'Your tickets — More Life', html, orders.map((o) => o.title + ': ' + o.url).join('\n'));
+}

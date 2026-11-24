@@ -27,6 +27,7 @@ export const MIGRATIONS = [
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1].v;
 
 let done = '';
+export const resetMigrate = () => { done = ''; }; // after a restore the stored version may be older again
 export async function migrate(s, storeName) {
   if (done === storeName) return;
   const meta = (await s.get('meta/schema')) || { version: 0, applied: [] };

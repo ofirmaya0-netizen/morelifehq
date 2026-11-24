@@ -23,12 +23,14 @@ input{width:100%;min-height:54px;padding:0 14px;border-radius:12px;border:1px so
 .item{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px;border-bottom:1px solid rgba(243,238,230,.1)}.item:last-child{border-bottom:0}.item .m{flex:1 1 180px;min-width:0}.item b{display:block;font-size:16px}.item small{color:#B9B0A6}
 .in{color:#7FD1A0;font-weight:600;font-size:14px}video{width:100%;border-radius:16px;background:#000;display:block}video[hidden]{display:none}
 :focus-visible{outline:2px solid #E0705F;outline-offset:2px}
+.net{margin:0 0 10px;padding:10px 14px;border-radius:12px;background:#2a2622;color:#F3EEE6;font-size:14px}.net.off{background:#5a3b12}.due{color:#F2C14E}
 </style>
 </head>
 <body>
 <main>
 <header><img src="/img/logo.svg" alt=""><div><h1 id="t">Check-in</h1><p class="sub" id="s">Yükleniyor…</p></div></header>
 <div id="app" hidden>
+<p id="net" class="net" role="status" hidden></p>
 <div id="res" class="door" role="status" aria-live="assertive"><span class="st">Hazır</span><span class="ex">QR okutun ya da isim arayın</span></div>
 <div class="row"><button class="btn pri lg" id="scan" type="button">QR tara</button><span class="count" id="count"></span></div>
 <video id="video" playsinline muted hidden></video>
@@ -39,26 +41,52 @@ input{width:100%;min-height:54px;padding:0 14px;border-radius:12px;border:1px so
 <script>
 (function () {
   'use strict';
-  var key = new URLSearchParams(location.search).get('k') || '', list = [], stop = null, $ = function (i) { return document.getElementById(i); };
+  var key = new URLSearchParams(location.search).get('k') || '', list = [], stop = null, queue = [], offline = false, ev = null, K = 'ml-door-' + key.slice(0, 12), $ = function (i) { return document.getElementById(i); };
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function tm(iso) { return iso ? new Date(iso).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' }) : ''; }
   async function api(path, data) {
-    var r; try { r = await fetch('/api/door/' + path, { method: data ? 'POST' : 'GET', headers: data ? { 'x-door': key, 'content-type': 'application/json' } : { 'x-door': key }, body: data ? JSON.stringify(data) : undefined }); } catch (e) { throw new Error('Bağlantı hatası. Tekrar deneyin.'); }
-    var j = await r.json().catch(function () { return {}; }); if (!r.ok) throw new Error(j.error || 'İşlem başarısız.'); return j;
+    var r; try { r = await fetch('/api/door/' + path, { method: data ? 'POST' : 'GET', headers: data ? { 'x-door': key, 'content-type': 'application/json' } : { 'x-door': key }, body: data ? JSON.stringify(data) : undefined }); } catch (e) { var ne = new Error('Bağlantı hatası. Tekrar deneyin.'); ne.net = true; throw ne; }
+    var j = await r.json().catch(function () { return {}; }); if (!r.ok) { var he = new Error(j.error || 'İşlem başarısız.'); he.net = r.status >= 502; he.drop = r.status === 400 || r.status === 404 || r.status === 409; throw he; } return j;
   }
+  /* ----- without a connection: the list is kept on this device, scans are matched against it and sent when the line is back ----- */
+  function save() { try { localStorage.setItem(K, JSON.stringify({ ev: ev, list: list, queue: queue, at: Date.now() })); } catch (e) {} }
+  function restore() { try { var c = JSON.parse(localStorage.getItem(K) || 'null'); if (c && c.list) { ev = c.ev; list = c.list; queue = c.queue || []; return c.at; } } catch (e) {} return 0; }
+  function net() { var n = $('net'), q = queue.length; n.hidden = !offline && !q; n.className = 'net' + (offline ? ' off' : ''); n.textContent = offline ? 'Bağlantı yok · liste bu cihazdan okunuyor' + (q ? ' · ' + q + ' giriş gönderilmeyi bekliyor' : '') + '. Bu sayfayı kapatmayın.' : q + ' giriş gönderiliyor…'; }
+  async function sha(text) { var b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)); return [].map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('').slice(0, 20); }
+  async function local(d) { // decide from the list on this device
+    var g = null; if (d.rsvpId) g = list.filter(function (x) { return x.id === d.rsvpId; })[0]; else if (d.token && window.crypto && crypto.subtle) { var h = await sha(d.token); g = list.filter(function (x) { return x.h && x.h === h; })[0]; }
+    if (!g) return { result: 'invalid', message: 'Bu cihazdaki listede yok. Bağlantı gelince tekrar okutun ya da isimle arayın.' };
+    if (d.undo) { g.checkedInAt = ''; queue.push({ rsvpId: g.id, undo: true }); return { result: 'undone', rsvp: g }; }
+    if (g.checkedInAt) { g.scanCount = (g.scanCount || 1) + 1; return { result: 'duplicate', rsvp: g }; }
+    g.checkedInAt = new Date().toISOString(); g.scanCount = 1; queue.push({ rsvpId: g.id, at: g.checkedInAt }); return { result: 'ok', rsvp: g };
+  }
+  var syncing = false;
+  async function sync() {
+    if (syncing) return; syncing = true; var clash = [];
+    try {
+      while (queue.length) { var it = queue[0], r = await api('checkin', it); if (r.result === 'duplicate' && !it.undo && r.rsvp && r.rsvp.checkedInAt !== it.at) clash.push(r.rsvp.name); queue.shift(); save(); net(); }
+      var d = await api('list'); list = d.guests; ev = d.event; offline = false; save(); draw();
+      if (clash.length) { $('res').className = 'door duplicate'; $('res').innerHTML = '<span class="st">' + clash.length + ' çakışma</span><span class="ex">Bağlantı yokken başka bir cihazda da giriş yapılmış: ' + esc(clash.slice(0, 6).join(', ')) + (clash.length > 6 ? '…' : '') + '</span>'; }
+    } catch (e) { if (e.net) offline = true; else if (e.drop && queue.length) { queue.shift(); save(); } } // an entry the server refuses outright is dropped so it cannot block the rest
+    syncing = false; net();
+  }
+  window.addEventListener('online', sync); var tick = 0; setInterval(function () { tick += 1; if (offline || queue.length || (tick % 3 === 0 && document.visibilityState === 'visible')) sync(); }, 20000); // waiting entries every 20 s, a fresh list every minute
   function draw() {
     var t = $('q').value.trim().toLocaleLowerCase('tr'), rows = list.filter(function (x) { return !t || x.name.toLocaleLowerCase('tr').indexOf(t) > -1; }).slice(0, 80);
-    $('list').innerHTML = rows.length ? rows.map(function (x) { return '<div class="item"><div class="m"><b>' + esc(x.name) + '</b><small>' + x.guests + ' kişi</small></div>' + (x.checkedInAt ? '<span class="in">Giriş ' + tm(x.checkedInAt) + '</span><button class="btn" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div>'; }).join('') : '<div class="item"><small>' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</small></div>';
+    $('list').innerHTML = rows.length ? rows.map(function (x) { return '<div class="item"><div class="m"><b>' + esc(x.name) + '</b><small>' + (x.addon ? 'Ek ürün · ' + esc(x.ticket) : x.ticket ? 'Bilet · ' + esc(x.ticket) : x.guests + ' kişi') + (x.due ? ' · <b class="due">Kapıda ' + Number(x.due).toLocaleString('tr-TR') + ' ' + esc(x.currency) + ' alınacak</b>' : '') + '</small></div>' + (x.checkedInAt ? '<span class="in">Giriş ' + tm(x.checkedInAt) + '</span><button class="btn" type="button" data-undo="' + x.id + '">Geri al</button>' : '<button class="btn pri" type="button" data-in="' + x.id + '">Giriş yap</button>') + '</div>'; }).join('') : '<div class="item"><small>' + (list.length ? 'Eşleşen onaylı misafir yok.' : 'Bu etkinlikte onaylı misafir yok.') + '</small></div>';
     $('count').textContent = list.filter(function (x) { return x.checkedInAt; }).reduce(function (n, x) { return n + x.guests; }, 0) + ' / ' + list.reduce(function (n, x) { return n + x.guests; }, 0) + ' içeride';
   }
   var L = { ok: ['ok', 'Giriş onaylandı'], duplicate: ['duplicate', 'Daha önce kullanıldı'], invalid: ['bad', 'Geçersiz kart'], 'wrong-event': ['wrong', 'Başka etkinliğin kartı'], 'not-approved': ['bad', 'Onaylı değil'], undone: ['', 'Giriş geri alındı'] };
   function show(r) {
     var l = L[r.result] || ['bad', r.message], res = $('res'); res.className = 'door ' + l[0];
-    res.innerHTML = '<span class="st">' + esc(l[1]) + '</span>' + (r.rsvp ? '<span class="who">' + esc(r.rsvp.name) + ' · ' + r.rsvp.guests + ' kişi</span>' : '') + '<span class="ex">' + esc(r.result === 'duplicate' ? 'İlk giriş: ' + tm(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? tm(r.rsvp.checkedInAt) : r.result === 'undone' ? '' : r.message) + '</span>';
+    res.innerHTML = '<span class="st">' + esc(l[1]) + '</span>' + (r.rsvp ? '<span class="who">' + esc(r.rsvp.name) + ' · ' + (r.rsvp.ticket ? esc(r.rsvp.ticket) : r.rsvp.guests + ' kişi') + '</span>' : '') + '<span class="ex">' + esc(r.result === 'duplicate' ? 'İlk giriş: ' + tm(r.rsvp.checkedInAt) + ' · ' + r.rsvp.scanCount + '. okutma. Yeni giriş kaydedilmedi.' : r.result === 'ok' ? tm(r.rsvp.checkedInAt) + (r.local ? ' · bağlantı yok, bu cihaza kaydedildi' : '') : r.result === 'undone' ? '' : r.message) + '</span>' + (r.rsvp && r.rsvp.due && r.result !== 'undone' ? '<span class="who due">Kapıda ' + Number(r.rsvp.due).toLocaleString('tr-TR') + ' ' + esc(r.rsvp.currency) + ' tahsil edin</span>' : '');
     if (navigator.vibrate) navigator.vibrate(r.result === 'ok' ? 60 : [80, 60, 80]);
-    if (r.rsvp) { list = list.map(function (x) { return x.id === r.rsvp.id ? r.rsvp : x; }); draw(); }
+    if (r.rsvp) { list = list.map(function (x) { return x.id === r.rsvp.id ? r.rsvp : x; }); draw(); save(); }
   }
-  async function check(d) { try { show(await api('checkin', d)); } catch (e) { $('res').className = 'door bad'; $('res').innerHTML = '<span class="st">Kaydedilemedi</span><span class="ex">' + esc(e.message) + '</span>'; } }
+  async function check(d) {
+    if (offline || queue.length) { var lr = await local(d); lr.local = true; show(lr); save(); net(); if (!offline) sync(); return; } // keep the order: nothing overtakes a waiting entry
+    try { show(await api('checkin', d)); } catch (e) {
+      if (e.net && list.length) { offline = true; var o = await local(d); o.local = true; show(o); save(); net(); return; } $('res').className = 'door bad'; $('res').innerHTML = '<span class="st">Kaydedilemedi</span><span class="ex">' + esc(e.message) + '</span>'; } }
   window.__doorCheck = function (text) { var m = /[?&]t=([A-Za-z0-9_-]+)/.exec(text); check({ token: m ? m[1] : String(text).trim() }); };
   $('q').oninput = draw;
   $('list').onclick = function (e) { var a = e.target.closest('[data-in]'), u = e.target.closest('[data-undo]'); if (a) check({ rsvpId: a.getAttribute('data-in') }); if (u) check({ rsvpId: u.getAttribute('data-undo'), undo: true }); };
@@ -74,8 +102,9 @@ input{width:100%;min-height:54px;padding:0 14px;border-radius:12px;border:1px so
         if (text && (text !== last || Date.now() - at > 4000)) { last = text; at = Date.now(); window.__doorCheck(text); } setTimeout(loop, 250); })();
     } catch (e) { $('res').className = 'door bad'; $('res').innerHTML = '<span class="st">Kamera açılamadı</span><span class="ex">Kamera iznini kontrol edin ya da isim arayın.</span>'; }
   };
-  api('list').then(function (d) { list = d.guests; $('t').textContent = d.event.title; $('s').textContent = 'Check-in · ' + (d.event.venue || ''); $('app').hidden = false; draw(); })
-    .catch(function (e) { $('s').textContent = e.message; });
+  function open() { $('t').textContent = ev.title; $('s').textContent = 'Check-in · ' + (ev.venue || ''); $('app').hidden = false; draw(); net(); }
+  api('list').then(function (d) { restore(); list = d.guests; ev = d.event; save(); open(); if (queue.length) sync(); })
+    .catch(function (e) { if (e.net && restore()) { offline = true; open(); } else $('s').textContent = e.message; }); // no line at the door: carry on from the copy on this device
 })();
 </script>
 </body>

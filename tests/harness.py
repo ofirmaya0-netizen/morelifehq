@@ -23,7 +23,7 @@ R=[]
 def ok(name, cond, extra=''):
     R.append(bool(cond)); print(('PASS ' if cond else 'FAIL ')+name+((' — '+str(extra)[:300]) if not cond and extra!='' else ''))
 def start():
-    shutil.rmtree(ROOT+'/.data', ignore_errors=True)
-    env=dict(os.environ, **({'HQ_BLOBS_TEST':'1'} if os.environ.get('BLOBS') else {}), HQ_ADMIN_EMAIL='admin@example.com', HQ_ADMIN_PASSWORD='test-password-123', PORT='8888')
+    shutil.rmtree(ROOT+'/.data', ignore_errors=True); shutil.rmtree(ROOT+'/.data-backups', ignore_errors=True)
+    env=dict(os.environ, **({'HQ_BLOBS_TEST':'1'} if os.environ.get('BLOBS') else {}), HQ_ADMIN_EMAIL='admin@example.com', HQ_ADMIN_PASSWORD='test-password-123', HQ_PAYMENTS_TEST='1', PORT='8888')
     for k in ['HTTP_PROXY','HTTPS_PROXY','http_proxy','https_proxy']: env.pop(k,None)
     p=subprocess.Popen(['node','scripts/dev-server.mjs'],cwd=ROOT,env=env,stdout=subprocess.DEVNULL,stderr=open('/tmp/dev.err','w')); time.sleep(1.5); return p

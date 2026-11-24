@@ -19,6 +19,9 @@ input:focus{outline:2px solid #E0705F;outline-offset:2px}
 button{height:54px;border:0;border-radius:14px;background:#F3EEE6;color:#0E0B0A;font:600 16px 'Inter Tight',system-ui,sans-serif;cursor:pointer}
 button[disabled]{opacity:.6}
 #msg{min-height:20px;margin:0;font-size:14px;color:#F0A79B}
+#lead{margin:0;font-size:15px;line-height:1.5;color:#C9C0B5}
+form[hidden]{display:none!important}
+input[readonly]{color:#C9C0B5}
 a{color:#C9C0B5;font-size:14px}
 </style>
 </head>
@@ -26,6 +29,7 @@ a{color:#C9C0B5;font-size:14px}
 <main>
 <img src="/img/logo.svg" alt="">
 <h1>More Life <i>HQ</i></h1>
+<p id="lead" hidden></p>
 <form id="f" style="display:flex;flex-direction:column;gap:16px" novalidate>
 <label>E-posta<input id="email" type="email" autocomplete="username" required></label>
 <label>Şifre<input id="password" type="password" autocomplete="current-password" required></label>
@@ -35,17 +39,28 @@ a{color:#C9C0B5;font-size:14px}
 <a href="/">← morelife.events</a>
 </main>
 <script>
-document.getElementById('f').addEventListener('submit', async function (e) {
+var f = document.getElementById('f'), go = document.getElementById('go'), msg = document.getElementById('msg'), key = new URLSearchParams(location.search).get('kur');
+function post(path, data) { return fetch('/api/hq/' + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-hq': '1' }, body: JSON.stringify(data) }); }
+if (key) {
+  // one-time link of a team member: they choose their own password here
+  var em = document.getElementById('email'), pw = document.getElementById('password'), lead = document.getElementById('lead');
+  go.textContent = 'Şifreyi kaydet ve gir'; go.disabled = true; em.readOnly = true; pw.autocomplete = 'new-password'; pw.minLength = 10; pw.parentNode.firstChild.textContent = 'Yeni şifre (en az 10 karakter)';
+  fetch('/api/hq/setup?t=' + encodeURIComponent(key), { headers: { 'x-hq': '1' } }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (x) {
+    if (!x.ok) { lead.textContent = x.j.error || 'Bu link geçerli değil.'; lead.hidden = false; f.hidden = true; return; }
+    em.value = x.j.email; lead.textContent = 'Merhaba ' + x.j.name + '. More Life HQ’ya “' + x.j.role + '” rolüyle eklendin. Girişte kullanacağın şifreyi belirle.'; lead.hidden = false; go.disabled = false; pw.focus();
+  }).catch(function () { msg.textContent = 'Bağlantı hatası.'; });
+}
+f.addEventListener('submit', async function (e) {
   e.preventDefault();
-  var go = document.getElementById('go'), msg = document.getElementById('msg');
   go.disabled = true; msg.textContent = '';
   try {
-    var r = await fetch('/api/hq/login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-hq': '1' }, body: JSON.stringify({ email: document.getElementById('email').value, password: document.getElementById('password').value }) });
-    if (r.ok) { location.reload(); return; } // same URL, so ?view=… is kept
+    var r = key ? await post('setup', { t: key, password: document.getElementById('password').value }) : await post('login', { email: document.getElementById('email').value, password: document.getElementById('password').value });
+    if (r.ok) { if (key) location.href = '/hq'; else location.reload(); return; } // same URL, so ?view=… is kept
     msg.textContent = (await r.json()).error || 'Giriş yapılamadı.';
   } catch (err) { msg.textContent = 'Bağlantı hatası.'; }
   go.disabled = false;
 });
 </script>
+
 </body>
 </html>

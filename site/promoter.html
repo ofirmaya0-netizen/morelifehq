@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Promoter — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/guest.css">
+</head>
+<body>
+<div class="g-wrap">
+<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
+<main class="g-card" id="card"><p class="eyebrow">Loading…</p></main>
+</div>
+<script>
+(function () {
+  var t = new URLSearchParams(location.search).get('t') || '', card = document.getElementById('card'), tr = (navigator.language || '').toLowerCase().indexOf('tr') === 0;
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  var S = function (en, trk) { return tr ? trk : en; };
+  fetch('/api/public/promoter?t=' + encodeURIComponent(t)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (r) {
+    if (!r.ok) { card.innerHTML = '<h1 class="g-title">Link <span class="serif accent">' + S('not valid.', 'geçersiz.') + '</span></h1>'; return; }
+    var d = r.j, loc = tr ? 'tr-TR' : 'en-GB', money = function (n) { try { return new Intl.NumberFormat(loc, { style: 'currency', currency: d.currency, currencyDisplay: 'narrowSymbol', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n); } catch (x) { return n + ' ' + d.currency; } };
+    var dp = (d.event.date || '').split('-'), when = d.event.date ? new Date(+dp[0], +dp[1] - 1, +dp[2]).toLocaleDateString(loc, { day: 'numeric', month: 'long', year: 'numeric' }) : '', link = d.link ? location.origin + d.link : '';
+    card.innerHTML = '<span class="g-pill">' + S('Promoter', 'Promoter') + ' · ' + esc(d.name) + '</span><h1 class="g-title">' + d.tickets + ' <span class="serif accent">' + S(d.tickets === 1 ? 'ticket.' : 'tickets.', 'bilet.') + '</span></h1>' +
+      '<p style="color:var(--mute)"><b style="color:var(--ink)">' + esc(d.event.title) + '</b><br>' + esc([when, d.event.venue, d.event.city].filter(Boolean).join(' · ')) + '</p>' +
+      (d.active ? '' : '<p class="g-msg bad">' + S('This link is switched off; new sales are not credited.', 'Bu link kapalı; yeni satışlar sayılmıyor.') + '</p>') +
+      (link ? '<div class="sh-code"><label class="sr-only" for="pl">' + S('Your sales link', 'Satış linkin') + '</label><input id="pl" readonly value="' + esc(link) + '" style="text-transform:none" onfocus="this.select()"><button class="btn quiet" type="button" id="cp">' + S('Copy', 'Kopyala') + '</button></div><p class="sh-note">' + S('Tickets bought after opening this link are credited to you.', 'Bu linki açıp bilet alan herkes senin satışın sayılır.') + '</p>' : '') +
+      '<div class="sh-sum"><div><span>' + S('Orders', 'Sipariş') + '</span><b>' + d.orders + '</b></div><div><span>' + S('Ticket sales (without fees)', 'Bilet satışı (hizmet bedeli hariç)') + '</span><b>' + money(d.revenue) + '</b></div>' + (d.terms ? '<div><span>' + S('Your rate', 'Oranın') + '</span><b>' + esc(d.terms) + '</b></div><div class="tot"><span>' + S('Earned so far', 'Şimdiye kadar hak ediş') + '</span><b>' + money(d.commission) + '</b></div>' : '') + '</div>' +
+      (d.sales.length ? '<div class="sh-list">' + d.sales.map(function (x) { return '<div class="sh-row"><div class="sh-main"><b>' + esc(x.who) + '</b><span>' + new Date(x.at).toLocaleString(loc, { timeZone: 'Europe/Istanbul', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + '</span></div><div class="sh-price"><b>' + x.tickets + '</b></div><div></div></div>'; }).join('') + '</div>' : '<p class="sh-note">' + S('No sales through your link yet.', 'Linkinden henüz satış yok.') + '</p>') +
+      '<p class="sh-note">' + S('Refunded tickets are taken off these numbers. Keep this page to yourself.', 'İade edilen biletler bu rakamlardan düşülür. Bu sayfayı kimseyle paylaşma.') + '</p>';
+    var cp = document.getElementById('cp'); if (cp) cp.onclick = function () { if (navigator.clipboard) navigator.clipboard.writeText(link).then(function () { cp.textContent = S('Copied', 'Kopyalandı'); }); };
+  }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Could not load. Please refresh.</p>'; });
+})();
+</script>
+</body>
+</html>
