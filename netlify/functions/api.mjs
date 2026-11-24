@@ -134,22 +134,30 @@ async function publicApi(req, ctx, parts, url) {
     const b = await body(req);
     if (str(b.website)) return json({ ok: true }); // honeypot
     if (await limited('enq/' + hash(ipOf(req, ctx)), 8, 3600)) return fail(429, 'Too many requests. Please try again in a few minutes.');
-    const KIND = { contact: 'İletişim', community: 'Community kaydı', partner: 'Partnerlik' }, kind = KIND[b.kind] ? b.kind : 'contact';
+    const KIND = { contact: 'İletişim', community: 'Community kaydı', partner: 'Partnerlik', table: 'Masa talebi' }, kind = KIND[b.kind] ? b.kind : 'contact';
     const q = { id: id(), kind, brief: !!b.brief, kindLabel: b.brief ? 'Proje brief’i' : KIND[kind], name: str(b.name, 120), email: normEmail(b.email), consent: b.consent === true, path: str(b.analyticsPath, 80), status: 'new', note: '', createdAt: now(), updatedAt: now() };
     for (const f of ['company', 'topic', 'service', 'city', 'preferredDates', 'venue', 'capacity', 'budget', 'artist']) q[f] = str(b[f], 200);
     q.message = str(b.message, 4000);
     // the link-in-bio page (/links) may also pass a phone and an Instagram handle
+    // The table page (/tables): how many people, which area, for which event. A phone number is how the table gets confirmed.
+    const table = kind === 'table';
+    if (table) {
+      q.phone = str(b.phone, 40); q.party = int(b.party, 0, 200, 0); q.area = ['backstage', 'standard', 'either'].includes(b.area) ? b.area : 'either';
+      const ref = b.eventSlug ? await s.get('slugs/' + slugify(b.eventSlug)) : null, te = ref && await s.get('events/' + ref.id);
+      q.eventId = te && isListed(te) ? te.id : ''; q.eventTitle = q.eventId ? (live(te) || te).title : '';
+    }
     const bio = q.path === '/links';
     if (bio) { q.phone = str(b.phone, 40); q.instagram = str(b.instagram, 60).replace(/^@+/, ''); }
-    const tags = [kind === 'community' ? 'community' : 'site-talebi'].concat(bio ? ['instagram-bio'] : []);
+    const tags = [kind === 'community' ? 'community' : table ? 'masa-talebi' : 'site-talebi'].concat(bio ? ['instagram-bio'] : []);
     if (!q.name || !emailOk(q.email)) return fail(400, 'Please enter your name and a valid email.');
     if (kind === 'community' && !q.consent) return fail(400, 'Please tick the consent box to join the list.');
-    if (kind !== 'community' && !q.message) return fail(400, 'Please write a message.');
+    if (table && (normPhone(q.phone).length < 7 || q.party < 1)) return fail(400, 'Please enter your phone number and how many guests.');
+    if (kind !== 'community' && !table && !q.message) return fail(400, 'Please write a message.');
     // one CRM person per e-mail; the form never overwrites what HQ already knows about them
     const hit = await s.get('contactEmail/' + hash(q.email));
     if (hit) { q.contactId = hit.id; const c = await s.get('contacts/' + hit.id); const add = c ? tags.filter((t) => !(c.tags || []).includes(t)) : []; if (add.length) { c.tags = (c.tags || []).concat(add); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
     else {
-      const c = { id: id(), name: q.name, email: q.email, phone: bio ? q.phone : '', instagram: bio ? q.instagram : '', company: q.company, tags, source: bio ? 'Link sayfası (Instagram bio)' : 'Site formu: ' + q.kindLabel, notes: '', createdAt: now(), updatedAt: now() };
+      const c = { id: id(), name: q.name, email: q.email, phone: bio || table ? q.phone : '', instagram: bio ? q.instagram : '', company: q.company, tags, source: bio ? 'Link sayfası (Instagram bio)' : 'Site formu: ' + q.kindLabel, notes: '', createdAt: now(), updatedAt: now() };
       await s.set('contacts/' + c.id, c); await s.set('contactEmail/' + hash(c.email), { id: c.id }); q.contactId = c.id;
       if (normPhone(c.phone).length >= 7 && !(await s.get('contactPhone/' + hash(normPhone(c.phone))))) await s.set('contactPhone/' + hash(normPhone(c.phone)), { id: c.id });
     }
