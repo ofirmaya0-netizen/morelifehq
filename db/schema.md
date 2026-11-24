@@ -39,6 +39,8 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `events/<id>.invite.showGuests` — guest list on the event page; default on.
 - `rsvps/<event>/<id>.showName` — the guest ticked "show my name"; absent = not shown.
 
+- `settings/whatsapp.pass.qr` — the pass template has an image header (variable `qr`): the message is sent with `qr` = `/api/public/pass-qr/<pass key>.png`, the entry QR as a PNG. Off by default; the route answers only for an approved guest or a valid ticket.
+
 ## Guest automation (no migration needed; absent values use the defaults)
 - `events/<id>.dressCode`, `.listenUrl` — public; `.galleryUrl` — used in the thank-you mail only.
 - `events/<id>.invite.{reminders,thanks,referrals,selfCancel}` default on; `.autoWaitlist` default off.

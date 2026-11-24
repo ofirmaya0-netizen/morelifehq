@@ -5,7 +5,7 @@ import { hash, id } from './auth.mjs';
 const API = () => (process.env.BIRD_API_URL || 'https://api.bird.com').replace(/\/$/, '');
 const WS = () => process.env.BIRD_WORKSPACE_ID;
 export const waStatus = () => ({ connected: !!(process.env.BIRD_ACCESS_KEY && WS()), missing: ['BIRD_ACCESS_KEY', 'BIRD_WORKSPACE_ID'].filter((k) => !process.env[k]) });
-const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en' }, invite: { projectId: '', version: '', locale: 'en' } };
+const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' } };
 export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) } }; };
 
 export async function waCall(path, method, body) {
@@ -35,8 +35,12 @@ export async function waSend(s, to, tpl, params) {
     return { status: 'sent', at, id: String(j.id || ''), state: String(j.status || 'accepted') };
   } catch (e) { return { status: 'failed', at: new Date().toISOString(), error: String(e.message || e) }; }
 }
-export const passParams = (e, r) => ({ name: r.name.split(' ')[0], event: e.title, date: [dateEn(e.date), e.time].filter(Boolean).join(' · '), venue: [e.venue, e.city].filter(Boolean).join(', '), token: r.passToken });
-export const sendPassWa = async (s, e, r) => waSend(s, r.phone, (await waSettings(s)).pass, passParams(e, r));
+// qrUrl: set when the pass template has an image header (variable `qr`); WhatsApp then shows the entry QR in the message itself.
+export const passParams = (e, r, qrUrl) => ({ name: r.name.split(' ')[0], event: e.title, date: [dateEn(e.date), e.time].filter(Boolean).join(' · '), venue: [e.venue, e.city].filter(Boolean).join(', '), token: r.passToken, ...(qrUrl ? { qr: qrUrl } : {}) });
+export const passQrUrl = (origin, token) => origin + '/api/public/pass-qr/' + token + '.png';
+export const sendPassWa = async (s, e, r, origin) => { const tpl = (await waSettings(s)).pass; return waSend(s, r.phone, tpl, passParams(e, r, tpl.qr && origin ? passQrUrl(origin, r.passToken) : '')); };
+// The same code the pass page draws: scanning it at the door opens /pass?t=… and checks the guest in.
+export async function passQrPng(origin, token) { const { default: QR } = await import('qrcode'); return QR.toBuffer(origin + '/pass?t=' + token, { type: 'png', width: 720, margin: 4, errorCorrectionLevel: 'M' }); }
 // What the invitation message will say for this event. The wording mirrors the template submitted to Meta;
 // only the cover, title, date line, promo line and first name change per event.
 export const invitePreview = (e, r) => ({ image: e.wideImageId || e.imageId || '', wide: !!e.wideImageId, title: e.title, line: [dateEn(e.date), e.time, [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).join(' · '), promo: e.waPromo || '', name: r.name.split(' ')[0], button: 'Request your place', footer: 'Reply STOP to opt out' });

@@ -16,7 +16,7 @@ import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { inviteRoute } from './lib/invites.mjs';
 import { emailStatus, sendPass, passMail, notifyEnquiry } from './lib/email.mjs';
-import { waStatus, waSettings, sendPassWa, passParams, invitePreview } from './lib/whatsapp.mjs';
+import { waStatus, waSettings, sendPassWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
@@ -96,6 +96,13 @@ async function publicApi(req, ctx, parts, url) {
     const key = str(parts[1], 60).replace(/[^A-Za-z0-9_-]/g, ''), img = key && await s.getBin('images/' + key);
     if (!img) return fail(404, 'Not found');
     return new Response(img.buf, { headers: { 'content-type': img.type, 'cache-control': 'public, max-age=31536000, immutable' } });
+  }
+  // The entry QR as a picture, for the WhatsApp pass message. Whoever holds the pass key already holds the pass.
+  if (parts[0] === 'pass-qr' && req.method === 'GET') {
+    const t = str(parts[1], 70).replace(/\.png$/, '').replace(/[^A-Za-z0-9_-]/g, ''), ref = t && await s.get('passes/' + t);
+    const r = ref && (ref.ticketId ? await findTicket(s, ref.eventId, ref.ticketId) : await s.get('rsvps/' + ref.eventId + '/' + ref.rsvpId));
+    if (!r || (ref.ticketId ? r.status !== 'valid' : r.status !== 'approved') || await limited('passqr/' + hash(ipOf(req, ctx)), 300, 3600)) return fail(404, 'Not found');
+    return new Response(await passQrPng(url.origin, t), { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=300', 'x-robots-tag': 'noindex', 'referrer-policy': 'no-referrer' } });
   }
   if (parts[0] === 'rsvp' && req.method === 'POST') {
     const b = await body(req);
@@ -467,7 +474,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       if (r.status !== 'approved' || !r.passToken) return fail(400, 'Giriş kartı yalnızca onaylı başvuruya gönderilir.');
       if (!waStatus().connected) return fail(409, 'WhatsApp bağlı değil.');
       if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
-      r.wa = await sendPassWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r);
+      r.wa = await sendPassWa(s, live(e) || e, r, url.origin); await s.set('rsvps/' + e.id + '/' + r.id, r);
       return r.wa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.wa.error || ''), { rsvp: r });
     }
     if (parts[3] === 'send-pass' && m === 'POST') {

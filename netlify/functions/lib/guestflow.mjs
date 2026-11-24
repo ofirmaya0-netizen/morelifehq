@@ -22,7 +22,7 @@ export async function approve(s, e, r, origin) {
   const le = live(e) || e;
   // the pass is e-mailed once on approval; a failed attempt is stored as failed, never as sent
   if (!(r.mail && r.mail.status === 'sent')) { const m = await sendPass(le, r, origin); if (m.status !== 'off') r.mail = m; }
-  if (r.phone && !(r.wa && r.wa.status === 'sent')) { const w = await sendPassWa(s, le, r); if (w.status !== 'off') r.wa = w; }
+  if (r.phone && !(r.wa && r.wa.status === 'sent')) { const w = await sendPassWa(s, le, r, origin); if (w.status !== 'off') r.wa = w; }
   await s.set('rsvps/' + e.id + '/' + r.id, r);
   return r;
 }
