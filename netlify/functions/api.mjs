@@ -542,7 +542,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     return json({ ok: true, created, skipped, total: LEGACY_EVENTS.length });
   }
 
-  return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf });
+  return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf, me });
 }
 
 /* ---------- router ---------- */

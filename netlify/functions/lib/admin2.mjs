@@ -3,13 +3,13 @@
 import crypto from 'node:crypto';
 import { all, pool, allContacts } from './store.mjs';
 import { id, hash } from './auth.mjs';
-import { json, fail, now, str, int, emailOk, normEmail, normPhone, tagList, body, istToday, csv, slugify } from './util.mjs';
+import { json, fail, now, str, int, emailOk, normEmail, normPhone, intlPhone, tagList, body, istToday, csv, slugify } from './util.mjs';
 import { seoInput, eventSeo, homeSeo, eventJsonLd, orgJsonLd, isListed, live, isDirty, DEFAULT_SEO_SETTINGS, SITE_URL } from './model.mjs';
 import { HOME_FIELDS, homeDefaults } from './render.mjs';
 import { SCHEMA_VERSION } from './migrations.mjs';
 import { SITE_HTML } from './site-html.mjs';
-import { emailStatus } from './email.mjs';
-import { waStatus, waSettings, waChannels, waSend } from './whatsapp.mjs';
+import { emailStatus, confirmMail, sendConfirm } from './email.mjs';
+import { waStatus, waSettings, waChannels, waSend, confirmParams, confirmText } from './whatsapp.mjs';
 import { eventSales } from './tickets.mjs';
 
 /* ---------- CRM ---------- */
@@ -188,11 +188,29 @@ async function audiences(req, parts, s) {
 }
 
 /* ---------- site enquiries ---------- */
-async function enquiries(req, parts, url, s) {
+async function enquiries(req, parts, url, s, me) {
   const m = req.method, list = async () => (await all('enquiries/')).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  if (parts[0] === 'enquiries.csv') { const st = url.searchParams.get('status') || ''; return csv('talepler.csv', [['Tarih', 'Tür', 'Durum', 'Ad', 'E-posta', 'Şirket', 'Konu', 'Şehir', 'Tarihler', 'Mekân', 'Kapasite', 'Bütçe', 'Sanatçı', 'Mesaj', 'İzin', 'Not', 'Telefon', 'Etkinlik', 'Kişi', 'Alan']].concat((await list()).filter((q) => !st || q.status === st).map((q) => [q.createdAt, q.kindLabel, q.status, q.name, q.email, q.company, q.topic || q.service, q.city, q.preferredDates, q.venue, q.capacity, q.budget, q.artist, q.message, q.consent ? 'evet' : '', q.note, q.phone || '', q.eventTitle || '', q.party || '', q.area || '']))); }
+  if (parts[0] === 'enquiries.csv') { const st = url.searchParams.get('status') || ''; return csv('talepler.csv', [['Tarih', 'Tür', 'Durum', 'Ad', 'E-posta', 'Şirket', 'Konu', 'Şehir', 'Tarihler', 'Mekân', 'Kapasite', 'Bütçe', 'Sanatçı', 'Mesaj', 'İzin', 'Not', 'Telefon', 'Etkinlik', 'Kişi', 'Alan', 'Masa onayı']].concat((await list()).filter((q) => !st || q.status === st).map((q) => [q.createdAt, q.kindLabel, q.status, q.name, q.email, q.company, q.topic || q.service, q.city, q.preferredDates, q.venue, q.capacity, q.budget, q.artist, q.message, q.consent ? 'evet' : '', q.note, q.phone || '', q.eventTitle || '', q.party || '', q.area || '', q.table ? q.table.at : '']))); }
   if (!parts[1] && m === 'GET') return json({ enquiries: await list(), email: emailStatus() });
   const q = await s.get('enquiries/' + parts[1]); if (!q) return fail(404, 'Talep bulunamadı.');
+  // Confirms a table request and tells the guest: e-mail when the mail service is connected, WhatsApp when the
+  // confirmation template is set. dryRun returns the exact message and where it would go, and sends nothing.
+  if (parts[2] === 'confirm' && m === 'POST') {
+    if (q.kind !== 'table') return fail(400, 'Yalnızca masa talepleri onaylanabilir.');
+    const b = await body(req), ev = q.eventId ? await s.get('events/' + q.eventId) : null, e = live(ev || {});
+    const c = { area: ['backstage', 'standard'].includes(b.area) ? b.area : q.area === 'backstage' ? 'backstage' : 'standard', party: int(b.party, 1, 200, q.party || 1) };
+    const p = confirmParams(q, e, c), tpl = (await waSettings(s)).tableOk, phone = intlPhone(q.phone);
+    const waWhy = !waStatus().connected ? 'WhatsApp bağlı değil.' : !(tpl.projectId && tpl.version) ? 'Masa onayı şablonu Ayarlar’da tanımlı değil.' : !phone ? 'Telefon numarası uluslararası biçimde değil.' : !(p.event && p.line) ? 'Talep, tarihi ya da mekânı girilmiş yayında bir etkinliğe bağlı değil.' : '';
+    const preview = { ...c, text: confirmText(p), mail: { on: emailStatus().connected, to: q.email, subject: confirmMail(p).subject, why: emailStatus().connected ? '' : 'E-posta servisi bağlı değil.' }, wa: { on: !waWhy, to: phone || q.phone || '', why: waWhy } };
+    if (b.dryRun) return json({ preview, table: q.table || null });
+    if (!preview.mail.on && !preview.wa.on) return fail(409, 'Onay mesajı gönderilemiyor. ' + preview.mail.why + ' ' + preview.wa.why);
+    const claim = 'sent/enq/' + q.id + '/confirm'; // one confirmation per request, unless it is sent again on purpose
+    if (!(await s.create(claim, { at: now() })) && b.again !== true) return fail(409, 'Bu talep için onay mesajı zaten gönderildi.', { already: true });
+    const mail = preview.mail.on ? await sendConfirm(q, p) : { status: 'off' }, wa = preview.wa.on ? await waSend(s, phone, tpl, p) : { status: 'off' };
+    if (mail.status !== 'sent' && wa.status !== 'sent') { if (!q.table) await s.del(claim); return fail(502, 'Onay mesajı gönderilemedi: ' + [mail.error, wa.error].filter(Boolean).join(' · '), { mail, wa }); }
+    q.table = { status: 'confirmed', ...c, at: now(), by: (me && me.name) || '', mail, wa }; q.status = 'done'; q.updatedAt = now(); await s.set('enquiries/' + q.id, q);
+    return json({ enquiry: q, confirmed: true });
+  }
   if (m === 'PUT') { const b = await body(req); if ('status' in b) q.status = ['open', 'done'].includes(b.status) ? b.status : 'new'; if ('note' in b) q.note = str(b.note, 2000); q.updatedAt = now(); await s.set('enquiries/' + q.id, q); return json({ enquiry: q }); }
   return fail(405, 'Desteklenmiyor.');
 }
@@ -406,7 +424,7 @@ async function whatsapp(req, parts, s) {
   const m = req.method, st = waStatus(), set = await waSettings(s);
   const tpl = (b, prev) => ({ projectId: str(b && b.projectId, 60).replace(/[^a-f0-9-]/gi, '') || '', version: str(b && b.version, 60).replace(/[^a-f0-9-]/gi, '') || '', locale: str(b && b.locale, 10) || prev.locale || 'en' });
   if (!parts[1] && m === 'GET') { let channels = [], error = ''; if (st.connected) { try { channels = await waChannels(); } catch (e) { error = String(e.message || e); } } return json({ status: st, settings: set, channels, error, envChannel: !!process.env.BIRD_CHANNEL_ID }); }
-  if (parts[1] === 'settings' && m === 'PUT') { const b = await body(req); const n = { ...set, channelId: 'channelId' in b ? str(b.channelId, 60) : set.channelId, pass: b.pass ? { ...tpl(b.pass, set.pass), qr: 'qr' in b.pass ? b.pass.qr === true : !!set.pass.qr } : set.pass, invite: b.invite ? tpl(b.invite, set.invite) : set.invite, table: b.table ? tpl(b.table, set.table) : set.table }; await s.set('settings/whatsapp', n); return json({ settings: n }); }
+  if (parts[1] === 'settings' && m === 'PUT') { const b = await body(req); const n = { ...set, channelId: 'channelId' in b ? str(b.channelId, 60) : set.channelId, pass: b.pass ? { ...tpl(b.pass, set.pass), qr: 'qr' in b.pass ? b.pass.qr === true : !!set.pass.qr } : set.pass, invite: b.invite ? tpl(b.invite, set.invite) : set.invite, table: b.table ? tpl(b.table, set.table) : set.table, tableOk: b.tableOk ? tpl(b.tableOk, set.tableOk) : set.tableOk }; await s.set('settings/whatsapp', n); return json({ settings: n }); }
   if (parts[1] === 'test' && m === 'POST') {
     if (!st.connected) return fail(409, 'WhatsApp bağlı değil.');
     const b = await body(req), params = {}; for (const [k, v] of Object.entries(b.parameters && typeof b.parameters === 'object' ? b.parameters : {})) params[str(k, 40)] = str(v, 300);
@@ -431,7 +449,7 @@ export async function admin2(req, ctx, parts, url, s, h) {
   if (parts[0] === 'contacts' || parts[0] === 'contacts.csv') return contacts(req, parts, url, s);
   if (parts[0] === 'audiences') return audiences(req, parts, s);
   if (parts[0] === 'whatsapp') return whatsapp(req, parts, s);
-  if (parts[0] === 'enquiries' || parts[0] === 'enquiries.csv') return enquiries(req, parts, url, s);
+  if (parts[0] === 'enquiries' || parts[0] === 'enquiries.csv') return enquiries(req, parts, url, s, h.me);
   if (parts[0] === 'tasks') return tasks(req, parts, s);
   if (parts[0] === 'site') return site(req, parts, s);
   if (parts[0] === 'seo') return seo(req, parts, s, h);

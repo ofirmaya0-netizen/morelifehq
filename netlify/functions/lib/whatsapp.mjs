@@ -5,8 +5,8 @@ import { hash, id } from './auth.mjs';
 const API = () => (process.env.BIRD_API_URL || 'https://api.bird.com').replace(/\/$/, '');
 const WS = () => process.env.BIRD_WORKSPACE_ID;
 export const waStatus = () => ({ connected: !!(process.env.BIRD_ACCESS_KEY && WS()), missing: ['BIRD_ACCESS_KEY', 'BIRD_WORKSPACE_ID'].filter((k) => !process.env[k]) });
-const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' }, table: { projectId: '', version: '', locale: 'en' } };
-export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) }, table: { ...DEFAULTS.table, ...(v.table || {}) } }; };
+const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' }, table: { projectId: '', version: '', locale: 'en' }, tableOk: { projectId: '', version: '', locale: 'en' } };
+export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) }, table: { ...DEFAULTS.table, ...(v.table || {}) }, tableOk: { ...DEFAULTS.tableOk, ...(v.tableOk || {}) } }; };
 
 export async function waCall(path, method, body) {
   const r = await fetch(API() + '/workspaces/' + WS() + path, { method, headers: { authorization: 'AccessKey ' + process.env.BIRD_ACCESS_KEY, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -52,10 +52,16 @@ export const invitePreview = (e, r) => ({ image: e.wideImageId || e.imageId || '
 export const greetName = (c) => (/@/.test(c.name || '') ? '' : String(c.name || '').trim().split(/\s+/)[0]);
 export const inviteParams = (e, c, origin, token) => { const p = invitePreview(e, { name: greetName(c) || 'Hi' }); return { name: p.name, title: p.title, line: p.line, promo: p.promo, image: p.image ? origin + '/api/public/image/' + p.image : '', token }; };
 
+// Table confirmation: the variables of the "table confirmed" template in Bird, and the same words for the e-mail.
+// q: the table request, e: the event as the public sees it (or null), c: what was confirmed, { area, party }.
+export const confirmParams = (q, e, c) => ({ name: q.name.trim().split(/\s+/)[0], event: e ? e.title : '', line: e ? [dateEn(e.date), e.time, [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).join(' · ') : '', table: (c.area === 'backstage' ? 'Backstage table' : 'Table') + ' for ' + c.party, under: q.name.trim() });
+// The message as the guest reads it. The WhatsApp wording mirrors the template submitted to Meta.
+export const confirmText = (p) => 'Hi ' + p.name + ', your table is confirmed.\n\n' + (p.event ? p.event + '\n' + (p.line ? p.line + '\n' : '') + '\n' : '') + p.table + ', under ' + p.under + '.\nGive your name at the door.';
+
 // What a sent template says, in one line, for the conversation in HQ → Mesajlar. The full wording lives in Bird / Meta.
 export function tplText(set, tpl, params) {
-  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : is(set.table) ? 'Masa linki' : 'Şablon mesajı';
-  const main = [p.title || p.event, p.line || p.date, p.venue].filter(Boolean);
+  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : is(set.table) ? 'Masa linki' : is(set.tableOk) ? 'Masa onayı' : 'Şablon mesajı';
+  const main = [p.title || p.event, p.line || p.date, p.venue, p.table].filter(Boolean);
   const rest = main.length ? main : Object.entries(p).filter(([k, v]) => !['token', 'image', 'name', 'eventId'].includes(k) && v && !/^https?:/.test(String(v))).map(([, v]) => String(v));
   return (label + (rest.length ? ': ' + rest.join(' · ') : '')).slice(0, 600);
 }
