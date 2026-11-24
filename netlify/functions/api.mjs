@@ -114,13 +114,21 @@ async function publicApi(req, ctx, parts, url) {
     const q = { id: id(), kind, brief: !!b.brief, kindLabel: b.brief ? 'Proje brief’i' : KIND[kind], name: str(b.name, 120), email: normEmail(b.email), consent: b.consent === true, path: str(b.analyticsPath, 80), status: 'new', note: '', createdAt: now(), updatedAt: now() };
     for (const f of ['company', 'topic', 'service', 'city', 'preferredDates', 'venue', 'capacity', 'budget', 'artist']) q[f] = str(b[f], 200);
     q.message = str(b.message, 4000);
+    // the link-in-bio page (/links) may also pass a phone and an Instagram handle
+    const bio = q.path === '/links';
+    if (bio) { q.phone = str(b.phone, 40); q.instagram = str(b.instagram, 60).replace(/^@+/, ''); }
+    const tags = [kind === 'community' ? 'community' : 'site-talebi'].concat(bio ? ['instagram-bio'] : []);
     if (!q.name || !emailOk(q.email)) return fail(400, 'Please enter your name and a valid email.');
     if (kind === 'community' && !q.consent) return fail(400, 'Please tick the consent box to join the list.');
     if (kind !== 'community' && !q.message) return fail(400, 'Please write a message.');
     // one CRM person per e-mail; the form never overwrites what HQ already knows about them
     const hit = await s.get('contactEmail/' + hash(q.email));
-    if (hit) { q.contactId = hit.id; const c = await s.get('contacts/' + hit.id); const tag = kind === 'community' ? 'community' : 'site-talebi'; if (c && !(c.tags || []).includes(tag)) { c.tags = (c.tags || []).concat(tag); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
-    else { const c = { id: id(), name: q.name, email: q.email, phone: '', instagram: '', company: q.company, tags: [kind === 'community' ? 'community' : 'site-talebi'], source: 'Site formu: ' + q.kindLabel, notes: '', createdAt: now(), updatedAt: now() }; await s.set('contacts/' + c.id, c); await s.set('contactEmail/' + hash(c.email), { id: c.id }); q.contactId = c.id; }
+    if (hit) { q.contactId = hit.id; const c = await s.get('contacts/' + hit.id); const add = c ? tags.filter((t) => !(c.tags || []).includes(t)) : []; if (add.length) { c.tags = (c.tags || []).concat(add); c.updatedAt = now(); await s.set('contacts/' + c.id, c); } }
+    else {
+      const c = { id: id(), name: q.name, email: q.email, phone: bio ? q.phone : '', instagram: bio ? q.instagram : '', company: q.company, tags, source: bio ? 'Link sayfası (Instagram bio)' : 'Site formu: ' + q.kindLabel, notes: '', createdAt: now(), updatedAt: now() };
+      await s.set('contacts/' + c.id, c); await s.set('contactEmail/' + hash(c.email), { id: c.id }); q.contactId = c.id;
+      if (normPhone(c.phone).length >= 7 && !(await s.get('contactPhone/' + hash(normPhone(c.phone))))) await s.set('contactPhone/' + hash(normPhone(c.phone)), { id: c.id });
+    }
     await s.set('enquiries/' + q.id, q);
     q.notify = await notifyEnquiry(q, url.origin); if (q.notify.status !== 'off') await s.set('enquiries/' + q.id, q);
     return json({ ok: true });
@@ -168,6 +176,13 @@ async function publicApi(req, ctx, parts, url) {
     const e = await s.get('events/' + eid); if (!e || e.status !== 'published') return json({ ok: true });
     const u = b.utm && typeof b.utm === 'object' ? b.utm : {};
     await s.set('hits/' + eid + '/' + istToday() + '/' + kind + '/' + id(), { s: str(u.source, 80).toLowerCase(), m: str(u.medium, 80).toLowerCase(), c: str(u.campaign, 80).toLowerCase() });
+    return json({ ok: true });
+  }
+  // Link-in-bio page counter: one record per page view or link press. Holds no personal data.
+  if (parts[0] === 'linkhit' && req.method === 'POST') {
+    const b = await body(req), label = b.k === 'view' ? 'view' : str(b.l, 30).toLowerCase().replace(/[^a-z0-9-]/g, '');
+    if (isBot(req.headers.get('user-agent')) || !label || (b.k !== 'view' && label === 'view') || await limited('linkhit/' + hash(ipOf(req, ctx)), 120, 3600)) return json({ ok: true });
+    await s.set('linkhits/' + istToday() + '/' + label + '/' + id(), { at: now() });
     return json({ ok: true });
   }
   return fail(404, 'Not found');
