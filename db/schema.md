@@ -117,5 +117,6 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `POST /api/public/wa-hook` accepts only requests signed with the subscription's key (`BIRD_WEBHOOK_SECRET` overrides the stored key when the subscription is created by hand in Bird).
 - A conversation is unread while `lastInAt` is later than `readAt`. A reply is allowed for 24 hours after `lastInAt`.
 - A message that is exactly `STOP` (also `unsubscribe`, `dur`, `durdur`) tags the matching CRM contact `mesaj-istemiyor`.
-- “Geçmiş mesajları yükle” reads the channel's incoming messages from Bird page by page (`POST /api/hq/inbox/import`). A message already stored is skipped; one older than 24 hours arrives as read.
+- “Geçmiş mesajları yükle” reads the channel's incoming messages from Bird page by page (`POST /api/hq/inbox/import`). A message already stored is skipped; one older than 24 hours arrives as read. Then it reads the sent ones (`direction: outgoing`): replies typed in Bird and templates.
+- Every template HQ sends (invitation, entry pass, test) is also written to `wamsgs/` as `kind: template`, with one line saying what it was about; the full wording stays in Bird. A number that has never written has messages but no `wathreads/` record, so it is not in the list until it writes.
 - Media is not copied into HQ: such a message shows its type and caption, the file stays in Bird.

@@ -18,9 +18,10 @@
       if (ev.target.closest('#wa-ref')) return H.render();
       var im = ev.target.closest('#wa-imp');
       if (im) { // Bird's list is read page by page; a message already in HQ is skipped
-        var tok = '', got = 0, seen = 0; H.busy(im, 1, 'Yükleniyor…');
-        try { for (var i = 0; i < 400; i++) { var p = await H.api('inbox/import', 'POST', { pageToken: tok }); got += p.stored; seen += p.read; im.textContent = 'Yükleniyor… ' + seen; tok = p.nextPageToken; if (!tok || !p.read) break; } H.toast(got ? got + ' geçmiş mesaj yüklendi' : 'Yeni yüklenecek mesaj yok (' + seen + ' mesaj zaten burada)', 'ok'); }
-        catch (err) { H.toast((got ? got + ' mesaj yüklendi, sonra durdu: ' : '') + err.message, 'bad'); }
+        var got = 0, sent = 0, seen = 0; H.busy(im, 1, 'Yükleniyor…');
+        var pull = async function (dir) { var tok = '', n = 0; for (var i = 0; i < 400; i++) { var p = await H.api('inbox/import', 'POST', { pageToken: tok, direction: dir }); n += p.stored; seen += p.read; im.textContent = 'Yükleniyor… ' + seen; tok = p.nextPageToken; if (!tok || !p.read) break; } return n; };
+        try { got = await pull('incoming'); sent = await pull('outgoing'); H.toast(got || sent ? got + ' gelen, ' + sent + ' gönderilen mesaj yüklendi' : 'Yeni yüklenecek mesaj yok (' + seen + ' mesaj zaten burada)', 'ok'); }
+        catch (err) { H.toast((got || sent ? (got + sent) + ' mesaj yüklendi, sonra durdu: ' : '') + err.message, 'bad'); }
         return H.render();
       }
       if (b) return H.go('view=mesajlar&durum=' + b.getAttribute('data-mf'));
@@ -33,7 +34,7 @@
     };
     async function open(key) {
       var r; try { r = await H.api('inbox/' + key); } catch (err) { return H.toast(err.message, 'bad'); }
-      var t = r.thread, bubbles = function (ms) { return ms.map(function (m) { return '<div class="bub ' + m.dir + '"><div>' + (m.kind !== 'text' && !m.text ? '<i>[' + e(m.kind) + '] Bu içerik Bird’de açılır.</i>' : e(m.text)) + (m.kind !== 'text' && m.text ? '<br><i class="small">[' + e(m.kind) + ']</i>' : '') + '</div><span>' + H.fmtTime(m.at) + (m.by ? ' · ' + e(m.by) : '') + '</span></div>'; }).join(''); };
+      var t = r.thread, bubbles = function (ms) { return ms.map(function (m) { return '<div class="bub ' + m.dir + (m.kind === 'template' ? ' tpl' : '') + '"><div>' + (m.kind !== 'text' && !m.text ? '<i>[' + e(m.kind) + '] Bu içerik Bird’de açılır.</i>' : e(m.text)) + (m.kind !== 'text' && m.kind !== 'template' && m.text ? '<br><i class="small">[' + e(m.kind) + ']</i>' : '') + '</div><span>' + (m.kind === 'template' ? 'Şablon · ' : '') + H.fmtTime(m.at) + (m.by ? ' · ' + e(m.by) : '') + '</span></div>'; }).join(''); };
       var dr = H.drawer({ title: who(t), onClose: function () { H.render(); }, body: '<p class="mute small" style="margin-bottom:12px">' + e(t.phone) + (t.name && t.name !== who(t) ? ' · WhatsApp adı: ' + e(t.name) : '') + '</p>' + (t.optOut ? '<div style="margin-bottom:12px">' + H.note('warn', 'Bu kişi STOP yazdı: artık davet mesajı gönderilmez.') + '</div>' : '') + '<div class="chat" id="chat">' + bubbles(r.messages) + '</div>' +
         (ro ? '' : r.canReply ? '<form class="form" id="rf" style="margin-top:16px">' + H.field({ name: 'text', label: 'Yanıt', type: 'textarea', rows: 3, required: 1, full: 1, max: 4000, hint: 'More Life hattından gider. Yanıt süresi ' + H.fmtTime(r.windowEnds) + '’e kadar açık.' }) + '<p class="msg bad full" role="alert"></p></form>' : '<div style="margin-top:16px">' + H.note('', 'Son mesajın üzerinden 24 saat geçti; serbest metinle yanıt kapalı. Yeniden yazarsa açılır.') + '</div>'),
         foot: (t.contactId ? '<button class="btn" type="button" data-nav="view=crm&kisi=' + t.contactId + '">Kişi kartı</button>' : '') + (!ro && r.canReply ? '<button class="btn pri" type="submit" form="rf">Gönder</button>' : '') });

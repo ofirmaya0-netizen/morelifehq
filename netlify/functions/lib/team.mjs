@@ -102,7 +102,7 @@ export async function describe(s, parts, m, b, j) {
   if (a === 'site') return [p2 === 'publish' ? 'Ana sayfayı yayınladı' : p2 === 'rollback' ? 'Ana sayfayı önceki sürüme döndürdü' : 'Ana sayfa taslağını düzenledi', ''];
   if (a === 'seo') return ['SEO varsayılanlarını düzenledi', ''];
   if (a === 'utm') return [del ? 'Kampanya linkini sildi' : 'Kampanya linki oluşturdu', (j.link && j.link.name) || ''];
-  if (a === 'inbox') return p1 === 'connect' ? [del ? 'WhatsApp gelen mesaj bağlantısını kaldırdı' : 'WhatsApp gelen mesajlarını bağladı', ''] : p2 === 'reply' ? ['WhatsApp mesajını yanıtladı', (j.thread && (j.thread.name || j.thread.phone)) || ''] : p1 === 'import' && !b.pageToken ? ['Geçmiş WhatsApp mesajlarını yükledi', ''] : null;
+  if (a === 'inbox') return p1 === 'connect' ? [del ? 'WhatsApp gelen mesaj bağlantısını kaldırdı' : 'WhatsApp gelen mesajlarını bağladı', ''] : p2 === 'reply' ? ['WhatsApp mesajını yanıtladı', (j.thread && (j.thread.name || j.thread.phone)) || ''] : p1 === 'import' && !b.pageToken && b.direction !== 'outgoing' ? ['Geçmiş WhatsApp mesajlarını yükledi', ''] : null;
   if (a === 'whatsapp') return [p1 === 'test' ? 'WhatsApp test mesajı gönderdi' : 'WhatsApp şablonlarını düzenledi', ''];
   if (a === 'automation') return ['Otomasyonu elle çalıştırdı', ''];
   if (a === 'import-site-events') return ['Geçmiş etkinlikleri aktardı', '', j.created + ' etkinlik'];
