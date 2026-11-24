@@ -15,6 +15,26 @@ const isDT = (v) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v);
 const money = (v) => { const n = r2(parseFloat(String(v == null ? '' : v).replace(/\s/g, '').replace(',', '.'))); return Number.isFinite(n) && n >= 0 && n < 1e7 ? n : null; };
 const orderNo = () => 'ML-' + crypto.randomBytes(4).toString('hex').toUpperCase();
 
+/* ---------- webhooks: tell another system when something is sold or refunded ---------- */
+// Each call is signed (x-morelife-signature: sha256=<hmac of the body with the hook's secret>) and given three seconds.
+// A hook that fails never holds up a sale; its last result is kept for the settings screen.
+const hookOrder = (o) => ({ id: o.id, no: o.no, eventId: o.eventId, status: o.status, channel: o.channel, currency: o.currency, subtotal: o.subtotal, discount: o.discount, fee: o.fee, total: o.total, refunded: r2((o.refunds || []).reduce((n, r) => n + r.amount, 0)), code: o.code || '', promoter: o.promoter || '', utm: o.utm || {},
+  buyer: { name: o.buyer.name, email: o.buyer.email, phone: o.buyer.phone || '' }, items: o.items.map((i) => ({ typeId: i.typeId, name: i.name, qty: i.qty, unit: i.unit, unitNet: i.unitNet, admits: i.admits })), answers: o.answers || [], paidAt: o.paidAt || '' });
+export const hooksOf = async (s) => ((await s.get('settings/webhooks')) || { hooks: [] }).hooks;
+export async function emit(s, type, data) {
+  let hooks; try { hooks = (await hooksOf(s)).filter((h) => h.active && h.events.includes(type)); } catch { return; }
+  if (!hooks.length) return;
+  const body = JSON.stringify({ type, at: now(), data }); let changed = false;
+  await Promise.all(hooks.map(async (h) => {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 3000);
+    try { const r = await fetch(h.url, { method: 'POST', redirect: 'manual', signal: ctl.signal, headers: { 'content-type': 'application/json', 'user-agent': 'MoreLife-HQ', 'x-morelife-event': type, 'x-morelife-signature': 'sha256=' + crypto.createHmac('sha256', h.secret).update(body).digest('hex') }, body }); h.last = { at: now(), type, status: r.status }; }
+    catch (err) { h.last = { at: now(), type, status: 0, error: err.name === 'AbortError' ? 'zaman aşımı' : 'bağlantı kurulamadı' }; }
+    clearTimeout(timer); changed = true;
+  }));
+  if (changed) { const all = await hooksOf(s); for (const h of all) { const x = hooks.find((y) => y.id === h.id); if (x) h.last = x.last; } await s.set('settings/webhooks', { hooks: all }); }
+}
+export const HOOK_EVENTS = [['order.paid', 'Sipariş ödendi (bilet üretildi)'], ['order.refunded', 'İade yapıldı'], ['ticket.transferred', 'Bilet başkasına devredildi'], ['ticket.checked_in', 'Kapıda giriş yapıldı']];
+
 /* ---------- settings ---------- */
 const DEFAULTS = { provider: '', feeMode: 'buyer', feePct: 0, feeFixed: 0, installments: false, seller: '', terms: '', refundPolicy: '', supportEmail: '' };
 export const tixSettings = async (s) => ({ ...DEFAULTS, ...((await s.get('settings/tickets')) || {}) });
@@ -32,6 +52,10 @@ function blocked(set) {
 /* ---------- ticket types + stock ---------- */
 const typesOf = async (eventId) => (await all('ttypes/' + eventId + '/')).sort((a, b) => (a.order || 0) - (b.order || 0) || a.createdAt.localeCompare(b.createdAt));
 const takenOf = async (s, typeId) => (await s.list('tstock/' + typeId + '/')).length;
+// Table map: a floor plan with tables buyers pick themselves. Each table belongs to a ticket type (its price zone) and is one
+// unit of that type's stock, under its own number `n`; a number is never reused, so a removed table can never be confused with a new one.
+export const mapOf = async (s, eventId) => ({ imageId: '', w: 1000, h: 640, tables: [], ...((await s.get('tmap/' + eventId)) || {}) });
+const tablesOf = (map, typeId) => map.tables.filter((x) => x.typeId === typeId);
 function typeInput(b, prev) {
   const t = { ...prev };
   if ('name' in b) t.name = str(b.name, 80);
@@ -71,9 +95,22 @@ async function listingsOf(s, typeId) {
   return all.map((k) => k.split('/')[2]).filter((tid) => !gone.has(tid));
 }
 async function typesView(s, eventId) {
-  const ts = await typesOf(eventId), takenBy = {}, byId = {}, open = {};
-  await pool(ts, 8, async (t) => { open[t.id] = (await listingsOf(s, t.id)).length; takenBy[t.id] = (await takenOf(s, t.id)) - open[t.id]; byId[t.id] = t; }); // a listed ticket counts as available again
-  return ts.map((t) => ({ ...t, taken: takenBy[t.id], resale: open[t.id], left: t.stock ? Math.max(0, t.stock - takenBy[t.id]) : null, state: typeState(t, takenBy[t.id], byId, takenBy) }));
+  const ts = await typesOf(eventId), map = await mapOf(s, eventId), takenBy = {}, byId = {}, open = {}, busy = {};
+  await pool(ts, 8, async (t) => {
+    const mine = tablesOf(map, t.id); byId[t.id] = t;
+    if (mine.length) { // a mapped type: its stock is its tables
+      const held = new Set((await s.list('tstock/' + t.id + '/')).map((k) => k.split('/')[2])); busy[t.id] = held; open[t.id] = 0;
+      t.stock = mine.length; t.mapped = true; takenBy[t.id] = mine.filter((x) => held.has(String(x.n))).length; return;
+    }
+    open[t.id] = (await listingsOf(s, t.id)).length; takenBy[t.id] = (await takenOf(s, t.id)) - open[t.id]; // a listed ticket counts as available again
+  });
+  return ts.map((t) => ({ ...t, taken: takenBy[t.id], resale: open[t.id], left: t.stock ? Math.max(0, t.stock - takenBy[t.id]) : null, state: typeState(t, takenBy[t.id], byId, takenBy), busy: busy[t.id] || null }));
+}
+// Takes exactly these tables for an order, or none of them.
+async function reserveTables(s, t, tables, orderId) {
+  const made = [];
+  for (const x of tables) { const k = 'tstock/' + t.id + '/' + x.n; if (await s.create(k, { o: orderId, table: x.label })) made.push(k); else { await pool(made, 8, (m) => s.del(m)); return { taken: x.label }; } }
+  return { made };
 }
 // Takes `qty` units of a type for an order, or nothing at all. Returns the keys it created.
 async function reserve(s, t, qty, orderId) {
@@ -120,12 +157,12 @@ const usesOf = async (s, c) => (await s.list('tcodeUse/' + c.eventId + '/' + c.c
 /* ---------- pricing ---------- */
 function price(lines, code, set) { // lines: [{ t, qty }]
   let subtotal = 0, discount = 0, fee = 0; const items = [];
-  for (const { t, qty } of lines) {
+  for (const { t, qty } of lines) { // a picked table is its own line: named after the table, admitting its seats
     let unitNet = t.price;
     if (covers(code, t.id) && code.value > 0) unitNet = Math.max(0, r2(code.kind === 'percent' ? t.price * (1 - code.value / 100) : t.price - code.value));
     const unitFee = set.feeMode === 'buyer' && unitNet > 0 ? r2(unitNet * (set.feePct || 0) / 100 + (set.feeFixed || 0)) : 0;
     subtotal += t.price * qty; discount += (t.price - unitNet) * qty; fee += unitFee * qty;
-    items.push({ typeId: t.id, name: t.name, qty, unit: t.price, unitNet, unitFee, admits: t.admits || 1 });
+    items.push({ typeId: t.id, name: t.name, qty, unit: t.price, unitNet, unitFee, admits: t.admits || 1, ...(t.table ? { table: t.table } : {}) });
   }
   subtotal = r2(subtotal); discount = r2(discount); fee = r2(fee);
   return { items, subtotal, discount, fee, total: r2(subtotal - discount + fee) };
@@ -190,9 +227,9 @@ async function upsertBuyer(s, b) {
 // Turns a paid (or free, or door-sold) order into tickets: one per person admitted, each with its own QR key.
 async function issue(s, e, o, origin, quiet) {
   if (o.tickets && o.tickets.length) return;
-  o.tickets = []; let seq = 0;
-  for (const it of o.items) for (let n = 0; n < it.qty * it.admits; n++) {
-    const t = { id: id(), eventId: e.id, orderId: o.id, orderNo: o.no, typeId: it.typeId, typeName: it.name, name: o.buyer.name, email: o.buyer.email, token: token(24), status: 'valid', checkedInAt: '', scanCount: 0, seq: ++seq, paid: r2((it.unitNet + it.unitFee) / it.admits), net: r2(it.unitNet / it.admits), createdAt: now() };
+  o.tickets = []; let seq = 0, unit = 0; // every ticket remembers the unit of stock it came from, so a refund frees exactly that unit
+  for (const it of o.items) for (let q = 0; q < it.qty; q++, unit++) for (let n = 0; n < it.admits; n++) {
+    const t = { id: id(), eventId: e.id, orderId: o.id, orderNo: o.no, typeId: it.typeId, typeName: it.name, name: o.buyer.name, email: o.buyer.email, token: token(24), slot: (o.slots || [])[unit] || '', table: it.table || '', status: 'valid', checkedInAt: '', scanCount: 0, seq: ++seq, paid: r2((it.unitNet + it.unitFee) / it.admits), net: r2(it.unitNet / it.admits), createdAt: now() };
     await s.set('tickets/' + e.id + '/' + t.id, t); await s.set('passes/' + t.token, { eventId: e.id, ticketId: t.id }); o.tickets.push(t.id);
   }
   o.status = 'paid'; o.paidAt = o.paidAt || now(); await s.del('pending/' + e.id + '/' + o.id);
@@ -201,18 +238,22 @@ async function issue(s, e, o, origin, quiet) {
   o.slots = (o.slots || []).filter((x) => !x.startsWith('tresaleTaken/'));
   if (!quiet && o.buyer.email) { const m = await sendOrder(live(e) || e, o, await ticketsFor(s, o), origin); if (m.status !== 'off') o.mail = m; }
   await s.set(orderKey(o), o);
+  await emit(s, 'order.paid', { order: hookOrder(o), tickets: (await ticketsFor(s, o)).map((x) => ({ id: x.id, type: x.typeName, name: x.name, email: x.email, table: x.table || '' })) });
 }
 // A resold ticket: the old one stops working and its holder gets the ticket price back (the service fee is not returned).
 async function handOver(s, e, o, claimKey, origin) {
   const [, typeId, tid] = claimKey.split('/'), old = await s.get('tickets/' + e.id + '/' + tid), oo = old && await s.get('orders/' + e.id + '/' + old.orderId);
   await s.del('tresale/' + typeId + '/' + tid); await s.del(claimKey);
   if (!old || old.status !== 'valid' || !oo) return;
+  if (old.slot) { // the unit of stock changes hands with the ticket
+    oo.slots = (oo.slots || []).filter((k) => k !== old.slot); o.slots = (o.slots || []).concat(old.slot);
+    for (const nt of await ticketsFor(s, o)) if (nt.slot === claimKey) { nt.slot = old.slot; await s.set('tickets/' + e.id + '/' + nt.id, nt); }
+  }
   old.status = 'void'; old.voidAt = now(); old.resoldTo = o.no; old.listed = false; await s.del('passes/' + old.token); await s.set('tickets/' + e.id + '/' + old.id, old);
   const amount = Math.min(old.net != null ? old.net : old.paid || 0, r2(oo.total - refunded(oo)));
   let rf = { ok: true, ref: '' };
   if (amount > 0 && oo.channel === 'online' && oo.provider !== 'free') { const p = provider(oo.provider); rf = p.error ? { ok: false, error: p.error } : await p.refund(oo, amount, { ip: '' }); }
   oo.refunds = (oo.refunds || []).concat({ at: now(), by: 'Yeniden satış', amount: rf.ok ? amount : 0, owed: rf.ok ? 0 : amount, ticketIds: [old.id], reason: 'Bilet ' + o.no + ' siparişine yeniden satıldı', ok: rf.ok, ref: rf.ref || '', error: rf.error || '' });
-  // the unit stays on the first order's books: it was sold twice and refunded once
   const left = (await ticketsFor(s, oo)).filter((x) => x.status === 'valid').length; oo.status = left ? 'partial' : 'refunded'; await s.set(orderKey(oo), oo);
   if (rf.ok && oo.buyer.email) await sendRefund(live(e) || e, oo, amount, 1, origin, oo.lang, true);
 }
@@ -238,7 +279,10 @@ async function shopView(s, e, rawCode) {
       next: (() => { const n = all.find((x) => x.after === t.id && x.status !== 'off' && !x.hidden && x.price > t.price); return n ? n.price : null; })(), // what the same ticket costs once this phase is gone
       notify: shop.waitlist !== false && (t.state === 'soldout' ? 'waitlist' : t.state === 'soon' ? 'onsale' : '') };
   });
-  return { enabled: true, ready: !why, currency: shop.currency, note: shop.note, types, code: rawCode ? (c ? { ok: true, code: c.code } : { ok: false, error: full ? 'This code has been used up.' : 'This code is not valid.' }) : null,
+  const map = await mapOf(s, e.id), shown = new Set(types.map((x) => x.id));
+  for (const x of types) { const full = all.find((y) => y.id === x.id); x.mapped = !!full.mapped; }
+  const plan = map.tables.some((x) => shown.has(x.typeId)) ? { image: map.imageId ? '/api/public/image/' + map.imageId : '', w: map.w, h: map.h, tables: map.tables.filter((x) => shown.has(x.typeId)).map((x) => { const ty = all.find((y) => y.id === x.typeId); return { id: x.id, label: x.label, x: x.x, y: x.y, seats: x.seats, typeId: x.typeId, free: ty.state === 'on' && !(ty.busy && ty.busy.has(String(x.n))) }; }) } : null;
+  return { enabled: true, ready: !why, currency: shop.currency, note: shop.note, types, plan, questions: shop.questions || [], code: rawCode ? (c ? { ok: true, code: c.code } : { ok: false, error: full ? 'This code has been used up.' : 'This code is not valid.' }) : null,
     look: shop.look || {}, seller: set.seller, terms: set.terms, refundPolicy: set.refundPolicy, test: set.provider === 'test', holdMinutes: HOLD_MIN, installments: set.provider === 'iyzico' && !!set.installments };
 }
 async function settle(s, e, o, res, origin) { // payment result → tickets, or the stock goes back
@@ -279,11 +323,17 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
     if (buyer.name.split(/\s+/).length < 2 || !emailOk(buyer.email)) return fail(400, say('Please enter your full name and a valid email.', 'Lütfen adınızı soyadınızı ve geçerli bir e-posta girin.'));
     if (b.terms !== true) return fail(400, say('Please accept the terms of sale to continue.', 'Devam etmek için satış koşullarını kabul edin.'));
     await sweep(s, e.id);
-    const view = await typesView(s, e.id), code = await findCode(s, e.id, b.code), lines = [];
+    const view = await typesView(s, e.id), map = await mapOf(s, e.id), code = await findCode(s, e.id, b.code), lines = [];
     if (b.code && !code) return fail(400, say('This code is not valid.', 'Bu kod geçerli değil.'));
     for (const x of Array.isArray(b.items) ? b.items.slice(0, 20) : []) {
-      const t = view.find((y) => y.id === x.typeId), qty = int(x.qty, 0, 20); if (!qty) continue;
+      const t = view.find((y) => y.id === x.typeId), picked = t && t.mapped ? tablesOf(map, t.id).filter((tb) => Array.isArray(x.tables) && x.tables.includes(tb.id)) : [], qty = t && t.mapped ? picked.length : int(x.qty, 0, 20); if (!qty) continue;
       if (!t || t.state === 'off' || (t.hidden && !covers(code, t.id))) return fail(400, say('A ticket in your basket is no longer available.', 'Sepetinizdeki bir bilet artık satışta değil.'));
+      if (t.mapped) { // tables are chosen one by one on the plan
+        if (qty > t.max) return fail(400, t.name + say(': at most ' + t.max + ' per order.', ': siparişte en fazla ' + t.max + '.'));
+        if (t.state !== 'on') return fail(409, t.name + (t.state === 'soldout' ? say(' is sold out.', ' tükendi.') : say(' is not on sale right now.', ' şu an satışta değil.')));
+        for (const tb of picked) lines.push({ t: { ...t, name: t.name + ' · ' + tb.label, admits: tb.seats, table: tb.label }, qty: 1, base: t, tb });
+        continue;
+      }
       if (t.state !== 'on') return fail(409, t.name + (t.state === 'soldout' ? say(' is sold out.', ' tükendi.') : say(' is not on sale right now.', ' şu an satışta değil.')));
       if (qty < t.min || qty > t.max) return fail(400, t.name + say(': choose between ' + t.min + ' and ' + t.max + '.', ': ' + t.min + ' ile ' + t.max + ' arasında seçin.'));
       lines.push({ t, qty });
@@ -294,11 +344,22 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
       if (!au || !(await audienceMembers(au)).some((c) => c.email === buyer.email)) return fail(403, t.name + say(' is in early access for invited guests until ' + t.earlyUntil.replace('T', ' ') + '. Use the email address we invited you on.', ' şu an yalnızca davetli misafirlere açık (' + t.earlyUntil.replace('T', ' ') + ' tarihine kadar). Sizi davet ettiğimiz e-posta adresini kullanın.'));
     }
     const pm = b.promo ? await s.get('tpromo/' + e.id + '/' + normCode(b.promo)) : null, rf = b.ref ? await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')) : null;
+    const answers = [];
+    for (const q of shop.questions || []) { // the organiser's own questions; answers stay on the order
+      const v = str(b.answers && b.answers[q.id], 300);
+      if (q.required && !v) return fail(400, say('Please answer: ', 'Lütfen yanıtlayın: ') + q.label);
+      if (v && q.options.length && !q.options.includes(v)) return fail(400, say('Please choose one of the options: ', 'Lütfen seçeneklerden birini seçin: ') + q.label);
+      if (v) answers.push({ id: q.id, label: q.label, value: v });
+    }
     const pr = price(lines, code, set), u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
-    const o = { id: id(), no: orderNo(), token: token(24), eventId: e.id, status: 'pending', channel: 'online', provider: pr.total > 0 ? set.provider : 'free', currency: shop.currency, ...pr, code: code ? code.code : '', buyer, lang: L, utm, promoter: pm && pm.active ? pm.code : '', referredBy: rf && rf.eventId === e.id && rf.orderId ? rf.orderId : '',
+    const o = { id: id(), no: orderNo(), token: token(24), eventId: e.id, status: 'pending', channel: 'online', provider: pr.total > 0 ? set.provider : 'free', currency: shop.currency, ...pr, code: code ? code.code : '', buyer, answers, lang: L, utm, promoter: pm && pm.active ? pm.code : '', referredBy: rf && rf.eventId === e.id && rf.orderId ? rf.orderId : '',
       slots: [], tickets: [], refunds: [], terms: { at: now(), hash: hash(set.terms + '|' + set.refundPolicy) }, createdAt: now(), expiresAt: new Date(Date.now() + HOLD_MIN * 60000).toISOString() };
-    for (const { t, qty } of lines) { const got = await reserve(s, t, qty, o.id); if (!got) { await pool(o.slots, 8, (k) => s.del(k)); return fail(409, t.name + say(' just sold out.', ' az önce tükendi.')); } o.slots.push(...got); }
+    for (const ln of lines) {
+      const got = ln.tb ? (await reserveTables(s, ln.base, [ln.tb], o.id)).made : await reserve(s, ln.t, ln.qty, o.id);
+      if (!got) { await pool(o.slots, 8, (k) => s.del(k)); return fail(409, ln.tb ? say('Table ' + ln.tb.label + ' was just taken. Please pick another.', ln.tb.label + ' masası az önce alındı. Lütfen başka bir masa seçin.') : ln.t.name + say(' just sold out.', ' az önce tükendi.')); }
+      o.slots.push(...got);
+    }
     if (code) { // a use is one record per order; when two buyers race for the last use, the earlier record keeps it
       const dir = 'tcodeUse/' + e.id + '/' + code.code + '/', k = dir + o.id, full = async () => { await pool(o.slots, 8, (x) => s.del(x)); return fail(409, say('This code has been used up.', 'Bu kodun kullanım hakkı doldu.')); };
       if (code.maxUses && (await s.list(dir)).length >= code.maxUses) return full();
@@ -357,7 +418,8 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
     return json({ order: { no: o.no, status: o.status, items: o.items.map((i) => ({ name: i.name, qty: i.qty, unit: i.unit, unitNet: i.unitNet })), subtotal: o.subtotal, discount: o.discount, fee: o.fee, total: o.total, currency: o.currency, refunded: refunded(o), name: o.buyer.name, email: o.buyer.email, paidAt: o.paidAt || '', expiresAt: o.expiresAt, error: (o.payment && o.payment.lastError) || '',
         payUrl: o.status === 'pending' && o.provider === 'test' ? '/pay/test?o=' + o.token : '' },
       lang: o.lang || 'en', tickets: ts.map((t) => ({ id: t.id, type: t.typeName, name: t.name, status: t.status, checkedIn: !!t.checkedInAt, url: t.status === 'valid' ? '/pass?t=' + t.token : '', resold: !!t.resoldTo, listed: !!t.listed,
-        canResell: shop.resale === true && !started && t.status === 'valid' && !t.checkedInAt && ((types.find((x) => x.id === t.typeId) || {}).admits || 1) === 1, back: t.net != null ? t.net : t.paid || 0 })), transfers: shop.transfers !== false,
+        canResell: shop.resale === true && !started && !t.table && t.status === 'valid' && !t.checkedInAt && ((types.find((x) => x.id === t.typeId) || {}).admits || 1) === 1, back: t.net != null ? t.net : t.paid || 0 })), transfers: shop.transfers !== false,
+      ga: /^G-[A-Z0-9]{4,}$/.test(process.env.GA4_MEASUREMENT_ID || '') ? process.env.GA4_MEASUREMENT_ID : '',
       friends: o.refCode && isListed(e) && ['paid', 'partial'].includes(o.status) && !started ? { url: '/events/' + le.slug + '?ref=' + o.refCode, bought: (await ordersOf(e.id)).filter((x) => x.referredBy === o.id && ['paid', 'partial'].includes(x.status) && x.buyer.email !== o.buyer.email).reduce((n, x) => n + x.items.reduce((m, i) => m + i.qty * i.admits, 0), 0) } : null,
       event: { title: le.title, date: le.date, time: le.time, venue: le.venue, city: le.city, image: le.imageId ? '/api/public/image/' + le.imageId : '', url: isListed(e) ? '/events/' + le.slug : '' }, support: set.supportEmail });
   }
@@ -374,7 +436,7 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
     const moved = email !== t.email;
     if (moved) { await s.del('passes/' + t.token); t.token = token(24); await s.set('passes/' + t.token, { eventId: e.id, ticketId: t.id }); t.transfers = (t.transfers || []).concat({ at: now(), from: t.email, to: email }).slice(-10); }
     t.name = name; t.email = email; await s.set('tickets/' + e.id + '/' + t.id, t);
-    if (moved) await sendOrder(live(e) || e, { ...o, buyer: { name, email } }, [t], url.origin, true);
+    if (moved) { await sendOrder(live(e) || e, { ...o, buyer: { name, email } }, [t], url.origin, true); await emit(s, 'ticket.transferred', { orderNo: o.no, ticket: { id: t.id, type: t.typeName, name, email } }); }
     return json({ ok: true, moved, url: '/pass?t=' + t.token });
   }
   // The holder puts a ticket back on sale at the price they paid. It stays theirs, and valid, until someone buys it;
@@ -384,7 +446,7 @@ export async function ticketsPublic(req, ctx, parts, url, s, h) { // h: { limite
     if (!o || !e || !t) return fail(404, 'Ticket not found.');
     const L = langOf(o.lang), shop = await shopOf(s, e.id), ty = (await typesOf(e.id)).find((x) => x.id === t.typeId), le = live(e) || e, key = 'tresale/' + t.typeId + '/' + t.id;
     if (shop.resale !== true) return fail(403, tx(L, 'Resale is not available for this event.', 'Bu etkinlikte yeniden satış kapalı.'));
-    if (t.status !== 'valid' || t.checkedInAt || (le.date && le.date < istToday()) || !ty || (ty.admits || 1) !== 1) return fail(409, tx(L, 'This ticket cannot be put on sale.', 'Bu bilet satışa konulamaz.'));
+    if (t.status !== 'valid' || t.table || t.checkedInAt || (le.date && le.date < istToday()) || !ty || (ty.admits || 1) !== 1) return fail(409, tx(L, 'This ticket cannot be put on sale.', 'Bu bilet satışa konulamaz.'));
     if (b.list === false) {
       if (await s.get('tresaleTaken/' + t.typeId + '/' + t.id)) return fail(409, tx(L, 'Someone is buying this ticket right now. Check again in a few minutes.', 'Şu an biri bu bileti satın alıyor. Birkaç dakika sonra tekrar bakın.'));
       await s.del(key); t.listed = false; await s.set('tickets/' + e.id + '/' + t.id, t); return json({ ok: true, listed: false });
@@ -435,7 +497,9 @@ export async function findTicket(s, eventId, ticketId) { return s.get('tickets/'
 
 async function refund(s, e, o, b, me, url, ip) {
   const ts = await ticketsFor(s, o), ids = Array.isArray(b.ticketIds) && b.ticketIds.length ? b.ticketIds.map(String) : ts.filter((t) => t.status === 'valid').map((t) => t.id), pick = ts.filter((t) => ids.includes(t.id) && t.status === 'valid');
+  const keep = b.keepTickets === true; // money back without cancelling anything, e.g. a goodwill gesture
   if (!pick.length) return fail(400, 'İade edilecek geçerli bilet yok.');
+  if (keep && (b.amount == null || b.amount === '')) return fail(400, 'Biletler geçerli kalacaksa iade tutarını yazın.');
   const left = r2(o.total - refunded(o)), wholeOrder = pick.length === ts.filter((t) => t.status === 'valid').length;
   // fees go back with the ticket unless the admin keeps them; the last tickets of an order take whatever is left, so cents never go missing
   let amount = b.amount != null && b.amount !== '' ? money(b.amount) : wholeOrder ? left : r2(pick.reduce((n, t) => n + (t.paid || 0), 0));
@@ -443,20 +507,18 @@ async function refund(s, e, o, b, me, url, ip) {
   let rf = { ok: true, ref: '' };
   if (amount > 0 && o.channel === 'online' && o.provider !== 'free') { const p = provider(o.provider); rf = p.error ? { ok: false, error: p.error } : await p.refund(o, amount, { ip }); }
   if (!rf.ok) { if (rf.partial) { o.refunds.push({ at: now(), by: me.name, amount: rf.partial, ticketIds: [], reason: 'Kısmi: sağlayıcı kalanını reddetti', ok: true, ref: '' }); await s.set(orderKey(o), o); } return fail(502, 'Sağlayıcı iadeyi reddetti: ' + (rf.error || '') + ' Biletler iptal edilmedi.'); }
-  for (const t of pick) { t.status = 'void'; t.voidAt = now(); await s.del('passes/' + t.token); await s.set('tickets/' + e.id + '/' + t.id, t); }
-  if (b.restock !== false) { // the units go back on sale
-    const byType = {}; for (const t of pick) byType[t.typeId] = (byType[t.typeId] || 0) + 1;
-    for (const it of o.items) { // a unit is freed only when every ticket it admitted has been refunded
-      const mine = (o.slots || []).filter((k) => k.startsWith('tstock/' + it.typeId + '/')), free = mine.slice(0, Math.floor((byType[it.typeId] || 0) / it.admits));
-      await pool(free, 8, (k) => s.del(k)); o.slots = (o.slots || []).filter((k) => !free.includes(k));
-    }
+  if (!keep) for (const t of pick) { t.status = 'void'; t.voidAt = now(); await s.del('passes/' + t.token); await s.set('tickets/' + e.id + '/' + t.id, t); }
+  if (b.restock !== false && !keep) { // a unit goes back on sale once every ticket it admitted is void (all four seats of a table, say)
+    const after = await ticketsFor(s, o), free = [...new Set(pick.map((x) => x.slot).filter(Boolean))].filter((k) => (o.slots || []).includes(k) && !after.some((x) => x.slot === k && x.status === 'valid'));
+    await pool(free, 8, (k) => s.del(k)); o.slots = (o.slots || []).filter((k) => !free.includes(k));
   }
-  o.refunds.push({ at: now(), by: me.name, amount, ticketIds: pick.map((t) => t.id), reason: str(b.reason, 200), ok: true, ref: rf.ref || '' });
-  o.status = wholeOrder ? 'refunded' : 'partial'; await s.set(orderKey(o), o);
-  for (const t of pick) if (t.listed) { await s.del('tresale/' + t.typeId + '/' + t.id); await s.del('tresaleTaken/' + t.typeId + '/' + t.id); }
-  if (b.notify !== false && o.buyer.email) await sendRefund(live(e) || e, o, amount, pick.length, url.origin, o.lang);
+  o.refunds.push({ at: now(), by: me.name, amount, ticketIds: keep ? [] : pick.map((t) => t.id), reason: str(b.reason, 200), ok: true, ref: rf.ref || '' });
+  o.status = !keep && wholeOrder ? 'refunded' : 'partial'; await s.set(orderKey(o), o);
+  if (!keep) for (const t of pick) if (t.listed) { await s.del('tresale/' + t.typeId + '/' + t.id); await s.del('tresaleTaken/' + t.typeId + '/' + t.id); }
+  if (b.notify !== false && o.buyer.email) await sendRefund(live(e) || e, o, amount, keep ? 0 : pick.length, url.origin, o.lang);
   if (b.restock !== false) await notifyWaitlist(s, e, url.origin);
-  return json({ order: orderView(o), refund: { amount, tickets: pick.length, currency: o.currency } });
+  await emit(s, 'order.refunded', { order: hookOrder(o), amount, tickets: keep ? 0 : pick.length });
+  return json({ order: orderView(o), refund: { amount, tickets: keep ? 0 : pick.length, currency: o.currency } });
 }
 
 export async function ticketsAdmin(req, parts, url, s, me, ip) {
@@ -476,6 +538,24 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
       await s.set('settings/tickets', n); return json({ settings: n, blocked: blocked(n) });
     }
   }
+  if (parts[1] === 'webhooks') {
+    if (me.role !== 'owner') return fail(403, 'Webhook ayarlarını yalnızca HQ sahibi yönetir.');
+    const hooks = await hooksOf(s), view = (h) => ({ id: h.id, url: h.url, events: h.events, active: h.active, last: h.last || null, createdAt: h.createdAt });
+    if (!parts[2] && m === 'GET') return json({ hooks: hooks.map(view), events: HOOK_EVENTS.map(([key, label]) => ({ key, label })) });
+    if (!parts[2] && m === 'POST') {
+      const b = await body(req); let u; try { u = new URL(str(b.url, 500)); } catch { return fail(400, 'Adres geçersiz.'); }
+      // only public https addresses: never this site's own network or a bare IP
+      if (u.protocol !== 'https:' || /^(localhost|.*\.local|.*\.internal)$/i.test(u.hostname) || /^[\d.]+$/.test(u.hostname) || u.hostname.includes(':') || u.username) return fail(400, 'Adres https:// ile başlayan herkese açık bir alan adı olmalı.');
+      const events = (Array.isArray(b.events) ? b.events : []).filter((x) => HOOK_EVENTS.some((y) => y[0] === x)); if (!events.length) return fail(400, 'En az bir olay seçin.');
+      if (hooks.length >= 5) return fail(400, 'En fazla 5 webhook tanımlanabilir.');
+      const h = { id: id(), url: u.toString(), events, active: true, secret: token(32), createdAt: now() }; await s.set('settings/webhooks', { hooks: hooks.concat(h) });
+      return json({ hook: view(h), secret: h.secret }, 201); // the secret is shown once, here
+    }
+    const h = hooks.find((x) => x.id === parts[2]); if (!h) return fail(404, 'Webhook bulunamadı.');
+    if (m === 'PUT') { const b = await body(req); if ('active' in b) h.active = !!b.active; await s.set('settings/webhooks', { hooks }); return json({ hook: view(h) }); }
+    if (m === 'DELETE') { await s.set('settings/webhooks', { hooks: hooks.filter((x) => x.id !== h.id) }); return json({ ok: true, hook: view(h) }); }
+    if (parts[3] === 'test' && m === 'POST') { await emit(s, h.events[0], { test: true, note: 'More Life HQ deneme çağrısı' }); return json({ hook: view((await hooksOf(s)).find((x) => x.id === h.id)) }); }
+  }
   if (parts[1] === 'sales' && m === 'GET') { // every event that sells tickets, newest first
     const out = [];
     for (const e of await all('events/')) { const x = await eventSales(s, e.id); if (x) out.push({ id: e.id, title: e.title, date: e.date, status: e.status, ...x }); }
@@ -489,13 +569,14 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
     for (const c of codes) c.uses = await usesOf(s, c);
     const waits = (await all('twait/' + e.id + '/')).filter((w) => w.status === 'waiting'); for (const t of types) t.waiting = waits.filter((w) => w.typeId === t.id).reduce((n, w) => n + w.qty, 0);
     const promoters = (await all('tpromo/' + e.id + '/')).sort((a, b) => a.name.localeCompare(b.name, 'tr')).map((pm) => { const x = promoStats(pm, os); return { ...pm, orders: x.orders, tickets: x.tickets, revenue: x.revenue, commission: x.commission, panelUrl: '/promoter?t=' + pm.token }; });
-    return json({ promoters, siteUrl: SITE_URL(), event: { id: e.id, title: e.title, slug: e.live ? e.live.slug : e.slug, inviteToken: e.inviteToken, status: e.status, visibility: e.visibility, inviteUrl: '/invite?t=' + e.inviteToken, listed: isListed(e), externalTickets: !!(e.useTickets && e.ticketUrl) }, shop, types, codes, sales: salesOf(os, ts, types), blocked: blocked(set), provider: set.provider, fee: { mode: set.feeMode, pct: set.feePct, fixed: set.feeFixed }, currencies: CURRENCIES });
+    return json({ promoters, map: await mapOf(s, e.id), siteUrl: SITE_URL(), event: { id: e.id, title: e.title, slug: e.live ? e.live.slug : e.slug, inviteToken: e.inviteToken, status: e.status, visibility: e.visibility, inviteUrl: '/invite?t=' + e.inviteToken, listed: isListed(e), externalTickets: !!(e.useTickets && e.ticketUrl) }, shop, types, codes, sales: salesOf(os, ts, types), blocked: blocked(set), provider: set.provider, fee: { mode: set.feeMode, pct: set.feePct, fixed: set.feeFixed }, currencies: CURRENCIES });
   }
   if (sub === 'shop' && m === 'PUT') {
     const b = await body(req), cur = await shopOf(s, e.id), n = { ...cur };
     if ('enabled' in b) n.enabled = !!b.enabled;
     for (const k of ['transfers', 'waitlist', 'resale', 'remind']) if (k in b) n[k] = !!b[k];
     if ('note' in b) n.note = str(b.note, 300);
+    if (Array.isArray(b.questions)) n.questions = b.questions.slice(0, 5).map((q) => ({ id: str(q.id, 12).replace(/[^A-Za-z0-9]/g, '') || id().slice(0, 8), label: str(q.label, 120), required: !!q.required, options: (Array.isArray(q.options) ? q.options : String(q.options || '').split('\n')).map((x) => str(x, 60)).filter(Boolean).slice(0, 12) })).filter((q) => q.label);
     if (b.look && typeof b.look === 'object') { // how the shop looks: theme and accent on the stand-alone / embedded page, heading and button text everywhere
       const k = b.look, acc = str(k.accent, 7);
       if (acc && !/^#[0-9a-f]{6}$/i.test(acc)) return fail(400, 'Vurgu rengi #RRGGBB biçiminde olmalı.');
@@ -530,6 +611,24 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
     if (m === 'PUT') { const r = codeInput(await body(req), c); if (r.error) return fail(400, r.error); await s.set('tcodes/' + e.id + '/' + c.code, r.code); return json({ code: r.code, eventTitle: e.title }); }
     if (m === 'DELETE') { await s.del('tcodes/' + e.id + '/' + c.code); return json({ ok: true, code: c, eventTitle: e.title }); }
   }
+  if (sub === 'map' && m === 'PUT') { // the whole plan is saved at once
+    const b = await body(req), cur = await mapOf(s, e.id), ts = await typesOf(e.id), next = {}, out = [], seen = new Set();
+    for (const x of cur.tables) next[x.typeId] = Math.max(next[x.typeId] || 0, x.n);
+    for (const raw of Array.isArray(b.tables) ? b.tables.slice(0, 300) : []) {
+      const old = cur.tables.find((x) => x.id === raw.id), typeId = str(raw.typeId, 40), label = str(raw.label, 12);
+      if (!label || !ts.some((x) => x.id === typeId)) return fail(400, 'Her masanın bir adı ve bir bilet türü olmalı.');
+      if (seen.has(label.toLocaleLowerCase('tr'))) return fail(400, 'İki masa aynı adı taşıyor: ' + label); seen.add(label.toLocaleLowerCase('tr'));
+      const n = old && old.typeId === typeId ? old.n : (next[typeId] = (next[typeId] || 0) + 1); // a table moved to another type is a new unit there
+      out.push({ id: old ? old.id : id(), label, typeId, n, seats: int(raw.seats, 1, 20, 4), x: Math.max(0, Math.min(1000, Math.round(Number(raw.x) || 0))), y: Math.max(0, Math.min(1000, Math.round(Number(raw.y) || 0))) });
+    }
+    for (const x of cur.tables) { // a table someone holds or bought cannot disappear or change zone
+      const kept = out.find((y) => y.id === x.id && y.typeId === x.typeId);
+      if (!kept && await s.get('tstock/' + x.typeId + '/' + x.n)) return fail(409, x.label + ' masası satılmış ya da bir sepette; kaldırılamaz ve türü değiştirilemez.');
+    }
+    for (const ty of ts) if (!cur.tables.some((x) => x.typeId === ty.id) && out.some((x) => x.typeId === ty.id) && await takenOf(s, ty.id)) return fail(409, ty.name + ' türünden bilet satılmış; plana bağlanamaz. Masalar için yeni bir tür açın.');
+    const map = { imageId: 'imageId' in b ? str(b.imageId, 60) : cur.imageId, w: 1000, h: int(b.h, 300, 1400, cur.h), tables: out, updatedAt: now() };
+    await s.set('tmap/' + e.id, map); return json({ map, eventTitle: e.title });
+  }
   if (sub === 'promoters') { // a person or venue that sells through their own link, with what they earn per sale
     const shape = (b, prev) => { const pm = { ...prev }; if ('name' in b) pm.name = str(b.name, 80); if ('pct' in b) pm.pct = money(b.pct); if ('fixed' in b) pm.fixed = money(b.fixed); if ('active' in b) pm.active = !!b.active; if ('note' in b) pm.note = str(b.note, 200);
       return !pm.name ? { error: 'Promoter adı gerekli.' } : pm.pct == null || pm.pct > 100 || pm.fixed == null ? { error: 'Komisyon geçersiz.' } : { pm }; };
@@ -545,7 +644,7 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
   }
   if (sub === 'orders.csv') {
     const os = (await ordersOf(e.id)).filter((o) => o.status !== 'pending' && o.status !== 'expired' && o.status !== 'cancelled').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return csv('siparisler-' + e.slug + '.csv', [['Sipariş', 'Durum', 'Kanal', 'Ad Soyad', 'E-posta', 'Telefon', 'Biletler', 'Ara toplam', 'İndirim', 'Hizmet bedeli', 'Toplam', 'İade', 'Para birimi', 'Kod', 'Promoter', 'Kaynak', 'Kampanya', 'Ödeme', 'Sağlayıcı ref.']].concat(os.map((o) => [o.no, o.status, o.channel, o.buyer.name, o.buyer.email, o.buyer.phone, o.items.map((i) => i.qty + '× ' + i.name).join(' + '), o.subtotal, o.discount, o.fee, o.total, refunded(o), o.currency, o.code, o.promoter || '', (o.utm && o.utm.source) || '', (o.utm && o.utm.campaign) || '', o.paidAt, (o.payment && o.payment.ref) || ''])));
+    return csv('siparisler-' + e.slug + '.csv', [['Sipariş', 'Durum', 'Kanal', 'Ad Soyad', 'E-posta', 'Telefon', 'Biletler', 'Ara toplam', 'İndirim', 'Hizmet bedeli', 'Toplam', 'İade', 'Para birimi', 'Kod', 'Promoter', 'Kaynak', 'Kampanya', 'Ödeme', 'Sağlayıcı ref.', 'Yanıtlar']].concat(os.map((o) => [o.no, o.status, o.channel, o.buyer.name, o.buyer.email, o.buyer.phone, o.items.map((i) => i.qty + '× ' + i.name).join(' + '), o.subtotal, o.discount, o.fee, o.total, refunded(o), o.currency, o.code, o.promoter || '', (o.utm && o.utm.source) || '', (o.utm && o.utm.campaign) || '', o.paidAt, (o.payment && o.payment.ref) || '', (o.answers || []).map((x) => x.label + ': ' + x.value).join(' | ')])));
   }
   if (sub === 'waitlist.csv') { const ts = await typesOf(e.id); return csv('bekleme-listesi-' + e.slug + '.csv', [['Tür', 'Ad', 'E-posta', 'Adet', 'Liste', 'Durum', 'Kayıt', 'Bildirim']].concat((await all('twait/' + e.id + '/')).sort((a, b) => a.at.localeCompare(b.at)).map((w) => [(ts.find((x) => x.id === w.typeId) || {}).name || '', w.name, w.email, w.qty, w.kind === 'onsale' ? 'satış açılışı' : 'bekleme', w.status === 'waiting' ? 'bekliyor' : 'bildirildi', w.at, w.notifiedAt || '']))); }
   if (sub === 'tickets.csv') return csv('biletler-' + e.slug + '.csv', [['Bilet', 'Tür', 'Ad Soyad', 'E-posta', 'Sipariş', 'Durum', 'Giriş', 'Girişi yapan']].concat((await ticketsOf(e.id)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((t) => [t.id, t.typeName, t.name, t.email, t.orderNo, t.status === 'valid' ? 'geçerli' : 'iptal', t.checkedInAt, t.checkedInBy || ''])));
@@ -560,11 +659,13 @@ export async function ticketsAdmin(req, parts, url, s, me, ip) {
       const b = await body(req), channel = b.channel === 'boxoffice' ? 'boxoffice' : 'comp', view = await typesView(s, e.id), t = view.find((x) => x.id === b.typeId), qty = int(b.qty, 1, 50, 1), shop = await shopOf(s, e.id);
       const buyer = { name: str(b.name, 120), email: b.email ? normEmail(b.email) : '', phone: str(b.phone, 40) };
       if (!t) return fail(400, 'Bilet türü seçin.');
+      const tb = t.mapped ? tablesOf(await mapOf(s, e.id), t.id).find((x) => x.id === b.tableId) : null;
+      if (t.mapped && !tb) return fail(400, 'Bu tür plandan satılıyor; bir masa seçin.');
       if (!buyer.name) return fail(400, 'Ad soyad gerekli.');
       if (buyer.email && !emailOk(buyer.email)) return fail(400, 'E-posta geçersiz.');
       const unit = channel === 'comp' ? 0 : (b.unit != null && b.unit !== '' ? money(b.unit) : t.price); if (unit == null) return fail(400, 'Tutar geçersiz.');
-      const o = { id: id(), no: orderNo(), token: token(24), eventId: e.id, status: 'pending', channel, provider: channel === 'comp' ? 'free' : 'door', method: channel === 'boxoffice' ? (b.method === 'card' ? 'card' : 'cash') : '', currency: shop.currency, items: [{ typeId: t.id, name: t.name, qty, unit, unitNet: unit, unitFee: 0, admits: t.admits || 1 }], subtotal: r2(unit * qty), discount: 0, fee: 0, total: r2(unit * qty), code: '', buyer, utm: {}, ref: '', slots: [], tickets: [], refunds: [], note: str(b.note, 200), by: me.name, createdAt: now(), expiresAt: now() };
-      const got = await reserve(s, t, qty, o.id); if (!got) return fail(409, t.name + ' için yeterli stok yok (' + (t.left == null ? '∞' : t.left) + ' kaldı).');
+      const o = { id: id(), no: orderNo(), token: token(24), eventId: e.id, status: 'pending', channel, provider: channel === 'comp' ? 'free' : 'door', method: channel === 'boxoffice' ? (b.method === 'card' ? 'card' : 'cash') : '', currency: shop.currency, items: [tb ? { typeId: t.id, name: t.name + ' · ' + tb.label, qty: 1, unit, unitNet: unit, unitFee: 0, admits: tb.seats, table: tb.label } : { typeId: t.id, name: t.name, qty, unit, unitNet: unit, unitFee: 0, admits: t.admits || 1 }], subtotal: r2(unit * (tb ? 1 : qty)), discount: 0, fee: 0, total: r2(unit * (tb ? 1 : qty)), code: '', buyer, utm: {}, ref: '', slots: [], tickets: [], refunds: [], note: str(b.note, 200), by: me.name, createdAt: now(), expiresAt: now() };
+      const got = tb ? (await reserveTables(s, t, [tb], o.id)).made : await reserve(s, t, qty, o.id); if (!got) return fail(409, tb ? tb.label + ' masası dolu.' : t.name + ' için yeterli stok yok (' + (t.left == null ? '∞' : t.left) + ' kaldı).');
       o.slots = got; if (buyer.email) o.contactId = await upsertBuyer(s, buyer);
       await s.set('orderTok/' + o.token, { eventId: e.id, id: o.id }); await issue(s, e, o, url.origin, b.send === false || !buyer.email);
       return json({ order: orderView(o), tickets: (await ticketsFor(s, o)).map((x) => ({ id: x.id, url: '/pass?t=' + x.token })), eventTitle: e.title }, 201);

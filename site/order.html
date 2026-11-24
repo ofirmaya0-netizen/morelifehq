@@ -24,7 +24,7 @@
   function load() {
     fetch('/api/public/order?t=' + encodeURIComponent(t)).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }).then(function (r) {
       if (!r.ok) { card.innerHTML = '<h1 class="g-title">Order <span class="serif accent">not found.</span></h1><p style="color:var(--mute)">' + esc(r.j.error || '') + '</p><a class="btn" href="/">Go to morelife.events</a>'; return; }
-      draw(r.j);
+      draw(r.j); purchase(r.j);
       // the payment provider can answer a moment after the buyer is back: look again a few times
       if (r.j.order.status === 'pending' && !r.j.order.payUrl && tries++ < 6) setTimeout(load, 2500);
     }).catch(function () { card.innerHTML = '<p style="color:var(--mute)">Could not load your order. Please refresh.</p>'; });
@@ -65,6 +65,15 @@
       (d.friends ? '<div class="sh-sum"><div><span>' + S('Bring your friends') + '</span><b>' + d.friends.bought + ' ' + S('bought with your link') + '</b></div><button class="btn quiet" type="button" id="fr-link" data-url="' + esc(d.friends.url) + '">' + S('Share your link') + '</button></div>' : '') +
       (live.length ? '<p class="sh-note">' + S('We also sent these tickets to') + ' ' + esc(o.email) + '. ' + S('Keep this page private: anyone with the link can open the tickets.') + '</p>' : '') +
       (d.support ? '<p class="sh-note">' + S('Questions about this order') + ': <a class="link" href="mailto:' + esc(d.support) + '?subject=Order%20' + esc(o.no) + '">' + esc(d.support) + '</a></p>' : '');
+  }
+  // Reports the sale to Google Analytics once per order, and only if this visitor already allowed analytics on the site.
+  function purchase(d) {
+    var o = d.order, key = 'ml-purchase-' + o.no;
+    try { if (!d.ga || o.status !== 'paid' || localStorage.getItem('ml-analytics') !== 'yes' || localStorage.getItem(key) || navigator.doNotTrack === '1' || navigator.globalPrivacyControl === true) return; localStorage.setItem(key, '1'); } catch (e) { return; }
+    window.dataLayer = window.dataLayer || []; window.gtag = function () { window.dataLayer.push(arguments); };
+    window.gtag('js', new Date()); window.gtag('config', d.ga, { anonymize_ip: true, send_page_view: false, page_location: location.origin + '/order', page_path: '/order' }); // the order key never goes to analytics
+    window.gtag('event', 'purchase', { transaction_id: o.no, value: o.total, currency: o.currency, items: o.items.map(function (i) { return { item_name: i.name, quantity: i.qty, price: i.unitNet }; }) });
+    var s = document.createElement('script'); s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(d.ga); document.head.appendChild(s);
   }
   function resale(id, list) {
     fetch('/api/public/resale', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ o: t, ticketId: id, list: list }) }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || S('Something went wrong.')); }); })

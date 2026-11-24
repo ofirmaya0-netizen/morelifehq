@@ -6,7 +6,7 @@ import { currentUser, ownerUser, findMember, allowed, screens, ROLES, logAudit, 
 import { bookingsRoute, bookingAlerts } from './lib/bookings.mjs';
 import { backupsRoute } from './lib/backup.mjs';
 import { pnlRoute } from './lib/pnl.mjs';
-import { ticketsPublic, ticketsAdmin, testPayPage, eventSales, eventTickets, ticketGuest, findTicket, shopOf } from './lib/tickets.mjs';
+import { ticketsPublic, ticketsAdmin, testPayPage, eventSales, eventTickets, ticketGuest, findTicket, shopOf, emit } from './lib/tickets.mjs';
 import { json, fail, page, gated, now, str, int, emailOk, normEmail, normPhone, body, ipOf, istToday, csv, isBot, slugify } from './lib/util.mjs';
 import { eventInput, snapshot, isDirty, live, isListed, formState, guestEvent, guestList, counts, guestsOf, DEFAULT_SEO_SETTINGS, eventSeo, RSVP_STATUS } from './lib/model.mjs';
 import { renderHome, renderEvent, renderShop, notFound, sitemap, robots } from './lib/render.mjs';
@@ -203,7 +203,7 @@ async function checkIn(s, r, undo, by) {
   const key = 'checkins/' + r.eventId + '/' + (r.ticket ? 'tk-' : '') + r.id, save = () => s.set((r.ticket ? 'tickets/' : 'rsvps/') + r.eventId + '/' + r.id, r), out = (o) => (r.ticket ? { ...o, rsvp: { ...ticketGuest(r), email: r.email } } : o);
   if (undo) { await s.del(key); r.checkedInAt = ''; r.checkedInBy = ''; r.scanCount = 0; await save(); return out({ result: 'undone', rsvp: r }); }
   const at = now(), first = await s.create(key, { at, by: by || '' });
-  if (first) { r.checkedInAt = at; r.checkedInBy = by || ''; r.scanCount = 1; await save(); if (!r.ticket) await markAttended(s, r); return out({ result: 'ok', message: 'Giriş onaylandı.', rsvp: r }); }
+  if (first) { r.checkedInAt = at; r.checkedInBy = by || ''; r.scanCount = 1; await save(); if (!r.ticket) await markAttended(s, r); else await emit(s, 'ticket.checked_in', { ticket: { id: r.id, type: r.typeName, name: r.name, orderNo: r.orderNo, eventId: r.eventId, at } }); return out({ result: 'ok', message: 'Giriş onaylandı.', rsvp: r }); }
   const prev = await s.get(key); r.checkedInAt = (prev && prev.at) || r.checkedInAt || at; r.scanCount = (r.scanCount || 1) + 1; await save();
   return out({ result: 'duplicate', message: 'Bu kart daha önce kullanıldı.', rsvp: r });
 }

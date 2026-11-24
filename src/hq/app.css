@@ -269,3 +269,12 @@ ul.dots{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--mu
 .navi[hidden]{display:none}
 @media (max-width:860px){.g4{grid-template-columns:1fr 1fr}.stat{padding:14px;gap:8px}.stat .num{font-size:30px}.stat .num.sm{font-size:19px}}
 .toggles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px 20px;margin-top:16px;padding-top:16px;border-top:1px solid var(--line)}
+
+/* table plan */
+.plan{position:relative;width:100%;border-radius:14px;border:1px solid var(--line2);background:rgba(0,0,0,.3) center/cover no-repeat;overflow:hidden;touch-action:none;cursor:crosshair}
+.plan.ro{cursor:default;max-width:720px}
+.plan .tb{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;justify-content:center;width:46px;height:46px;border-radius:50%;border:2px solid var(--z);background:rgba(12,10,9,.85);color:var(--ink);padding:0;line-height:1;cursor:grab}
+.plan .tb b{font-size:11px;font-weight:600}.plan .tb i{font-style:normal;font-size:10px;color:var(--mute);margin-top:2px}
+.plan .tb.sel{background:var(--z);color:#17110F}.plan .tb.sel i{color:#17110F}
+.z0{--z:#E0705F}.z1{--z:#F2C46B}.z2{--z:#7FD1A0}.z3{--z:#9DB8F2}
+.zdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--z);margin-right:5px}

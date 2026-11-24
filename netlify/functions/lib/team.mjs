@@ -127,6 +127,8 @@ export async function describe(s, parts, m, b, j) {
   }
   if (a === 'tickets') {
     const t = j.eventTitle || await title(p1);
+    if (p1 === 'webhooks') return p3 === 'test' ? null : [del ? 'Webhook sildi' : put ? 'Webhook ayarını değiştirdi' : 'Webhook ekledi', '', (j.hook && j.hook.url) || ''];
+    if (p2 === 'map') return ['Masa planını kaydetti', t, (j.map ? j.map.tables.length : 0) + ' masa'];
     if (p1 === 'settings') return ['Bilet satış ayarlarını düzenledi', '', b.provider != null ? 'sağlayıcı: ' + (b.provider || 'yok') : ''];
     if (p2 === 'shop') return ['enabled' in b ? (b.enabled ? 'Bilet satışını açtı' : 'Bilet satışını kapattı') : 'Bilet satış ayarını düzenledi', t];
     if (p2 === 'types') return [del ? 'Bilet türünü sildi' : put ? 'Bilet türünü düzenledi' : 'Bilet türü ekledi', t, j.type ? j.type.name + ' · ' + j.type.price + (j.type.stock ? ' · stok ' + j.type.stock : '') : ''];

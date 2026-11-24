@@ -91,3 +91,6 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `ttypes/….earlyFor` (audience id) + `.earlyUntil` — early access: until then only e-mails in that CRM audience can buy the type.
 - `tshop/<eventId>.look` — theme, accent colour, heading and button text of the shop; `/tickets/<slug>` is the shop alone, `?embed=1` its iframe form (`/js/embed.js`).
 - `pnl/<eventId>` — profit and loss: reporting currency, rates entered by hand, income / expense lines. Ticket income and booking fees are read live, not stored.
+- `tmap/<eventId>` — table plan: optional floor-plan image and tables `{ id, label, typeId, n, seats, x, y }`. A table is unit `n` of its type's stock (`tstock/<typeId>/<n>`); numbers are never reused. `tickets/….slot` is the unit a ticket came from and `.table` its table name.
+- `tshop/<eventId>.questions` — up to five extra questions asked at checkout; answers are kept in `orders/….answers`.
+- `settings/webhooks` — up to five outgoing hooks `{ url, events, secret, active, last }`; calls are signed with HMAC-SHA256 (`x-morelife-signature`).

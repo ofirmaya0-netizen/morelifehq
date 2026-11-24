@@ -39,7 +39,7 @@ const PROVIDERS = {
     async start(order, { origin, ip, installments }) {
       const [first, ...rest] = order.buyer.name.trim().split(/\s+/), lines = [];
       // iyzico wants the basket to add up to the price before fees and the paid price to be the total
-      for (const it of order.items) for (let n = 0; n < it.qty; n++) if (it.unitNet > 0) lines.push({ id: it.typeId + '-' + n, name: it.name.slice(0, 100), category1: 'Etkinlik bileti', itemType: 'VIRTUAL', price: money(it.unitNet) });
+      for (const it of order.items) for (let n = 0; n < it.qty; n++) if (it.unitNet > 0) lines.push({ id: it.typeId + '-' + lines.length, name: it.name.slice(0, 100), category1: 'Etkinlik bileti', itemType: 'VIRTUAL', price: money(it.unitNet) });
       if (order.fee > 0) lines.push({ id: 'fee', name: 'Hizmet bedeli', category1: 'Hizmet', itemType: 'VIRTUAL', price: money(order.fee) });
       const addr = { contactName: order.buyer.name, city: order.buyer.city || 'Istanbul', country: order.buyer.country || 'Turkey', address: order.buyer.city || 'Istanbul' };
       const j = await iyziCall('/payment/iyzipos/checkoutform/initialize/auth/ecom', { locale: 'en', conversationId: order.id, price: money(order.total), paidPrice: money(order.total), currency: order.currency, basketId: order.no, paymentGroup: 'PRODUCT',

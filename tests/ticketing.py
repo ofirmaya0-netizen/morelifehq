@@ -143,6 +143,42 @@ try:
     ok('a past buyer can', buy([{'typeId':mem,'qty':1}],email='ada@x.com',name='Ada Yılmaz')[0]==200)
     a.req(T+'/types/'+mem,'PUT',{'earlyUntil':'2020-01-01T00:00'}); ok('after the window it is open to everyone', buy([{'typeId':mem,'qty':1}],email='stranger@x.com',name='Yabancı Biri')[0]==200)
 
+    # ---------- table plan ----------
+    tz=a.req(T+'/types','POST',{'name':'Loca','price':30000,'max':2})[1]['type']['id']
+    ok('table needs a name and a type', a.req(T+'/map','PUT',{'tables':[{'label':'','typeId':tz}]})[0]==400 and a.req(T+'/map','PUT',{'tables':[{'label':'A1','typeId':'nope'}]})[0]==400)
+    ok('two tables cannot share a name', a.req(T+'/map','PUT',{'tables':[{'label':'A1','typeId':tz},{'label':'a1','typeId':tz}]})[0]==400)
+    ok('a type that already sold cannot be put on the plan', a.req(T+'/map','PUT',{'tables':[{'label':'X1','typeId':ga}]})[0]==409)
+    st,j,_=a.req(T+'/map','PUT',{'tables':[{'label':'A1','typeId':tz,'seats':4,'x':100,'y':100},{'label':'A2','typeId':tz,'seats':6,'x':300,'y':100},{'label':'A3','typeId':tz,'seats':2,'x':500,'y':100}]}); tb={x['label']:x for x in j['map']['tables']}
+    ok('plan saved, each table is a unit', st==200 and [tb[k]['n'] for k in ['A1','A2','A3']]==[1,2,3] and {x['id']:x for x in a.req(T)[1]['types']}[tz]['stock']==3)
+    pl=anon.req('/api/public/shop?slug='+slug)[1]; ok('shop shows the plan with free tables', pl['plan'] and len(pl['plan']['tables'])==3 and all(x['free'] for x in pl['plan']['tables']) and {x['id']:x for x in pl['types']}[tz]['mapped'])
+    ok('a mapped type is bought by table, not by number', buy([{'typeId':tz,'qty':1}])[0]==400)
+    st,j,tt=buy([{'typeId':tz,'tables':[tb['A2']['id']]}],email='masa@x.com',name='Masa Sahibi'); ot=order(tt)
+    ok('table bought: one QR per seat, named after the table', ot['order']['status']=='paid' and len(ot['tickets'])==6 and ot['tickets'][0]['type']=='Loca · A2' and ot['order']['total']==30000+3005, ot['order'])
+    ok('that table is taken, the others are free', [x['free'] for x in anon.req('/api/public/shop?slug='+slug)[1]['plan']['tables']]==[True,False,True])
+    ok('the same table cannot be bought twice', buy([{'typeId':tz,'tables':[tb['A2']['id']]}],email='m2@x.com',name='İkinci Masa')[0]==409)
+    ok('a sold table cannot be removed from the plan', a.req(T+'/map','PUT',{'tables':[dict(tb['A1']),dict(tb['A3'])]})[0]==409)
+    ok('a free one can, and its number is never reused', a.req(T+'/map','PUT',{'tables':[dict(tb['A1']),dict(tb['A2']),{'label':'B1','typeId':tz,'seats':4,'x':700,'y':100}]})[1]['map']['tables'][2]['n']==4)
+    ok('table seats cannot be resold one by one', order(tt)['tickets'][0]['canResell'] is False)
+    ok('comp on a mapped type needs a table', a.req(T+'/orders','POST',{'channel':'comp','typeId':tz,'name':'Sponsor Masası'})[0]==400 and a.req(T+'/orders','POST',{'channel':'comp','typeId':tz,'tableId':tb['A1']['id'],'name':'Sponsor Masası'})[0]==201)
+    toid=[o for o in a.req(T+'/orders?q=masa@x.com')[1]['orders']][0]['id']; tids=[x['id'] for x in a.req(T+'/orders/'+toid)[1]['tickets']]
+    a.req(T+'/orders/'+toid+'/refund','POST',{'ticketIds':tids[:3],'notify':False}); ok('half the seats refunded: the table stays taken', [x['free'] for x in anon.req('/api/public/shop?slug='+slug)[1]['plan']['tables'] if x['label']=='A2']==[False])
+    a.req(T+'/orders/'+toid+'/refund','POST',{'notify':False}); ok('all seats refunded: the table is free again', [x['free'] for x in anon.req('/api/public/shop?slug='+slug)[1]['plan']['tables'] if x['label']=='A2']==[True])
+
+    # ---------- buyer questions, money-only refund, webhooks ----------
+    a.req(T+'/shop','PUT',{'questions':[{'label':'Instagram','required':True},{'label':'Tercih','options':['Vegan','Normal']}]}); qs=anon.req('/api/public/shop?slug='+slug)[1]['questions']
+    ok('questions shown in the shop', [q['label'] for q in qs]==['Instagram','Tercih'] and qs[1]['options']==['Vegan','Normal'])
+    ok('required answer enforced, options checked', buy([{'typeId':free,'qty':1}],email='q@x.com',name='Soru Cevap')[0]==400 and buy([{'typeId':free,'qty':1}],email='q@x.com',name='Soru Cevap',answers={qs[0]['id']:'@soru',qs[1]['id']:'Et'})[0]==400)
+    st,j,tq=buy([{'typeId':ga,'qty':1}],email='q@x.com',name='Soru Cevap',answers={qs[0]['id']:'@soru',qs[1]['id']:'Vegan'}); qo=a.req(T+'/orders?q=q@x.com')[1]['orders'][0]
+    ok('answers kept on the order and in the CSV', [x['value'] for x in qo['answers']]==['@soru','Vegan'] and 'Instagram: @soru' in a.req(T+'/orders.csv',raw=True)[1])
+    a.req(T+'/shop','PUT',{'questions':[]})
+    ok('money-only refund needs an amount', a.req(T+'/orders/'+qo['id']+'/refund','POST',{'keepTickets':True})[0]==400)
+    st,j,_=a.req(T+'/orders/'+qo['id']+'/refund','POST',{'keepTickets':True,'amount':300,'notify':False}); ok('money back, ticket still valid', j['order']['refunded']==300 and j['order']['status']=='partial' and order(tq)['tickets'][0]['status']=='valid', j)
+    ok('webhook address must be public https', a.req('/api/hq/tickets/webhooks','POST',{'url':'http://example.com/h','events':['order.paid']})[0]==400 and a.req('/api/hq/tickets/webhooks','POST',{'url':'https://localhost/h','events':['order.paid']})[0]==400 and a.req('/api/hq/tickets/webhooks','POST',{'url':'https://10.0.0.1/h','events':['order.paid']})[0]==400)
+    st,j,_=a.req('/api/hq/tickets/webhooks','POST',{'url':'https://hooks.example.invalid/ml','events':['order.paid','nope']}); hid=j['hook']['id']
+    ok('webhook created, secret shown once', st==201 and len(j['secret'])>30 and j['hook']['events']==['order.paid'] and 'secret' not in a.req('/api/hq/tickets/webhooks')[1]['hooks'][0])
+    ok('a dead webhook never blocks a sale, and its failure is recorded', buy([{'typeId':free,'qty':1}],email='hook@x.com',name='Hook Test')[0]==200 and a.req('/api/hq/tickets/webhooks')[1]['hooks'][0]['last']['status']==0)
+    ok('webhook removed', a.req('/api/hq/tickets/webhooks/'+hid,'DELETE',{})[0]==200 and a.req('/api/hq/tickets/webhooks')[1]['hooks']==[])
+
     # ---------- profit and loss ----------
     bk=a.req('/api/hq/bookings','POST',{'artist':'PAWSA','agency':'Primary','eventId':eid,'fee':1000,'currency':'EUR'})[1]['booking']['id']
     a.req('/api/hq/bookings/'+bk+'/payments','POST',{'kind':'deposit','amount':500}); pp=a.req('/api/hq/bookings/'+bk)[1]['booking']['payments'][0]['id']; a.req('/api/hq/bookings/'+bk+'/payments/'+pp,'PUT',{'paid':True})
@@ -166,7 +202,7 @@ try:
     ok('refunded ticket is dead, the other lives', [t['status'] for t in order(tok2)['tickets']]==['valid','void'])
     ok('cannot refund more than was paid', a.req(T+'/orders/'+oid+'/refund','POST',{'amount':5000})[0]==400)
     st,j,_=a.req(T+'/orders/'+oid+'/refund','POST',{}); ok('rest refunded: order closed, total back', j['order']['status']=='refunded' and j['order']['refunded']==2650, j['order'])
-    ok('refunded units are on sale again', {t['id']:t for t in a.req(T)[1]['types']}[ga]['taken']==3)  # the promoter sale (2) and the friend (1) remain
+    ok('refunded units are on sale again', {t['id']:t for t in a.req(T)[1]['types']}[ga]['taken']==4)  # the promoter sale (2), the friend (1) and the question test (1) remain
     st,j,_=a.req(T+'/orders','POST',{'channel':'comp','typeId':ga,'qty':2,'name':'Basın Listesi','email':'basin@x.com'}); ok('comp tickets: free, issued at once', st==201 and j['order']['total']==0 and j['order']['channel']=='comp' and len(j['tickets'])==2, j)
     st,j,_=a.req(T+'/orders','POST',{'channel':'boxoffice','typeId':ga,'qty':1,'name':'Kapı Müşterisi','method':'cash'}); ok('box office sale recorded at the list price', j['order']['total']==1500 and j['order']['method']=='cash' and j['order']['fee']==0, j['order'])
     ok('comp beyond stock refused', a.req(T+'/orders','POST',{'channel':'comp','typeId':vip,'qty':5,'name':'Çok Kişi'})[0]==409)
@@ -179,8 +215,8 @@ try:
     # ---------- figures ----------
     s=a.req(T)[1]['sales']; bt={x['name']:x for x in s['byType']}
     # the race winner never paid. ada 2210 + bora 2650 (refunded) + vip 22005 + free 0 + comp 0 + door 1500
-    ok('sales: net is gross minus refunds, refunds as made', s['refunds']==2650+500 and s['net']==round(s['gross']-s['refunds'],2) and s['gross']>28365, {k:s[k] for k in ['gross','refunds','net','orders','tickets']})
-    ok('sales: by type and check-ins', bt['Early Bird']['sold']==2 and s['checkedIn']==2 and bt['VIP Masa (4 kişi)']['sold']==4 and bt['General']['sold']==6, bt)
+    ok('sales: net is gross minus refunds, refunds as made', s['refunds']==2650+500+33005+300 and s['net']==round(s['gross']-s['refunds'],2) and s['gross']>28365, {k:s[k] for k in ['gross','refunds','net','orders','tickets']})
+    ok('sales: by type and check-ins', bt['Early Bird']['sold']==2 and s['checkedIn']==2 and bt['VIP Masa (4 kişi)']['sold']==4 and bt['General']['sold']==7, bt)
     ok('sales: by source', any(x['name']=='instagram / launch' and x['tickets']==2 for x in s['bySource']) and any(x['name']=='Kapı satışı' for x in s['bySource']), s['bySource'])
     e0=a.req('/api/hq/summary')[1]['upcoming'][0]; ok('Özet carries ticket sales', e0['sales']['tickets']==s['tickets'] and e0['sales']['last7']>0 and e0['sales']['net']==s['net'], e0.get('sales'))
     ok('all-events sales list', a.req('/api/hq/tickets/sales')[1]['events'][0]['tickets']==s['tickets'])
