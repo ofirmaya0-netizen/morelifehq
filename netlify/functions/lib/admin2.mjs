@@ -141,6 +141,7 @@ function inAudience(c, r, ev) {
   }
   return true;
 }
+export async function audienceMembers(a) { const ev = await audienceEvents([a.rules]); return (await all('contacts/')).filter((c) => inAudience(c, a.rules, ev)); }
 const audienceSize = (m) => ({ count: m.length, phone: m.filter(hasPhone).length, email: m.filter((c) => c.email).length });
 async function audiences(req, parts, s) {
   const m = req.method, people = async () => (await all('contacts/')).sort((a, b) => a.name.localeCompare(b.name, 'tr'));

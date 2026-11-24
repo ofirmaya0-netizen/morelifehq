@@ -46,3 +46,7 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `rsvps/<event>/<id>.cancelledBy` = `guest` when the guest released the place; `.reminders`, `.thanks` = provider results.
 - `sent/<event>/<rsvp>/<kind>` (kind: d1, h4, thanks) — atomic claim so an automatic message is sent once.
 - Contacts get the tag `katıldı` at their first check-in.
+
+## Audience invitations (no migration needed)
+- `sent/<event>/c-<contactId>/invite-wa`, `.../invite-mail` — atomic claim so a contact gets an event's invitation once per channel; holds `{at, id, audienceId}` and is removed again when the provider refuses the message.
+- Contacts tagged `mesaj-istemiyor` are never sent an invitation.

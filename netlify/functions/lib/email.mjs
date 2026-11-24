@@ -52,6 +52,20 @@ export function thanksMail(e, r, origin) {
     (e.galleryUrl ? btn(e.galleryUrl, 'See the photos') : btn(origin + '/#events', 'See what is next')) + '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">You are receiving this because you attended this event.</p>');
   return { subject: 'Thank you — ' + e.title, html, text: 'Thank you for being there: ' + e.title + (e.galleryUrl ? '\n\nPhotos: ' + e.galleryUrl : '\n\nWhat is next: ' + origin + '/#events') };
 }
+// Invitation to someone in the CRM who has not applied yet. `c` is a contact, `token` the event's invite key.
+export function inviteMail(e, c, origin, token) {
+  const url = origin + '/invite?t=' + token + '&utm_source=email&utm_medium=invite', w = whenWhere(e), n = /@/.test(c.name || '') ? '' : esc(String(c.name || '').trim().split(/\s+/)[0]);
+  const img = e.imageId ? '<img src="' + esc(origin + '/api/public/image/' + e.imageId) + '" alt="' + esc(e.imageAlt || '') + '" width="520" style="display:block;width:100%;height:auto;border-radius:12px;margin:0 0 22px">' : '';
+  const html = shell(img + head('Private invitation', e) + '<p style="margin:0 0 4px;color:#C9C0B5">' + esc(w.when) + '</p><p style="margin:0 0 22px;color:#C9C0B5">' + esc(w.where) + '</p>' +
+    (e.waPromo ? '<p style="margin:0 0 14px">' + esc(e.waPromo) + '</p>' : '') + '<p style="margin:0 0 22px">' + (n ? n + ', you' : 'You') + '’re on the list.</p>' + btn(url, 'Request your place') +
+    '<p style="margin:18px 0 0;font-size:13px;color:#8F867D">This invitation is personal; please do not forward it. If you would rather not receive invitations from More Life, reply to this e-mail and we will take you off the list.</p>');
+  return { subject: 'You’re invited — ' + e.title, html, text: 'You’re invited: ' + e.title + '\n' + w.when + '\n' + w.where + (e.waPromo ? '\n\n' + e.waPromo : '') + '\n\nRequest your place: ' + url + '\n\nReply to this e-mail if you would rather not receive invitations from More Life.' };
+}
+export async function sendInvite(e, c, origin, token) {
+  const m = inviteMail(e, c, origin, token); let r = await send(c.email, m.subject, m.html, m.text);
+  for (let i = 0; i < 2 && r.status === 'failed' && /too many|rate/i.test(r.error || ''); i++) { await new Promise((ok) => setTimeout(ok, 700)); r = await send(c.email, m.subject, m.html, m.text); }
+  return r;
+}
 const out = (r, m) => send(r.email, m.subject, m.html, m.text);
 export const sendReminder = (e, r, origin, kind) => out(r, reminderMail(e, r, origin, kind));
 export const sendOffer = (e, r, origin) => out(r, offerMail(e, r, origin));

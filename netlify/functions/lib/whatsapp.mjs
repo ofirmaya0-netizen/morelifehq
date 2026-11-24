@@ -37,3 +37,7 @@ export const sendPassWa = async (s, e, r) => waSend(s, r.phone, (await waSetting
 // What the invitation message will say for this event. The wording mirrors the template submitted to Meta;
 // only the cover, title, date line, promo line and first name change per event.
 export const invitePreview = (e, r) => ({ image: e.wideImageId || e.imageId || '', wide: !!e.wideImageId, title: e.title, line: [dateEn(e.date), e.time, [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).join(' · '), promo: e.waPromo || '', name: r.name.split(' ')[0], button: 'Request your place', footer: 'Reply STOP to opt out' });
+// Variables of the invitation template. The keys must match the variable names of the template in Bird.
+// A contact saved without a name carries its e-mail as the name; greet those without one.
+export const greetName = (c) => (/@/.test(c.name || '') ? '' : String(c.name || '').trim().split(/\s+/)[0]);
+export const inviteParams = (e, c, origin, token) => { const p = invitePreview(e, { name: greetName(c) || 'Hi' }); return { name: p.name, title: p.title, line: p.line, promo: p.promo, image: p.image ? origin + '/api/public/image/' + p.image : '', token }; };
