@@ -192,3 +192,42 @@ button.g-pill:hover{background:rgba(243,238,230,.2)}
 .sh-group span{font-size:13px;opacity:.7}
 .sh-mine{margin-top:16px;text-align:center}
 .sh-mine a{color:inherit;text-decoration:underline;text-underline-offset:3px}
+
+/* ---- shop, second look: one card per ticket, a basket bar that follows, details on their own step ---- */
+#g-shop{gap:14px;--sh-a:var(--sh-acc,var(--accent,#E0705F))}
+#g-shop h2{font-size:26px}
+.sh-steps{display:flex;gap:6px;list-style:none;margin:0;padding:0;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--dim,var(--mute))}
+.sh-steps li{display:flex;align-items:center;gap:8px;flex:1;padding:9px 10px;border-radius:999px;background:rgba(243,238,230,.05);white-space:nowrap;overflow:hidden}
+.sh-steps i{flex:none;display:grid;place-items:center;width:20px;height:20px;border-radius:50%;background:rgba(243,238,230,.12);font-style:normal;font-size:11px}
+.sh-steps .on{color:var(--ink);background:rgba(243,238,230,.1)}.sh-steps .on i{background:var(--sh-a);color:var(--sh-on,#17110F)}
+.sh-steps .done i{background:rgba(127,209,160,.25);color:#7FD1A0}
+.sh-list{border:0;border-radius:0;overflow:visible;gap:10px}
+.sh-row,.sh-row:first-child{grid-template-columns:minmax(0,1fr) auto;gap:14px 16px;align-items:start;padding:18px;border:1px solid rgba(243,238,230,.14);border-radius:20px;background:linear-gradient(180deg,rgba(243,238,230,.055),rgba(243,238,230,.02));transition:border-color .18s,box-shadow .18s,background .18s}
+.sh-row.sel{border-color:var(--sh-a);background:linear-gradient(180deg,color-mix(in srgb,var(--sh-a) 14%,transparent),rgba(243,238,230,.03));box-shadow:0 0 0 1px var(--sh-a),0 12px 32px -18px var(--sh-a)}
+.sh-main{grid-row:1/span 2;gap:6px;align-items:flex-start}.sh-main b{font-size:17px;letter-spacing:-.01em;line-height:1.25}.sh-main span{font-size:13.5px;line-height:1.4}
+.sh-main .sh-low{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:999px;background:rgba(242,196,107,.14);font-size:12px;letter-spacing:.02em}
+.sh-price{grid-column:2;gap:2px}.sh-price b{font-size:20px;letter-spacing:-.02em}.sh-price span{white-space:normal;max-width:180px;text-align:right;line-height:1.35}
+.sh-qty{grid-column:2;justify-self:end;align-self:end;min-width:0;gap:0;padding:4px;border-radius:999px;background:rgba(243,238,230,.07);border:1px solid rgba(243,238,230,.12)}
+.sh-qty button{width:36px;height:36px;border:0;background:rgba(243,238,230,.1);font-size:19px;transition:transform .12s,background .15s}
+.sh-qty button[data-inc]:not(:disabled){background:var(--sh-a);color:var(--sh-on,#17110F)}
+.sh-qty button:active:not(:disabled){transform:scale(.92)}
+.sh-qty output{width:34px;font-size:16px}
+.sh-qty:has(.sh-wait),.sh-qty:has(.sh-picked),.sh-qty:empty{padding:0;border:0;background:none}
+.sh-row.off{background:rgba(243,238,230,.02);border-style:dashed}
+.sh-group{border-top:0;padding:14px 4px 0}
+.sh-code input{height:46px;border-radius:14px;background:rgba(243,238,230,.04);border-color:rgba(243,238,230,.14)}
+.sh-code .btn{min-height:46px}
+.sh-bar{position:sticky;bottom:12px;z-index:5;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 14px;padding:12px 12px 12px 20px;border-radius:22px;border:1px solid rgba(243,238,230,.18);background:rgba(28,22,20,.82);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:0 18px 40px -12px rgba(0,0,0,.6);animation:sh-up .22s ease-out}
+.sh-bar-t{display:flex;flex-direction:column;min-width:0}.sh-bar-t b{font-size:22px;letter-spacing:-.02em;font-variant-numeric:tabular-nums}.sh-bar-t span{font-size:12.5px;color:var(--mute)}
+.sh-bar .btn{min-height:50px;padding:0 26px;border-radius:16px}.sh-bar .btn:disabled{opacity:.4}.sh-bar .g-msg{flex-basis:100%;margin:0}
+@keyframes sh-up{from{transform:translateY(14px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.sh-bar{animation:none}.sh-row,.sh-qty button{transition:none}}
+.sh-back{align-self:flex-start;height:36px;padding:0 14px;border-radius:999px;border:1px solid rgba(243,238,230,.18);background:none;color:inherit;font:600 13px/1 inherit;cursor:pointer}
+.sh-back:hover{background:rgba(243,238,230,.08)}
+.sh-h3{margin:8px 0 0;font-size:17px;font-weight:600}
+.sh-sum{padding:18px;border-radius:20px;border:1px solid rgba(243,238,230,.1)}.sh-sum .tot{font-size:20px}
+@media (max-width:560px){.sh-row,.sh-row:first-child{grid-template-columns:minmax(0,1fr) auto}.sh-qty{grid-column:2;justify-content:flex-end}.sh-qty:has(.sh-wait){grid-column:1/-1;justify-self:start}.sh-steps li{justify-content:center;padding:9px 6px}.sh-price span{max-width:150px}}
+.sh-light .sh-row{background:#fff;border-color:rgba(23,17,15,.12)}.sh-light .sh-row.sel{background:color-mix(in srgb,var(--sh-a) 8%,#fff)}
+.sh-light .sh-steps li,.sh-light .sh-qty{background:rgba(23,17,15,.05);border-color:rgba(23,17,15,.1)}.sh-light .sh-steps .on{background:rgba(23,17,15,.09)}.sh-light .sh-steps i,.sh-light .sh-qty button{background:rgba(23,17,15,.1)}
+.sh-light .sh-bar{background:rgba(255,255,255,.86);border-color:rgba(23,17,15,.14);box-shadow:0 18px 40px -16px rgba(23,17,15,.35)}
+.sh-light .sh-back{border-color:rgba(23,17,15,.2)}.sh-light .sh-main .sh-low{background:rgba(154,91,0,.1)}

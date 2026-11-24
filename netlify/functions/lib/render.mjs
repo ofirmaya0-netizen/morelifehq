@@ -59,8 +59,9 @@ const para = (t) => esc(t).split(/\n{2,}/).map((p) => '<p>' + p.replace(/\n/g, '
 const STATUS_NOTE = { cancelled: 'This event has been cancelled.', postponed: 'This event has been postponed. A new date will be announced.', rescheduled: 'This event has a new date.' };
 
 // mode: 'public' (/events/slug), 'invite' (/invite?t=…, private or public), 'preview' (admin only)
-export function renderEvent(e, set, { mode, token = '', ga = '' }) {
-  const seo = eventSeo(e, set), invite = mode === 'invite', state = formState(e);
+// selling: tickets are on sale on this page. A ticketed public page has no RSVP form; a personal invitation link keeps its own.
+export function renderEvent(e, set, { mode, token = '', ga = '', selling = false }) {
+  const seo = eventSeo(e, set), invite = mode === 'invite', state = selling && !invite ? 'off' : formState(e);
   if (invite || mode === 'preview') seo.noindex = true;
   if (invite) { seo.canonical = SITE_URL() + '/'; seo.title = (e.inviteTitle || e.title) + ' — Invitation | More Life'; seo.ogTitle = seo.title; seo.ogImage = ''; }
   const i = e.invite || {}, when = [dateEn(e.date) + (e.time ? ' · ' + e.time : ''), e.endDate && e.endDate !== e.date ? 'until ' + dateEn(e.endDate) + (e.endTime ? ' · ' + e.endTime : '') : (e.endTime ? 'until ' + e.endTime : '')].filter(Boolean).join(' ');
@@ -100,7 +101,7 @@ export function renderEvent(e, set, { mode, token = '', ga = '' }) {
     '<div class="g-facts">' + (e.date ? '<div class="g-fact"><div class="g-cal" aria-hidden="true"><i>' + cal.mon + '</i><b>' + cal.day + '</b></div><div><b>' + esc(cal.long) + '</b><span>' + esc(hours + (hours ? ' · ' : '') + 'Istanbul time') + '</span></div></div>' : '') +
       (e.venue || e.city ? '<div class="g-fact"><div class="g-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5a7 7 0 10-14 0C5 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/></svg></div><div><b>' + esc(e.venue || e.city) + '</b>' + (e.venue && e.city ? '<span>' + esc(e.city) + '</span>' : '') + '</div><a class="g-go" href="' + esc(mapUrl) + '" target="_blank" rel="noopener">Directions</a></div>' : '') + '</div>' +
     (extra.length ? '<div class="g-meta">' + extra.map(chip).join('') + '</div>' : '') +
-    (state === 'open' ? '<a class="btn g-rsvp" data-rsvp href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '<span aria-hidden="true">↓</span></a>' : '') +
+    (state === 'open' ? '<a class="btn g-rsvp" data-rsvp href="#g-form">' + (invite ? 'Request your place' : 'RSVP') + '<span aria-hidden="true">↓</span></a>' : selling && !invite ? '<a class="btn g-rsvp" href="#g-shop">Get tickets<span aria-hidden="true">↓</span></a>' : '') +
     (cfg.guests ? '<section id="g-guests" class="g-guests" aria-label="Guest list" hidden></section>' : '') +
     (e.description ? '<div class="g-desc" style="display:flex;flex-direction:column;gap:12px;color:var(--mute)">' + para(e.description) + '</div>' : '') +
     tickets + (mode !== 'preview' && e.eventStatus !== 'cancelled' ? '<section id="g-shop" class="g-panel" aria-label="Tickets" hidden></section>' : '') + (form ? '<div class="g-panel">' + form + '</div>' : '') + (mode === 'public' ? '<p><a class="link" href="/#events">All events</a></p>' : '') + '</div></main>\n</div>\n' +
