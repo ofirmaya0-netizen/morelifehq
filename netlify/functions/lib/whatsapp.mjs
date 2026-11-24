@@ -5,8 +5,8 @@ import { hash, id } from './auth.mjs';
 const API = () => (process.env.BIRD_API_URL || 'https://api.bird.com').replace(/\/$/, '');
 const WS = () => process.env.BIRD_WORKSPACE_ID;
 export const waStatus = () => ({ connected: !!(process.env.BIRD_ACCESS_KEY && WS()), missing: ['BIRD_ACCESS_KEY', 'BIRD_WORKSPACE_ID'].filter((k) => !process.env[k]) });
-const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' } };
-export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) } }; };
+const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' }, table: { projectId: '', version: '', locale: 'en' } };
+export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) }, table: { ...DEFAULTS.table, ...(v.table || {}) } }; };
 
 export async function waCall(path, method, body) {
   const r = await fetch(API() + '/workspaces/' + WS() + path, { method, headers: { authorization: 'AccessKey ' + process.env.BIRD_ACCESS_KEY, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -39,6 +39,9 @@ export async function waSend(s, to, tpl, params) {
 export const passParams = (e, r, qrUrl) => ({ name: r.name.split(' ')[0], event: e.title, date: [dateEn(e.date), e.time].filter(Boolean).join(' · '), venue: [e.venue, e.city].filter(Boolean).join(', '), token: r.passToken, ...(qrUrl ? { qr: qrUrl } : {}) });
 export const passQrUrl = (origin, token) => origin + '/api/public/pass-qr/' + token + '.png';
 export const sendPassWa = async (s, e, r, origin) => { const tpl = (await waSettings(s)).pass; return waSend(s, r.phone, tpl, passParams(e, r, tpl.qr && origin ? passQrUrl(origin, r.passToken) : '')); };
+// Table link (/tables?e=<event id>) for a guest of the event. The keys must match the variable names of the template in Bird.
+export const tableParams = (e, r) => ({ name: r.name.split(' ')[0], event: e.title, eventId: e.id });
+export const sendTableWa = async (s, e, r) => waSend(s, r.phone, (await waSettings(s)).table, tableParams(e, r));
 // The same code the pass page draws: scanning it at the door opens /pass?t=… and checks the guest in.
 export async function passQrPng(origin, token) { const { default: QR } = await import('qrcode'); return QR.toBuffer(origin + '/pass?t=' + token, { type: 'png', width: 720, margin: 4, errorCorrectionLevel: 'M' }); }
 // What the invitation message will say for this event. The wording mirrors the template submitted to Meta;
@@ -51,9 +54,9 @@ export const inviteParams = (e, c, origin, token) => { const p = invitePreview(e
 
 // What a sent template says, in one line, for the conversation in HQ → Mesajlar. The full wording lives in Bird / Meta.
 export function tplText(set, tpl, params) {
-  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : 'Şablon mesajı';
+  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : is(set.table) ? 'Masa linki' : 'Şablon mesajı';
   const main = [p.title || p.event, p.line || p.date, p.venue].filter(Boolean);
-  const rest = main.length ? main : Object.entries(p).filter(([k, v]) => !['token', 'image', 'name'].includes(k) && v && !/^https?:/.test(String(v))).map(([, v]) => String(v));
+  const rest = main.length ? main : Object.entries(p).filter(([k, v]) => !['token', 'image', 'name', 'eventId'].includes(k) && v && !/^https?:/.test(String(v))).map(([, v]) => String(v));
   return (label + (rest.length ? ': ' + rest.join(' · ') : '')).slice(0, 600);
 }
 // Keeps a message sent from the More Life line with its number's conversation. A number that has never written has no

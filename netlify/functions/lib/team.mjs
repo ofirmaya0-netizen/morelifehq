@@ -87,6 +87,7 @@ export async function describe(s, parts, m, b, j) {
     if (p2 === 'bulk') return b.dryRun ? null : [j.count + ' başvuruyu ' + (DECISION[b.decision] || b.decision), t, j.guests + ' kişi'];
     const who = (j.rsvp && j.rsvp.name) || '';
     if (p3 === 'decision') return ['Başvuruyu ' + (DECISION[b.decision] || b.decision), who, t];
+    if (p3 === 'send-table') return ['Masa linkini gönderdi', who, t];
     if (p3 === 'send-pass') return ['Giriş kartını e-postayla gönderdi', who, t];
     if (p3 === 'send-pass-wa') return ['Giriş kartını WhatsApp’tan gönderdi', who, t];
     return null;
