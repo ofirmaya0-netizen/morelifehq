@@ -63,7 +63,12 @@
     white-space: nowrap;
   }
   h1 span:first-child { padding-right: 0.05em; }
-  h1 svg { height: 0.8em; width: auto; flex: none; animation: turn 60s linear infinite; }
+  h1 svg { height: 0.8em; width: auto; flex: none; animation: logo-in 1.1s cubic-bezier(.2,.7,.2,1) .15s both, turn 60s linear 1.3s infinite; }
+  h1 span { animation: letter .9s cubic-bezier(.2,.7,.2,1) both; }
+  h1 span:last-child { animation-delay: .25s; }
+  @keyframes letter { from { opacity: 0; filter: blur(18px); transform: translateY(.12em); } }
+  @keyframes logo-in { from { opacity: 0; filter: blur(14px); transform: rotate(-140deg) scale(.35); } }
+  @keyframes fade-up { from { opacity: 0; transform: translateY(18px); } }
   @keyframes turn { to { transform: rotate(360deg); } }
   .sub { margin: 0; font-size: 16px; color: var(--cream); }
 
@@ -123,7 +128,7 @@
   footer a { border-bottom: 1px solid var(--line); align-self: center; }
 
   @media (prefers-reduced-motion: reduce) {
-    h1 svg { animation: none; }
+    h1 svg, h1 span, main > * , header > * { animation: none !important; }
     .tickets, .panel a { transition: none; }
   }
 </style>
@@ -181,7 +186,8 @@
   .feature .more:focus-visible, .feature > a:focus-visible { outline-color: var(--night); outline-offset: -4px; }
 
   .details {
-    position: sticky; bottom: 16px; align-self: center; margin-top: 10px;
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 5; white-space: nowrap;
+    transition: opacity .3s ease, transform .3s ease;
     display: inline-flex; align-items: center; gap: 10px;
     padding: 7px 20px 7px 7px; border-radius: 999px;
     background: rgba(14, 11, 10, 0.82); border: 1px solid rgba(243, 238, 230, 0.22);
@@ -214,6 +220,36 @@
   }
   .act.primary { background: var(--cream); color: var(--night); border-color: var(--cream); }
   /* links page on morelife.events: join form, in-page player, next event */
+  main { padding-bottom: 110px; }
+  .details.away { opacity: 0; pointer-events: none; transform: translateX(-50%) translateY(12px); }
+  .fade { position: fixed; left: 0; right: 0; bottom: 0; height: 120px; z-index: 4; pointer-events: none; background: linear-gradient(rgba(14, 11, 10, 0), var(--night) 78%); }
+
+  /* entrance: the header settles first, then each block rises in turn */
+  header > p, header > .socials, main > canvas, main > #next, main > .feature, main > nav, main > .strip, main > footer { animation: fade-up .7s cubic-bezier(.2,.7,.2,1) both; }
+  header > p { animation-delay: .45s; } header > .socials { animation-delay: .55s; }
+  main > canvas { animation-delay: .6s; } main > #next { animation-delay: .1s; } main > .feature { animation-delay: .7s; }
+  main > nav { animation-delay: .8s; } main > .strip { animation-delay: .9s; } main > nav:last-of-type { animation-delay: 1s; } main > footer { animation-delay: 1.1s; }
+
+  /* next show */
+  .event { position: relative; display: block; border-radius: 22px; overflow: hidden; border: 1px solid var(--line);
+    background: radial-gradient(ellipse 120% 90% at 20% 0%, rgba(206, 112, 24, 0.5), transparent 70%), #17110f; }
+  .event img { display: block; width: 100%; aspect-ratio: 4 / 5; object-fit: cover; }
+  .event-b { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px 20px; }
+  .event.has-img .event-b { position: absolute; left: 0; right: 0; bottom: 0; padding-top: 90px; background: linear-gradient(rgba(14, 11, 10, 0), rgba(14, 11, 10, 0.92) 62%); }
+  .event:not(.has-img) .event-b { padding-top: 64px; }
+  .event-k { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--amber); }
+  .event-t { font-size: clamp(28px, 8.6vw, 38px); font-weight: 500; line-height: 1.02; letter-spacing: -0.04em; text-wrap: balance; }
+  .event-m { font-size: 14px; color: var(--muted); }
+  .event-go { display: flex; gap: 8px; margin-top: 10px; }
+  .event-go span { display: inline-flex; align-items: center; height: 40px; padding: 0 18px; border-radius: 999px; font-size: 14px; font-weight: 600; background: var(--cream); color: var(--night); }
+  .event-wrap { position: relative; }
+  .event-wrap .more { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; border-radius: 50%; color: var(--cream);
+    background: rgba(14, 11, 10, 0.55); border: 1px solid var(--line); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+
+  /* archive strip */
+  .strip { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -20px; padding: 0 20px; scrollbar-width: none; }
+  .strip::-webkit-scrollbar { display: none; }
+  .strip img { flex: none; width: 150px; height: 190px; object-fit: cover; border-radius: 16px; scroll-snap-align: center; background: #17110f; }
   .panel .row > button.rowbtn {
     flex: 1; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
     padding: 16px 4px 16px 20px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
@@ -275,7 +311,7 @@
   <div id="next" hidden></div>
 
   <div class="row feature">
-    <a href="#guest-list" id="btn-guest" data-k="guest-list"><span class="thumb"><svg viewBox="42 187 276 266" aria-hidden="true"><use href="#mark"/></svg></span><span class="label">Guest List</span><small>New shows, early tickets</small></a>
+    <a href="#guest-list" id="btn-guest" data-k="guest-list"><span class="thumb"><svg viewBox="42 187 276 266" aria-hidden="true"><use href="#mark"/></svg></span><span class="label">Guest List</span><small>Early tickets</small></a>
     <button class="more" type="button" aria-label="Share Guest List" data-title="Guest List" data-url="https://morelife.events/links#guest-list">&#8942;</button>
   </div>
 
@@ -298,6 +334,14 @@
     </div>
     <div class="player" id="player" hidden></div>
   </nav>
+
+  <div class="strip" aria-label="From the More Life archive">
+    <img src="/img/photos/community-02.jpg" alt="More Life archive photo" loading="lazy" draggable="false">
+    <img src="/img/photos/community-05.jpg" alt="More Life archive photo" loading="lazy" draggable="false">
+    <img src="/img/photos/community-07.jpg" alt="More Life archive photo" loading="lazy" draggable="false">
+    <img src="/img/photos/community-03.jpg" alt="More Life archive photo" loading="lazy" draggable="false">
+    <img src="/img/photos/community-08.jpg" alt="More Life archive photo" loading="lazy" draggable="false">
+  </div>
 
   <nav class="panel" aria-label="More Life">
     <div class="row">
@@ -330,6 +374,7 @@
   <button class="details" type="button" id="btn-details" style="color:inherit;cursor:pointer;font-family:inherit"><span><svg viewBox="42 187 276 266" aria-hidden="true"><use href="#mark"/></svg></span>Share your details</button>
 </main>
 
+<div class="fade" aria-hidden="true"></div>
 <div class="backdrop" id="backdrop" hidden></div>
 
 <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden>
@@ -518,6 +563,12 @@
       .catch(function (err) { msg.textContent = err.message || 'Could not send. Check your connection and try again.'; submit.disabled = false; submit.textContent = 'Join the guest list'; });
   });
 
+  // The floating button repeats Guest List, so it waits until that button has scrolled away.
+  if ('IntersectionObserver' in window) {
+    var pill = document.getElementById('btn-details'); pill.classList.add('away');
+    new IntersectionObserver(function (en) { pill.classList.toggle('away', en[0].isIntersecting || en[0].boundingClientRect.top > 0); }).observe(document.getElementById('btn-guest'));
+  }
+
   // Spotify plays here, and only loads when asked for.
   var play = document.getElementById('btn-play'), player = document.getElementById('player');
   play.addEventListener('click', function () {
@@ -537,19 +588,22 @@
   fetch('/api/public/events').then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
     var e = d && d.events && d.events[0]; if (!e || !e.slug || !e.title) return;
     var box = document.getElementById('next'), url = '/events/' + encodeURIComponent(e.slug);
-    var when = ''; try { when = new Date(e.date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); } catch (x) {}
-    var eyebrow = document.createElement('p'); eyebrow.className = 'eyebrow'; eyebrow.textContent = 'Next';
-    var panel = document.createElement('div'); panel.className = 'panel'; panel.style.marginTop = '14px';
-    var row = document.createElement('div'); row.className = 'row';
-    var a = document.createElement('a'); a.href = url; a.setAttribute('data-k', 'next-event');
-    var l = document.createElement('span'); l.className = 'label'; l.textContent = e.title;
-    var n = document.createElement('span'); n.className = 'note'; n.textContent = [when, e.venue || e.city].filter(Boolean).join(' · ');
-    a.appendChild(l); a.appendChild(n);
-    var m = document.createElement('button'); m.className = 'more'; m.type = 'button'; m.innerHTML = '&#8942;';
+    var when = ''; try { when = new Date(e.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long' }); } catch (x) {}
+    var el = function (tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; };
+    var wrap = el('div', 'event-wrap'), a = el('a', 'event'); a.href = url; a.setAttribute('data-k', 'next-event');
+    if (e.image && /^\/api\/public\/image\/[A-Za-z0-9_-]+$/.test(e.image)) {
+      var img = el('img'); img.src = e.image; img.alt = e.imageAlt || ''; a.classList.add('has-img'); a.appendChild(img);
+    }
+    var body = el('div', 'event-b');
+    body.appendChild(el('span', 'event-k', 'Next'));
+    body.appendChild(el('span', 'event-t', e.title));
+    body.appendChild(el('span', 'event-m', [when, [e.venue, e.city].filter(Boolean).join(', ')].filter(Boolean).join(' · ')));
+    var go = el('div', 'event-go'); go.appendChild(el('span', '', 'View event')); body.appendChild(go);
+    a.appendChild(body);
+    var m = el('button', 'more'); m.type = 'button'; m.innerHTML = '&#8942;';
     m.setAttribute('aria-label', 'Share ' + e.title); m.setAttribute('data-title', e.title); m.setAttribute('data-url', location.origin + url);
     wireMore(m);
-    row.appendChild(a); row.appendChild(m); panel.appendChild(row);
-    box.appendChild(eyebrow); box.appendChild(panel); box.hidden = false;
+    wrap.appendChild(a); wrap.appendChild(m); box.appendChild(wrap); box.hidden = false;
   }).catch(function () {});
 })();
 </script>
