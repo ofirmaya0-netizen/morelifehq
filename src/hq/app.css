@@ -281,3 +281,9 @@ ul.dots{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--mu
 
 /* door: arrivals per half hour */
 .k-bars{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;align-items:end}.k-bars div{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0}.k-bars i{display:block;width:100%;border-radius:4px 4px 0 0;background:var(--acc,var(--ink))}.k-bars .mute{font-size:10px;white-space:nowrap}
+
+.chat{display:flex;flex-direction:column;gap:8px;max-height:52vh;overflow:auto;padding:4px 2px}
+.bub{display:flex;flex-direction:column;gap:3px;max-width:86%;align-self:flex-start}.bub.out{align-self:flex-end;align-items:flex-end}
+.bub div{padding:9px 13px;border-radius:14px 14px 14px 4px;background:var(--card2);border:1px solid var(--line);font-size:14.5px;white-space:pre-wrap;overflow-wrap:anywhere}
+.bub.out div{border-radius:14px 14px 4px 14px;background:rgba(127,209,160,.12);border-color:rgba(127,209,160,.28)}.bub span{font-size:11.5px;color:var(--dim)}
+button.link{background:none;border:0;padding:0;color:var(--mute);font:inherit;text-decoration:underline;cursor:pointer}button.link:hover{color:var(--ink)}

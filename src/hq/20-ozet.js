@@ -26,6 +26,7 @@
       var n = H.daysTo(t.due);
       (n <= 0 ? now : soon).push({ tone: t.late ? 'bad' : n === 0 ? 'warn' : 'info', icon: 'task', title: e(t.title), sub: [t.late ? 'Son tarih ' + H.inDays(n) + ' geçti' : 'Son tarih ' + H.inDays(n), t.event ? e(t.event) : '', t.assignee ? 'Sorumlu: ' + e(t.assignee) : ''].filter(Boolean).join(' · '), nav: t.eventId ? 'view=etkinlik&id=' + t.eventId + '&tab=gorevler' : 'view=gorevler', go: 'Görevi aç' });
     });
+    if (s.unreadMessages) now.push({ tone: 'warn', icon: 'chat', title: '<b class="num-t">' + s.unreadMessages + '</b> okunmamış WhatsApp konuşması', sub: 'More Life hattına gelen mesajlar. Yanıt için son mesajdan sonra 24 saat var.', nav: 'view=mesajlar', go: 'Mesajlar' });
     if (s.newEnquiries) now.push({ tone: 'warn', icon: 'info', title: '<b class="num-t">' + s.newEnquiries + '</b> yeni talep', sub: s.enquiries.map(function (q) { return e(q.name) + ' (' + e(q.kind) + ')'; }).join(' · '), nav: 'view=talepler', go: 'Talepler' });
     s.unpublished.forEach(function (u) { now.push({ tone: 'info', icon: 'globe', title: e(u.title) + ': yayınlanmamış değişiklik var', sub: 'Kaydedildi ama sitede hâlâ eski hali görünüyor.', nav: 'view=etkinlik&id=' + u.id + '&tab=public', go: 'Gözden geçir' }); });
     var order = { bad: 0, warn: 1, info: 2 }; now.sort(function (a, b) { return order[a.tone] - order[b.tone]; });

@@ -17,6 +17,7 @@ import { admin2 } from './lib/admin2.mjs';
 import { inviteRoute } from './lib/invites.mjs';
 import { emailStatus, sendPass, passMail, notifyEnquiry } from './lib/email.mjs';
 import { waStatus, waSettings, sendPassWa, passParams, invitePreview } from './lib/whatsapp.mjs';
+import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
 
@@ -86,6 +87,7 @@ async function publicPage(req, url, parts) {
 /* ---------- guest API ---------- */
 async function publicApi(req, ctx, parts, url) {
   const s = await store();
+  if (parts[0] === 'wa-hook') return waHook(req, s, url); // Bird → HQ: incoming WhatsApp messages, signed
   if (parts[0] === 'events' && req.method === 'GET') {
     const evs = (await all('events/')).filter(isListed).map(live).filter((e) => url.searchParams.get('scope') === 'all' || !e.date || (e.endDate || e.date) >= istToday());
     return json({ events: evs.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(guestEvent) });
@@ -326,6 +328,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
   if (parts[0] === 'backups') return backupsRoute(req, parts, url, s, me);
   if (parts[0] === 'tickets') return ticketsAdmin(req, parts, url, s, me, ipOf(req, ctx));
   if (parts[0] === 'pnl') return pnlRoute(req, parts, s, me);
+  if (parts[0] === 'inbox') return inboxRoute(req, parts, url, s, me);
 
   if (parts[0] === 'summary') {
     // One read for the Özet screen: what is waiting for a decision today, and how each upcoming event is doing.
@@ -347,10 +350,10 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       up.push(v);
     }
     const out = { role: me.role, name: me.name, upcoming: up.sort((a, b) => (a.date || '9').localeCompare(b.date || '9')), waiting: waiting.sort((a, b) => (a.oldest || '').localeCompare(b.oldest || '')), pendingRsvps: pending, approvedGuests: approved,
-      newEnquiries: 0, openTasks: 0, overdueTasks: 0, drafts: 0, tasks: [], unpublished: [], enquiries: [], payments: null, offers: null, activeBookings: null };
+      newEnquiries: 0, unreadMessages: 0, openTasks: 0, overdueTasks: 0, drafts: 0, tasks: [], unpublished: [], enquiries: [], payments: null, offers: null, activeBookings: null };
     if (full) {
       const open = (await all('tasks/')).filter((x) => x.status !== 'done'), enq = (await all('enquiries/')).filter((x) => x.status === 'new').sort((a, b) => b.createdAt.localeCompare(a.createdAt)), title = new Map(evs.map((e) => [e.id, e.title]));
-      Object.assign(out, { newEnquiries: enq.length, openTasks: open.length, overdueTasks: open.filter((x) => x.due && x.due < td).length, drafts: evs.filter((e) => e.status === 'draft').length,
+      Object.assign(out, { newEnquiries: enq.length, unreadMessages: await unreadThreads(), openTasks: open.length, overdueTasks: open.filter((x) => x.due && x.due < td).length, drafts: evs.filter((e) => e.status === 'draft').length,
         tasks: open.filter((x) => x.due && x.due <= day(7)).sort((a, b) => a.due.localeCompare(b.due)).slice(0, 12).map((x) => ({ id: x.id, title: x.title, due: x.due, late: x.due < td, assignee: x.assignee, priority: x.priority, eventId: x.eventId, event: title.get(x.eventId) || '' })),
         unpublished: evs.filter((e) => e.status === 'published' && isDirty(e)).map((e) => ({ id: e.id, title: e.title })),
         enquiries: enq.slice(0, 5).map((q) => ({ id: q.id, name: q.name, kind: q.kindLabel, at: q.createdAt })) });
