@@ -85,6 +85,13 @@ export function notifyEnquiry(q, origin) {
   const html = shell('<h1 style="margin:0 0 16px;font-size:22px;font-weight:500">Yeni site talebi</h1>' + rows.map((x) => '<p style="margin:0 0 8px"><span style="color:#8F867D">' + x[0] + ':</span> ' + esc(x[1]).replace(/\n/g, '<br>') + '</p>').join('') + '<a href="' + origin + '/hq?view=talepler" style="display:inline-block;margin-top:14px;background:#F3EEE6;color:#0E0B0A;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:12px">HQ’da aç</a>');
   return send(to, 'Yeni talep: ' + q.kindLabel + ' — ' + q.name, html, rows.map((x) => x[0] + ': ' + x[1]).join('\n'), q.email);
 }
+// Table confirmation to the guest. p: confirmParams() from whatsapp.mjs, so both channels say the same thing.
+export function confirmMail(p) {
+  const html = shell('<p style="margin:0 0 6px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#C9C0B5">Your table is confirmed</p><h1 style="margin:0 0 14px;font-size:30px;line-height:1.1;font-weight:500">' + esc(p.event || 'More Life') + '</h1>' + (p.line ? '<p style="margin:0 0 22px;color:#C9C0B5">' + esc(p.line) + '</p>' : '') +
+    '<p style="margin:0 0 14px">Hi ' + esc(p.name) + ', your table is confirmed.</p><p style="margin:0 0 22px"><b>' + esc(p.table) + '</b>, under ' + esc(p.under) + '.</p><p style="margin:0;font-size:13px;color:#8F867D">Give your name at the door. If your plans change, reply to this email.</p>');
+  return { subject: 'Your table is confirmed' + (p.event ? ' — ' + p.event : ''), html, text: 'Hi ' + p.name + ', your table is confirmed.\n\n' + (p.event ? p.event + '\n' + (p.line ? p.line + '\n' : '') + '\n' : '') + p.table + ', under ' + p.under + '.\nGive your name at the door. If your plans change, reply to this email.' };
+}
+export function sendConfirm(q, p) { const m = confirmMail(p); return send(q.email, m.subject, m.html, m.text, process.env.HQ_NOTIFY_EMAIL || process.env.HQ_ADMIN_EMAIL); }
 
 /* ---------- ticket orders ---------- */
 // Buyer mails are written in the language the buyer used on the shop page (English or Turkish).

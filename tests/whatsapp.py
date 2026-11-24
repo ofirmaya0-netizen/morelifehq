@@ -46,6 +46,16 @@ try:
     st,_,_=anon.req('/api/public/pass-qr/not-a-real-key.png',raw=True); ok('unknown pass key: no picture', st==404, st)
     st,j,_=a.req('/api/hq/whatsapp/settings','PUT',{'invite':{'projectId':'aa','version':'bb'}}); ok('saving other templates keeps the QR setting', j['settings']['pass']['qr'] is True, j)
     a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/decision','POST',{'decision':'rejected'}); st,_,_=anon.req('/api/public/pass-qr/'+tk+'.png',raw=True); ok('pass no longer approved: picture gone', st==404, st); a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/decision','POST',{'decision':'approved'})
+    # table confirmation over WhatsApp (no mail service in this file)
+    anon.req('/api/public/enquiries','POST',{'kind':'table','name':'Deniz Kaya','email':'deniz@example.com','phone':'0532 777 88 99','party':6,'area':'either','eventId':ev['id'],'analyticsPath':'/tables'})
+    st,j,_=a.req('/api/hq/enquiries'); tq=[x for x in j['enquiries'] if x['kind']=='table'][0]; P='/api/hq/enquiries/'+tq['id']+'/confirm'
+    st,j,_=a.req(P,'POST',{'dryRun':True}); ok('table: without a template WhatsApp is off, with the reason', not j['preview']['wa']['on'] and 'Ayarlar' in j['preview']['wa']['why'] and not j['preview']['mail']['on'], j)
+    st,j,_=a.req(P,'POST',{}); ok('table: no channel, nothing confirmed', st==409, (st,j))
+    st,j,_=a.req('/api/hq/whatsapp/settings','PUT',{'tableOk':{'projectId':'aaaaaaaa-1111-2222-3333-444444444444','version':'bbbbbbbb-1111-2222-3333-444444444444'}}); ok('table template saved, others kept', j['settings']['tableOk']['projectId'].startswith('aaaa') and j['settings']['pass']['projectId'].startswith('1111'), j)
+    n0=len(SENT); st,j,_=a.req(P,'POST',{'dryRun':True}); ok('table: preview on, nothing sent', j['preview']['wa']=={'on':True,'to':'+905327778899','why':''} and len(SENT)==n0, j)
+    st,j,_=a.req(P,'POST',{'area':'backstage','party':6}); b=SENT[-1][2]; pr={x['key']:x['value'] for x in b['template']['parameters']}
+    ok('table: template sent with its five variables, request closed', st==200 and j['enquiry']['table']['wa']['status']=='sent' and j['enquiry']['status']=='done' and b['receiver']['contacts'][0]['identifierValue']=='+905327778899' and b['template']['projectId'].startswith('aaaa') and pr=={'name':'Deniz','event':'WA Night','line':'16 June 2027 · 17:00 · V, Bodrum','table':'Backstage table for 6','under':'Deniz Kaya'}, (st,j,pr))
+    st,j,_=a.req('/api/hq/audit'); ok('table: confirmation is in the record of actions', any(x['action']=='Masayı onayladı' and x['target']=='Deniz Kaya' and 'WhatsApp' in x['detail'] for x in j['entries']), str(j)[:300])
     FAIL['on']=True; st,j,_=a.req('/api/hq/rsvps/'+ev['id']+'/'+r1['id']+'/send-pass-wa','POST',{}); ok('Bird rejection reported and stored as failed', st==502 and 'template not approved' in j['error'] and j['rsvp']['wa']['status']=='failed', (st,j))
     st,j,_=a.req('/api/hq/settings'); ok('settings: WhatsApp connected, key never shown', j['integrations']['whatsapp']['connected'] and 'bk_test' not in json.dumps(j))
 finally:

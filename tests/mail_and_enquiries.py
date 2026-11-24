@@ -34,6 +34,19 @@ try:
     st,j,_=a.req('/api/hq/events','POST',{'title':'Private Night','venue':'V','city':'Bodrum','date':'2027-08-01','visibility':'private'}); pev=j['event']; a.req('/api/hq/events/'+pev['id']+'/publish','POST',{}); a.req('/api/hq/events','POST',{'title':'Draft Night','date':'2027-08-02','visibility':'public'})
     st,j,_=anon.req('/api/public/table-events'); tt=[x['title'] for x in j['events']]; ok('table page lists published events, private ones too, never drafts; title and date only', 'Table Night' in tt and 'Private Night' in tt and 'Draft Night' not in tt and set(j['events'][0].keys())=={'id','title','date'}, j)
     st,j,_=anon.req('/api/public/enquiries','POST',{'kind':'table','name':'Z','email':'z@example.com','phone':'5321112299','party':2,'area':'standard','eventId':pev['id']}); st,j,_=a.req('/api/hq/enquiries'); tz=[x for x in j['enquiries'] if x['email']=='z@example.com'][0]; ok('table for a private event; 10-digit mobile read as +90', tz['eventTitle']=='Private Night' and tz['phone']=='+905321112299', tz)
+    # table confirmation (e-mail only here; WhatsApp is covered in tests/whatsapp.py)
+    P='/api/hq/enquiries/'+tq[0]['id']+'/confirm'; n0=len(SENT)
+    st,j,_=anon.req(P,'POST',{}); ok('anon cannot confirm a table', st==401, st)
+    st,j,_=a.req('/api/hq/enquiries/'+e0['id']+'/confirm','POST',{}); ok('only table requests can be confirmed', st==400, (st,j))
+    st,j,_=a.req(P,'POST',{'dryRun':True}); pv=j['preview']
+    ok('preview: requested area and party, exact words, e-mail on, WhatsApp off with the reason; nothing sent', st==200 and pv['area']=='backstage' and pv['party']==8 and pv['text'].startswith('Hi Masa, your table is confirmed.') and 'Table Night' in pv['text'] and '1 July 2027' in pv['text'] and 'Backstage table for 8, under Masa Sahibi.' in pv['text'] and pv['mail']=={'on':True,'to':'masa@example.com','subject':'Your table is confirmed — Table Night','why':''} and not pv['wa']['on'] and pv['wa']['why'] and len(SENT)==n0 and j['table'] is None, j)
+    FAIL['on']=True; st,j,_=a.req(P,'POST',{}); ok('provider refuses: reported, request not marked confirmed', st==502 and 'Domain not verified' in j['error'], (st,j))
+    st,j,_=a.req('/api/hq/enquiries'); ok('still unconfirmed and new after the failure', not [x for x in j['enquiries'] if x['id']==tq[0]['id']][0].get('table'))
+    FAIL['on']=False; st,j,_=a.req(P,'POST',{'area':'standard','party':6}); m=SENT[-1][1]
+    ok('confirm: guest e-mailed what was confirmed, request closed', st==200 and j['confirmed'] and j['enquiry']['status']=='done' and j['enquiry']['table']['area']=='standard' and j['enquiry']['table']['party']==6 and j['enquiry']['table']['mail']['status']=='sent' and j['enquiry']['table']['wa']['status']=='off' and j['enquiry']['table']['by'] and m['to']==['masa@example.com'] and m['subject']=='Your table is confirmed — Table Night' and 'Table for 6' in m['html'] and 'Masa Sahibi' in m['html'] and m['reply_to']=='admin@example.com', (st,j,m))
+    n1=len(SENT); st,j,_=a.req(P,'POST',{}); ok('second confirm refused, nothing sent twice', st==409 and j.get('already') and len(SENT)==n1, (st,j))
+    st,j,_=a.req(P,'POST',{'again':True,'party':7}); ok('sent again on purpose', st==200 and len(SENT)==n1+1 and j['enquiry']['table']['party']==7, (st,j))
+    st,t,_=a.req('/api/hq/enquiries.csv',raw=True); ok('CSV has the confirmation column', 'Masa onayı' in t)
     st,pg,_=anon.req('/tables',raw=True); ok('table page is served', st==200 and 'you want a table' in pg, st)
     st,t,_=a.req('/api/hq/enquiries.csv?status=done',raw=True); ok('enquiries CSV with filter', 'Lara Demir' in t and 'Ali' not in t)
     # pass e-mail

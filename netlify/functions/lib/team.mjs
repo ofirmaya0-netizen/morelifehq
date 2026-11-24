@@ -99,6 +99,7 @@ export async function describe(s, parts, m, b, j) {
   }
   if (a === 'audiences') return p1 === 'preview' ? null : [del ? 'Kitleyi sildi' : put ? 'Kitleyi düzenledi' : 'Kitle oluşturdu', (j.audience && j.audience.name) || ''];
   if (a === 'tasks') return [del ? 'Görevi sildi' : put ? (b.status === 'done' ? 'Görevi bitirdi' : 'Görevi düzenledi') : 'Görev ekledi', (j.task && j.task.title) || ''];
+  if (a === 'enquiries' && p2 === 'confirm') return b.dryRun || !j.enquiry ? null : ['Masayı onayladı', j.enquiry.name, [j.enquiry.eventTitle, j.enquiry.table.party + ' kişi', [j.enquiry.table.mail.status === 'sent' ? 'e-posta' : '', j.enquiry.table.wa.status === 'sent' ? 'WhatsApp' : ''].filter(Boolean).join(' + ')].filter(Boolean).join(' · ')];
   if (a === 'enquiries') return ['Talebi güncelledi', (j.enquiry && j.enquiry.name) || '', b.status ? 'durum: ' + b.status : ''];
   if (a === 'site') return [p2 === 'publish' ? 'Ana sayfayı yayınladı' : p2 === 'rollback' ? 'Ana sayfayı önceki sürüme döndürdü' : 'Ana sayfa taslağını düzenledi', ''];
   if (a === 'seo') return ['SEO varsayılanlarını düzenledi', ''];
