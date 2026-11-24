@@ -20,21 +20,23 @@ function fileStore(dir) {
   };
 }
 
+// The Blobs client is made again for every call. A function instance stays warm across many requests, and the access
+// token Netlify hands it is short-lived: a client kept from an earlier request starts failing with "Token expired".
 async function blobStore(name) {
   const { getStore } = await import('@netlify/blobs');
-  const s = getStore({ name: name || storeName(), consistency: 'strong' });
+  const s = () => getStore({ name: name || storeName(), consistency: 'strong' });
   return {
-    get: (k) => s.get(k, { type: 'json' }),
-    set: (k, v) => s.setJSON(k, v),
-    del: (k) => s.delete(k),
-    async create(k, v) { const r = await s.setJSON(k, v, { onlyIfNew: true }); return !!(r && r.modified); },
-    async list(prefix) { const r = await s.list({ prefix }); return r.blobs.map((b) => b.key); },
-    setBin: (k, buf, type) => s.set(k, buf, { metadata: { type } }),
+    get: (k) => s().get(k, { type: 'json' }),
+    set: (k, v) => s().setJSON(k, v),
+    del: (k) => s().delete(k),
+    async create(k, v) { const r = await s().setJSON(k, v, { onlyIfNew: true }); return !!(r && r.modified); },
+    async list(prefix) { const r = await s().list({ prefix }); return r.blobs.map((b) => b.key); },
+    setBin: (k, buf, type) => s().set(k, buf, { metadata: { type } }),
     async getBin(k) {
-      const r = await s.getWithMetadata(k, { type: 'arrayBuffer' });
+      const r = await s().getWithMetadata(k, { type: 'arrayBuffer' });
       return r ? { buf: Buffer.from(r.data), type: (r.metadata && r.metadata.type) || 'application/octet-stream' } : null;
     },
-    delBin: (k) => s.delete(k)
+    delBin: (k) => s().delete(k)
   };
 }
 
