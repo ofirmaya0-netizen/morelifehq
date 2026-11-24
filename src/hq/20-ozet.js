@@ -34,7 +34,7 @@
     var tiles = (canRsvp ? stat('view=rsvp&durum=pending', s.pendingRsvps, 'Bekleyen başvuru', 'mail', 1) : '') +
       (money ? stat('view=booking', s.payments.length, '14 gün içinde ödeme', 'coin', s.payments.some(function (p) { return p.late; })) : '') +
       (full ? stat('view=gorevler&durum=overdue', s.overdueTasks, 'Geciken görev', 'task', 1) : '') +
-      (H.can('etkinlikler') ? stat('view=etkinlikler&durum=published', s.upcoming.length, 'Yaklaşan etkinlik', 'cal') : '') +
+      (H.can('etkinlikler') ? stat('view=etkinlikler&durum=upcoming', s.upcoming.length, 'Yaklaşan etkinlik', 'cal') : '') +
       (canRsvp && !money ? stat('view=rsvp&durum=approved', s.approvedGuests, 'Onaylanan misafir', 'check') : '');
 
     var sales = s.upcoming.some(function (x) { return x.useTickets && x.ticketUrl; });
