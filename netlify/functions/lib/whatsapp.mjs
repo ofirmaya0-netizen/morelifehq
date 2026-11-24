@@ -1,6 +1,7 @@
 // WhatsApp through Bird's Channels API. Active only when BIRD_ACCESS_KEY and BIRD_WORKSPACE_ID are set.
 // Business-initiated messages must use a template Meta has approved; nothing is recorded as sent unless Bird accepted it.
-import { normPhone, dateEn } from './util.mjs';
+import { normPhone, dateEn, str, now } from './util.mjs';
+import { hash, id } from './auth.mjs';
 const API = () => (process.env.BIRD_API_URL || 'https://api.bird.com').replace(/\/$/, '');
 const WS = () => process.env.BIRD_WORKSPACE_ID;
 export const waStatus = () => ({ connected: !!(process.env.BIRD_ACCESS_KEY && WS()), missing: ['BIRD_ACCESS_KEY', 'BIRD_WORKSPACE_ID'].filter((k) => !process.env[k]) });
@@ -29,7 +30,9 @@ export async function waSend(s, to, tpl, params) {
   try {
     const j = await waCall('/channels/' + (await channelId(s)) + '/messages', 'POST', { receiver: { contacts: [{ identifierValue: phone, identifierKey: 'phonenumber' }] },
       template: { projectId: tpl.projectId, version: tpl.version, locale: tpl.locale || 'en', parameters: Object.entries(params || {}).map(([key, value]) => ({ type: 'string', key, value: String(value == null ? '' : value) })) } });
-    return { status: 'sent', at: new Date().toISOString(), id: String(j.id || ''), state: String(j.status || 'accepted') };
+    const at = new Date().toISOString();
+    try { await waRecordOut(s, phone, { birdId: String(j.id || ''), at, kind: 'template', text: tplText(await waSettings(s), tpl, params) }); } catch (e) { console.error('wa log', e); }
+    return { status: 'sent', at, id: String(j.id || ''), state: String(j.status || 'accepted') };
   } catch (e) { return { status: 'failed', at: new Date().toISOString(), error: String(e.message || e) }; }
 }
 export const passParams = (e, r) => ({ name: r.name.split(' ')[0], event: e.title, date: [dateEn(e.date), e.time].filter(Boolean).join(' · '), venue: [e.venue, e.city].filter(Boolean).join(', '), token: r.passToken });
@@ -41,3 +44,22 @@ export const invitePreview = (e, r) => ({ image: e.wideImageId || e.imageId || '
 // A contact saved without a name carries its e-mail as the name; greet those without one.
 export const greetName = (c) => (/@/.test(c.name || '') ? '' : String(c.name || '').trim().split(/\s+/)[0]);
 export const inviteParams = (e, c, origin, token) => { const p = invitePreview(e, { name: greetName(c) || 'Hi' }); return { name: p.name, title: p.title, line: p.line, promo: p.promo, image: p.image ? origin + '/api/public/image/' + p.image : '', token }; };
+
+// What a sent template says, in one line, for the conversation in HQ → Mesajlar. The full wording lives in Bird / Meta.
+export function tplText(set, tpl, params) {
+  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : 'Şablon mesajı';
+  const main = [p.title || p.event, p.line || p.date, p.venue].filter(Boolean);
+  const rest = main.length ? main : Object.entries(p).filter(([k, v]) => !['token', 'image', 'name'].includes(k) && v && !/^https?:/.test(String(v))).map(([, v]) => String(v));
+  return (label + (rest.length ? ': ' + rest.join(' · ') : '')).slice(0, 600);
+}
+// Keeps a message sent from the More Life line with its number's conversation. A number that has never written has no
+// conversation in the list yet; its messages wait here and appear as history when it first writes.
+export const waThreadKey = (phone) => hash(phone).slice(0, 24);
+export async function waRecordOut(s, phone, m) {
+  if (!/^\+\d{8,15}$/.test(phone) || (m.birdId && !(await s.create('waseen/' + hash(m.birdId), { at: now() })))) return false;
+  const k = waThreadKey(phone), at = m.at || now(), msg = { dir: 'out', at, kind: m.kind || 'text', text: str(m.text, 4000), birdId: m.birdId || '', ...(m.by ? { by: m.by } : {}) };
+  await s.set('wamsgs/' + k + '/' + at + '~' + id(), msg);
+  const t = await s.get('wathreads/' + k);
+  if (t && at > (t.lastAt || '')) { Object.assign(t, { lastAt: at, lastText: msg.text.slice(0, 160), lastDir: 'out' }, m.read ? { readAt: at } : {}); await s.set('wathreads/' + k, t); }
+  return msg;
+}
