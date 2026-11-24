@@ -7,14 +7,14 @@ export const waStatus = () => ({ connected: !!(process.env.BIRD_ACCESS_KEY && WS
 const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en' }, invite: { projectId: '', version: '', locale: 'en' } };
 export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) } }; };
 
-async function call(path, method, body) {
+export async function waCall(path, method, body) {
   const r = await fetch(API() + '/workspaces/' + WS() + path, { method, headers: { authorization: 'AccessKey ' + process.env.BIRD_ACCESS_KEY, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(String(j.message || j.code || (j.errors && JSON.stringify(j.errors)) || 'HTTP ' + r.status).slice(0, 240));
   return j;
 }
-export async function waChannels() { const j = await call('/channels?limit=100', 'GET'); return (j.results || []).filter((c) => /whatsapp/i.test(c.platformId || '')).map((c) => ({ id: c.id, name: c.name, status: c.status, identifier: c.identifier || '' })); }
-async function channelId(s) {
+export async function waChannels() { const j = await waCall('/channels?limit=100', 'GET'); return (j.results || []).filter((c) => /whatsapp/i.test(c.platformId || '')).map((c) => ({ id: c.id, name: c.name, status: c.status, identifier: c.identifier || '' })); }
+export async function channelId(s) {
   if (process.env.BIRD_CHANNEL_ID) return process.env.BIRD_CHANNEL_ID;
   const set = await waSettings(s); if (set.channelId) return set.channelId;
   const list = await waChannels(); if (!list.length) throw new Error('Bird’de WhatsApp kanalı bulunamadı.');
@@ -27,7 +27,7 @@ export async function waSend(s, to, tpl, params) {
   if (!/^\+\d{8,15}$/.test(phone)) return { status: 'failed', at: new Date().toISOString(), error: 'Telefon numarası uluslararası biçimde değil (+90…).' };
   if (!tpl || !tpl.projectId || !tpl.version) return { status: 'failed', at: new Date().toISOString(), error: 'WhatsApp şablonu Ayarlar’da tanımlı değil.' };
   try {
-    const j = await call('/channels/' + (await channelId(s)) + '/messages', 'POST', { receiver: { contacts: [{ identifierValue: phone, identifierKey: 'phonenumber' }] },
+    const j = await waCall('/channels/' + (await channelId(s)) + '/messages', 'POST', { receiver: { contacts: [{ identifierValue: phone, identifierKey: 'phonenumber' }] },
       template: { projectId: tpl.projectId, version: tpl.version, locale: tpl.locale || 'en', parameters: Object.entries(params || {}).map(([key, value]) => ({ type: 'string', key, value: String(value == null ? '' : value) })) } });
     return { status: 'sent', at: new Date().toISOString(), id: String(j.id || ''), state: String(j.status || 'accepted') };
   } catch (e) { return { status: 'failed', at: new Date().toISOString(), error: String(e.message || e) }; }

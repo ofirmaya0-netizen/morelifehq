@@ -103,3 +103,16 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `tickets/<eventId>/<id>` gains `addon` and `due` (on the first ticket of a unit, cleared when collected).
 - Door lists (`/api/door/list`, `rsvps/<eventId>` for HQ) carry `h`: the first 20 hex characters of sha256 of the QR key. The key itself never leaves the server; a device without a connection matches scans against `h`, queues the entries in its own storage and sends them later with `at` (accepted when within the last 24 hours).
 - Nothing new is stored for notices to ticket holders, "My tickets" or the settlement report: they read orders and tickets. Rate-limit counters: `mine/<ip>`, `mine-to/<email>`.
+
+## Incoming WhatsApp messages (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `config/waHook` | Bird webhook subscription: `id`, `url`, `channelId`, when and by whom it was connected, and the signing `key`. Made by the server, never returned by any route, left out of backups like the rest of `config/` |
+| `wathreads/<key>` | One conversation per phone number (`key` = hash of the number): `phone`, WhatsApp `name`, `contactId` when the number is in the CRM, `lastAt`, `lastText`, `lastDir`, `lastInAt`, `readAt`, `optOut` |
+| `wamsgs/<key>/<time>~<id>` | One message: `dir` (`in` / `out`), `at`, `kind`, `text`, Bird's id, and `by` for a reply sent from HQ |
+| `waseen/<hash of Bird's message id>` | Atomic claim: Bird delivers at least once, a message is stored once |
+
+- `POST /api/public/wa-hook` accepts only requests signed with the subscription's key (`BIRD_WEBHOOK_SECRET` overrides the stored key when the subscription is created by hand in Bird).
+- A conversation is unread while `lastInAt` is later than `readAt`. A reply is allowed for 24 hours after `lastInAt`.
+- A message that is exactly `STOP` (also `unsubscribe`, `dur`, `durdur`) tags the matching CRM contact `mesaj-istemiyor`.
+- Media is not copied into HQ: such a message shows its type and caption, the file stays in Bird.
