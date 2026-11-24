@@ -27,6 +27,7 @@ Her kayıt bir JSON belgesidir. Anahtar düzeni:
 | `settings/seo` | SEO varsayılanları ve organizatör kimliği |
 | `utm/<id>` | Kaydedilmiş kampanya linki |
 | `hits/<eventId>/<gün>/<tür>/<id>` | Sayfa görüntüleme / bilet linki tıklaması (kişisel veri ve link anahtarı içermez) |
+| `linkhits/<gün>/<etiket>/<id>` | Link sayfası (`/links`) sayacı: `view` = sayfa ziyareti, diğer etiketler basılan link (kişisel veri içermez) |
 | `rate/<key>` | Kötüye kullanım sınırı sayaçları |
 
 Şema değişiklikleri `netlify/functions/lib/migrations.mjs` içindeki sıralı listeyle uygulanır;

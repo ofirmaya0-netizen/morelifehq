@@ -356,7 +356,12 @@ async function marketing(req, parts, url, s) {
     const sold = await eventSales(s, e.id); if (sold) { row.tickets = sold.tickets; row.net = sold.net; row.currency = sold.currency; } // sold on More Life's own shop; null when the event sells elsewhere
     events.push(row);
   }
-  return json({ from, to, events: events.sort((a, b) => (b.date || '').localeCompare(a.date || '')), campaigns: Object.values(camp).sort((a, b) => b.rsvps - a.rsvps || b.views - a.views), truncated,
+  // link-in-bio page (/links): views, presses per link, and sign-ups that came through its form
+  const linkPage = { views: 0, signups: 0, clicks: {} };
+  for (const k of (await s.list('linkhits/')).filter((x) => { const d = x.split('/')[1]; return d >= from && d <= to; })) { const l = k.split('/')[2]; if (l === 'view') linkPage.views += 1; else linkPage.clicks[l] = (linkPage.clicks[l] || 0) + 1; }
+  for (const q of await all('enquiries/')) if (q.path === '/links' && istDay(q.createdAt) >= from && istDay(q.createdAt) <= to) linkPage.signups += 1;
+  const links2 = { views: linkPage.views, signups: linkPage.signups, clicks: Object.entries(linkPage.clicks).map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n) };
+  return json({ from, to, links: links2, events: events.sort((a, b) => (b.date || '').localeCompare(a.date || '')), campaigns: Object.values(camp).sort((a, b) => b.rsvps - a.rsvps || b.views - a.views), truncated,
     notes: ['Ziyaret ve bilet linki tıklaması More Life’ın kendi sayacından gelir; etkinlik ve davet sayfalarını kapsar, botlar hariç tutulur.', 'Bilet linki tıklaması satış değildir. Satış sütunu yalnızca More Life’ın kendi sayfasında satılan biletleri sayar; harici bilet linki kullanan etkinliklerde boş kalır.'] });
 }
 
