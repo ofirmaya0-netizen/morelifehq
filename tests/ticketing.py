@@ -85,7 +85,7 @@ try:
     ok('second scan is a duplicate', a.req('/api/hq/checkin','POST',{'eventId':eid,'token':ptok})[1]['result']=='duplicate')
     a.req('/api/hq/events/'+eid+'/door-link','POST',{}); dk=a.req('/api/hq/events/'+eid)[1]['event']['doorUrl'].split('k=')[1]
     st,j,_=anon.req('/api/door/list',headers={'x-door':dk}); g=[x for x in j['guests'] if x.get('ticket')]; ok('door link lists tickets by name only', len(g)==9 and 'email' not in g[0], g[:1])
-    st,j,_=anon.req('/api/door/checkin','POST',{'rsvpId':g[1]['id']},headers={'x-door':dk}); ok('door link checks a ticket in by name', j['result']=='ok' and 'email' not in j['rsvp'], j)
+    vg=[x for x in g if x['name']=='Derin Su'][0]; st,j,_=anon.req('/api/door/checkin','POST',{'rsvpId':vg['id']},headers={'x-door':dk}); ok('door link checks a ticket in by name', j['result']=='ok' and 'email' not in j['rsvp'], j)
     ok('checked-in ticket cannot be transferred', anon.req('/api/public/ticket','POST',{'o':tok,'ticketId':tk[0]['id'],'name':'Yeni Kişi','email':'yeni@x.com'})[0]==409)
     t2=order(tok2)['tickets'][0]; old=t2['url'].split('=')[1]
     st,j,_=anon.req('/api/public/ticket','POST',{'o':tok2,'ticketId':t2['id'],'name':'Yeni Kişi','email':'yeni@x.com'}); new=j['url'].split('=')[1]
@@ -93,6 +93,34 @@ try:
     ok('old QR is refused at the door', a.req('/api/hq/checkin','POST',{'eventId':eid,'token':old})[1]['result']=='invalid')
     ok('someone else’s order key cannot move a ticket', anon.req('/api/public/ticket','POST',{'o':tok,'ticketId':t2['id'],'name':'Kötü Niyet','email':'k@x.com'})[0]==404)
     ok('transfers can be switched off', a.req(T+'/shop','PUT',{'transfers':False})[0]==200 and anon.req('/api/public/ticket','POST',{'o':tok2,'ticketId':order(tok2)['tickets'][1]['id'],'name':'Baş Ka','email':'b@x.com'})[0]==403)
+
+    # ---------- language ----------
+    st,j,_=anon.req('/api/public/checkout','POST',{'slug':slug,'items':[{'typeId':ga,'qty':1}],'name':'Tek','email':'x@x.com','terms':True,'lang':'tr'}); ok('errors come back in the buyer’s language', st==400 and 'geçerli bir e-posta' in j['error'], j)
+
+    # ---------- waitlist + resale ----------
+    solo=a.req(T+'/types','POST',{'name':'Backstage','price':500,'stock':1})[1]['type']['id']
+    st,j,tb=buy([{'typeId':solo,'qty':1}],email='first@x.com',name='İlk Alan'); tkb=order(tb)['tickets'][0]
+    sv=lambda: {t['name']:t for t in anon.req('/api/public/shop?slug='+slug)[1]['types']}['Backstage']
+    ok('sold-out type offers its waitlist', sv()['state']=='soldout' and sv()['notify']=='waitlist', sv())
+    ok('waitlist needs an e-mail', anon.req('/api/public/waitlist','POST',{'slug':slug,'typeId':solo,'email':'nope'})[0]==400)
+    ok('joined, twice is still one place', anon.req('/api/public/waitlist','POST',{'slug':slug,'typeId':solo,'email':'wait@x.com','name':'Bekleyen Biri','qty':1})[0]==200 and anon.req('/api/public/waitlist','POST',{'slug':slug,'typeId':solo,'email':'WAIT@x.com'})[0]==200 and {t['id']:t for t in a.req(T)[1]['types']}[solo]['waiting']==1)
+    ok('no waitlist for a type that is on sale', anon.req('/api/public/waitlist','POST',{'slug':slug,'typeId':ga,'email':'w2@x.com'})[0]==409)
+    ok('waitlist CSV', 'wait@x.com' in a.req(T+'/waitlist.csv',raw=True)[1])
+    ok('resale is off unless switched on', anon.req('/api/public/resale','POST',{'o':tb,'ticketId':tkb['id']})[0]==403 and order(tb)['tickets'][0]['canResell'] is False)
+    a.req(T+'/shop','PUT',{'resale':True}); ok('holder may now list the ticket', order(tb)['tickets'][0]['canResell'] is True and order(tb)['tickets'][0]['back']==500)
+    ok('a table seat cannot be resold alone', order(tok3)['tickets'][0]['canResell'] is False and anon.req('/api/public/resale','POST',{'o':tok3,'ticketId':order(tok3)['tickets'][0]['id']})[0]==409)
+    ok('listed: still the holder’s, and on sale again', anon.req('/api/public/resale','POST',{'o':tb,'ticketId':tkb['id']})[0]==200 and order(tb)['tickets'][0]['listed'] and anon.req('/api/public/pass?t='+tkb['url'].split('=')[1])[0]==200 and sv()['state']=='on' and sv()['resale'] is True)
+    ok('listed ticket cannot be handed over at the same time', anon.req('/api/public/ticket','POST',{'o':tb,'ticketId':tkb['id'],'name':'Baş Ka','email':'b@x.com'})[0]==409)
+    ok('holder can take it off sale', anon.req('/api/public/resale','POST',{'o':tb,'ticketId':tkb['id'],'list':False})[0]==200 and sv()['state']=='soldout')
+    anon.req('/api/public/resale','POST',{'o':tb,'ticketId':tkb['id']})
+    st,j,tn=buy([{'typeId':solo,'qty':1}],email='second@x.com',name='İkinci Alan',pay=None)
+    ok('while someone is paying, the listing is taken and cannot be withdrawn', sv()['state']=='soldout' and anon.req('/api/public/resale','POST',{'o':tb,'ticketId':tkb['id'],'list':False})[0]==409)
+    ok('second buyer cannot take the same listing', buy([{'typeId':solo,'qty':1}],email='third@x.com',name='Üçüncü Alan')[0]==409)
+    form(anon,'/api/public/pay/test?o='+tn,{'result':'ok'}); ob=order(tb)
+    ok('sold on: old QR dead, new holder has a ticket', order(tn)['order']['status']=='paid' and len(order(tn)['tickets'])==1 and ob['tickets'][0]['status']=='void' and ob['tickets'][0]['resold'] and anon.req('/api/public/pass?t='+tkb['url'].split('=')[1])[0]==404)
+    ok('first holder gets the ticket price back, not the fee', ob['order']['status']=='refunded' and ob['order']['refunded']==500 and ob['order']['total']==555, ob['order'])
+    ok('still exactly one unit sold', {t['id']:t for t in a.req(T)[1]['types']}[solo]['taken']==1 and sv()['state']=='soldout')
+    a.req(T+'/shop','PUT',{'resale':False})
 
     # ---------- admin: orders, refunds, comps, box office ----------
     st,j,_=a.req(T+'/orders'); ords={o['buyer']['email']:o for o in j['orders']}; ok('orders listed without stock keys or payment internals', 'ada@x.com' in ords and 'slots' not in ords['ada@x.com'] and 'items' not in (ords['ada@x.com'].get('payment') or {}), ords.get('ada@x.com'))
@@ -115,18 +143,20 @@ try:
     # ---------- figures ----------
     s=a.req(T)[1]['sales']; bt={x['name']:x for x in s['byType']}
     # the race winner never paid. ada 2210 + bora 2650 (refunded) + vip 22005 + free 0 + comp 0 + door 1500
-    ok('sales: gross, refunds, net', s['gross']==28365 and s['refunds']==2650 and s['net']==25715 and s['orders']==6, {k:s[k] for k in ['gross','refunds','net','orders','tickets']})
+    ok('sales: gross, refunds, net', s['gross']==28365+1110 and s['refunds']==2650+500 and s['net']==25715+610 and s['orders']==8, {k:s[k] for k in ['gross','refunds','net','orders','tickets']})
     ok('sales: by type and check-ins', bt['Early Bird']['sold']==2 and s['checkedIn']==2 and bt['VIP Masa (4 kişi)']['sold']==4 and bt['General']['sold']==3, bt)
     ok('sales: by source', any(x['name']=='instagram / launch' and x['tickets']==2 for x in s['bySource']) and any(x['name']=='Kapı satışı' for x in s['bySource']), s['bySource'])
-    e0=a.req('/api/hq/summary')[1]['upcoming'][0]; ok('Özet carries ticket sales', e0['sales']['tickets']==s['tickets'] and e0['sales']['last7']>0 and e0['sales']['net']==25715, e0.get('sales'))
+    e0=a.req('/api/hq/summary')[1]['upcoming'][0]; ok('Özet carries ticket sales', e0['sales']['tickets']==s['tickets'] and e0['sales']['last7']>0 and e0['sales']['net']==25715+610, e0.get('sales'))
     ok('all-events sales list', a.req('/api/hq/tickets/sales')[1]['events'][0]['tickets']==s['tickets'])
     ok('buyers land in the CRM tagged', a.req('/api/hq/contacts?limit=5&tag=bilet')[1]['matched']>=4)
+    mk=a.req('/api/hq/marketing')[1]['events'][0]; ok('Marketing shows tickets sold here', mk['tickets']==s['tickets'] and mk['net']==s['net'], mk)
     acts=[(x['action'],x['target']) for x in a.req('/api/hq/audit')[1]['entries']]
     ok('record: sales changes', ('Bilet iadesi yaptı','Bora Kaya') in acts and ('Bilet satışını açtı','Gece') in acts and ('Davetiye bileti verdi','Basın Listesi') in acts and any(x[0]=='Bilet türü ekledi' for x in acts), acts[:14])
     # roles
     st,j,_=a.req('/api/hq/team','POST',{'name':'Kapı Ali','email':'ali@x.com','role':'door'}); d=C(); d.req('/api/hq/setup','POST',{'t':j['setupUrl'].split('kur=')[1],'password':'uzun-bir-sifre-1'})
     ok('door role: no orders, but ticket holders at the door', d.req(T+'/orders')[0]==403 and len(d.req('/api/hq/rsvps/'+eid)[1]['tickets'])>=8 and 'email' not in d.req('/api/hq/rsvps/'+eid)[1]['tickets'][0])
     # unpaid baskets expire
+    a.req(T+'/shop','PUT',{'remind':True})  # the reminder path runs too (no mail service here, so nothing is sent)
     st,j,tokx=buy([{'typeId':eb,'qty':3}],email='late@x.com',name='Geç Kalan',pay=None); before={t['id']:t for t in a.req(T)[1]['types']}[eb]['taken']
     import glob, json as J, datetime
     for f in glob.glob(ROOT+'/.data/pending*'):

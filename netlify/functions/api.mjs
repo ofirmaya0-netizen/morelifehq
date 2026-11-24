@@ -141,7 +141,7 @@ async function publicApi(req, ctx, parts, url) {
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
-  if (['shop', 'checkout', 'pay', 'order', 'ticket'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
+  if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
     if (ref && ref.ticketId) { // a bought ticket opens in the same pass page as an approved guest

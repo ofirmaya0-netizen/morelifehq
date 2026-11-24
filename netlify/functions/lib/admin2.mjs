@@ -10,6 +10,7 @@ import { SCHEMA_VERSION } from './migrations.mjs';
 import { SITE_HTML } from './site-html.mjs';
 import { emailStatus } from './email.mjs';
 import { waStatus, waSettings, waChannels, waSend } from './whatsapp.mjs';
+import { eventSales } from './tickets.mjs';
 
 /* ---------- CRM ---------- */
 const C_TEXT = { name: 120, email: 200, phone: 40, instagram: 80, company: 120, source: 80, notes: 4000 };
@@ -352,10 +353,11 @@ async function marketing(req, parts, url, s) {
       if (r.status === 'approved') { row.approved += 1; b.approved += 1; }
       if (r.checkedInAt) { row.checkedIn += 1; b.checkedIn += 1; }
     }
+    const sold = await eventSales(s, e.id); if (sold) { row.tickets = sold.tickets; row.net = sold.net; row.currency = sold.currency; } // sold on More Life's own shop; null when the event sells elsewhere
     events.push(row);
   }
   return json({ from, to, events: events.sort((a, b) => (b.date || '').localeCompare(a.date || '')), campaigns: Object.values(camp).sort((a, b) => b.rsvps - a.rsvps || b.views - a.views), truncated,
-    notes: ['Ziyaret ve bilet linki tıklaması More Life’ın kendi sayacından gelir; etkinlik ve davet sayfalarını kapsar, botlar hariç tutulur.', 'Bilet linki tıklaması satış değildir. Satış rakamı yalnızca bağlı bir bilet platformundan veya yüklenen satış raporundan gelebilir; şu an bağlı kaynak yok.'] });
+    notes: ['Ziyaret ve bilet linki tıklaması More Life’ın kendi sayacından gelir; etkinlik ve davet sayfalarını kapsar, botlar hariç tutulur.', 'Bilet linki tıklaması satış değildir. Satış sütunu yalnızca More Life’ın kendi sayfasında satılan biletleri sayar; harici bilet linki kullanan etkinliklerde boş kalır.'] });
 }
 
 /* ---------- Google (Search Console + GA4 Data API) ---------- */

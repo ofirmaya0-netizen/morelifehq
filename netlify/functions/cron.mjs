@@ -10,7 +10,7 @@ export default async (req, ctx) => {
   setDeployContext((ctx && ctx.deploy && ctx.deploy.context) || process.env.CONTEXT);
   const s = await store(); await migrate(s, storeName());
   try { console.log('automation', JSON.stringify(await runSchedule(s, SITE_URL()))); } catch (err) { console.error('automation', err); }
-  try { console.log('unpaid baskets released', await sweep(s)); } catch (err) { console.error('sweep', err); }
+  try { console.log('baskets', JSON.stringify(await sweep(s, '', { reconcile: true }))); } catch (err) { console.error('sweep', err); }
   await flushDirty();
   try { console.log('backup', JSON.stringify(await dailyBackup())); } catch (err) { console.error('backup', err); } // a failed backup never stops the guest messages
   return new Response('ok');

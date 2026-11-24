@@ -83,3 +83,6 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 
 - Card details never reach HQ. The provider adapters are in `lib/payments.mjs`; keys live only in `IYZICO_API_KEY`, `IYZICO_SECRET_KEY`, `IYZICO_BASE_URL`.
 - The `test` provider moves no money and is refused on the live store (`morelife-hq`) unless `HQ_PAYMENTS_TEST=1`.
+- `twait/<eventId>/<id>` — someone who asked to be told when a type can be bought (sold out, or sale not open yet): type, e-mail, quantity, language, `waiting` / `notified`. One record per e-mail and type.
+- `tresale/<typeId>/<ticketId>` — a ticket its holder put back on sale; `tresaleTaken/<typeId>/<ticketId>` — the atomic claim of a basket that is buying it. On payment the old ticket is voided and its price refunded to the first buyer.
+- `orders/….lang` (`en` / `tr`) decides the language of that buyer's mails; `orders/….reminded` records the one unpaid-basket reminder.
