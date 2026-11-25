@@ -50,7 +50,7 @@
 .vp-note{font-size:13px;color:var(--mute)}
 @media (max-width:560px){.vp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media print{
-  body{background:#fff;color:#000}.g-wrap{background:none;padding:0}.g-wrap::before,.vp-tools,.vp-evs,.vp-live,.vp-note{display:none!important}
+  body{background:#fff;color:#000}.g-wrap{background:none;padding:0}.g-wrap::before,.vp-tools,#vp-msg,.vp-evs,.vp-live,.vp-note{display:none!important}
   .g-card{background:none;border:0;padding:0}.vp-stat,.vp-list,.vp-row{border-color:#bbb;background:none}.vp-main span,.vp-side span,.vp-stat span,.vp-when,.vp-h span{color:#444}.vp-tag{border:1px solid #999;color:#000;background:none}.vp-row{break-inside:avoid}.g-logo img{filter:invert(1)}
 }
 </style>
@@ -92,12 +92,17 @@
     var ev = data.events.filter(function (x) { return x.id === data.event.id; })[0], c = ev.counts;
     if (!built) {
       card.innerHTML = '<div class="vp-top"><span class="g-pill">' + esc(data.venue) + '</span><span class="vp-live" id="vp-live"><i></i><span></span></span></div><div class="vp-evs" id="vp-evs"></div><div id="vp-head"></div><div class="vp-stats" id="vp-stats"></div>' +
-        '<div class="vp-tools"><label class="sr-only" for="vp-q">' + S('Search', 'Ara') + '</label><input id="vp-q" type="search" autocomplete="off" placeholder="' + S('Search a name or table', 'İsim ya da masa ara') + '"><button class="btn quiet" type="button" id="vp-print">' + S('Print', 'Yazdır') + '</button></div>' +
+        '<div class="vp-tools"><label class="sr-only" for="vp-q">' + S('Search', 'Ara') + '</label><input id="vp-q" type="search" autocomplete="off" placeholder="' + S('Search a name or table', 'İsim ya da masa ara') + '"><button class="btn" type="button" id="vp-scan" hidden>' + S('QR reader', 'QR okuyucu') + '</button><button class="btn quiet" type="button" id="vp-print">' + S('Print', 'Yazdır') + '</button></div>' +
+        '<p class="g-msg bad" id="vp-msg" role="alert" style="min-height:0"></p>' +
         '<section><div class="vp-h"><h2>' + S('Tables', 'Masalar') + '</h2><span id="vp-tn"></span></div><div class="vp-list" id="vp-t"></div></section>' +
         '<section><div class="vp-h"><h2>' + S('Guest list & tickets', 'Misafir listesi ve biletler') + '</h2><span id="vp-gn"></span></div><div class="vp-list" id="vp-g"></div></section>' +
-        '<p class="vp-note">' + S('This page updates by itself. It is for the venue team only; please do not forward the link.', 'Bu sayfa kendiliğinden güncellenir. Yalnızca mekân ekibi içindir; lütfen linki başkasıyla paylaşmayın.') + '</p>';
+        '<p class="vp-note">' + S('This page updates by itself. “QR reader” opens the door screen for the selected event. It is for the venue team only; please do not forward the link.', 'Bu sayfa kendiliğinden güncellenir. “QR okuyucu” seçili etkinliğin kapı ekranını açar. Yalnızca mekân ekibi içindir; lütfen linki başkasıyla paylaşmayın.') + '</p>';
       document.getElementById('vp-q').oninput = function () { q = this.value; rows(); };
       document.getElementById('vp-print').onclick = function () { window.print(); };
+      document.getElementById('vp-scan').onclick = function () {
+        var btn = this; btn.disabled = true;
+        fetch('/api/public/venue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ k: k, e: cur }) }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); location.href = j.url; }); }).catch(function (err) { btn.disabled = false; alertMsg(err.message || S('Could not open the reader.', 'Okuyucu açılamadı.')); });
+      };
       document.getElementById('vp-evs').onclick = function (x) { var b = x.target.closest('[data-e]'); if (b && b.getAttribute('data-e') !== cur) { cur = b.getAttribute('data-e'); load(); } };
       built = true;
     }
@@ -106,8 +111,10 @@
     document.getElementById('vp-head').innerHTML = '<h1 class="g-title" style="font-size:clamp(30px,7vw,48px)">' + esc(ev.title) + '</h1><p class="vp-when">' + esc([day(ev.date, 1), ev.doors ? S('doors ', 'kapı ') + ev.doors : ev.time, ev.artist].filter(Boolean).join(' · ')) + '</p>';
     var st = function (n, l, sub) { return '<div class="vp-stat"><span>' + l + '</span><b>' + n + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; };
     document.getElementById('vp-stats').innerHTML = st(c.expected, S('Expected', 'Beklenen'), S('people in total', 'toplam kişi')) + st(c.tables, S('Tables', 'Masa'), ppl(c.tablePeople)) + st(c.list + c.tickets, S('List & tickets', 'Liste ve bilet'), c.list + ' ' + S('list', 'liste') + ' · ' + c.tickets + ' ' + S('tickets', 'bilet')) + st(c.in, S('Arrived', 'Giriş yapan'), c.expected ? Math.round(c.in / c.expected * 100) + '%' : '');
+    document.getElementById('vp-scan').hidden = !data.scan;
     rows();
   }
+  function alertMsg(t) { var n = document.getElementById('vp-msg'); n.textContent = t; }
   function live(ok) { var el = document.getElementById('vp-live'); if (!el) return; el.className = 'vp-live' + (ok ? '' : ' off'); el.lastChild.textContent = ok ? S('Updated ', 'Güncellendi ') + new Date().toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }) : S('No connection, retrying', 'Bağlantı yok, yeniden deneniyor'); }
   function load() {
     clearTimeout(timer);

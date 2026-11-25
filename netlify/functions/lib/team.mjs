@@ -123,6 +123,7 @@ export async function describe(s, parts, m, b, j) {
     if (del) return ['Ekip üyesini sildi', (j.deleted && j.deleted.name) || ''];
     return ['Ekip üyesini düzenledi', t, j.member ? ROLES[j.member.role].label + (j.member.active ? '' : ' · erişim kapalı') : ''];
   }
+  if (a === 'venue-links' && typeof b.scan === 'boolean' && !b.close) return [b.scan ? 'Mekân portalında QR okumayı açtı' : 'Mekân portalında QR okumayı kapattı', j.venue || ''];
   if (a === 'venue-links') return [b.close ? 'Mekân portalı linkini kapattı' : j.renewed ? 'Mekân portalı linkini yeniledi' : 'Mekân portalı linki oluşturdu', j.venue || ''];
   if (a === 'backups') {
     if (!p1) return ['Yedek aldı', '', (j.backup && j.backup.total) + ' kayıt'];

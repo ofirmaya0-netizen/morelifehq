@@ -81,6 +81,24 @@ try:
     hl=[t for t in anon.req(P)[1]['event']['tables'] if t.get('request')]
     ok('a confirmed one is: held by name, confirmed party and area', hl==[{'label':'','area':'backstage','name':'Masa İsteyen','people':7,'in':None,'request':True}], hl)
 
+    # ---------- QR reader for the venue's own door ----------
+    ok('portal says scanning is on', anon.req(P)[1]['scan'] is True)
+    ok('reader needs a valid key and an event of this venue', anon.req('/api/public/venue','POST',{'k':'nope','e':e1['id']})[0]==404 and anon.req('/api/public/venue','POST',{'k':key,'e':other['id']})[0]==404 and anon.req('/api/public/venue','POST',{'k':key,'e':draft['id']})[0]==404)
+    st,j,_=anon.req('/api/public/venue','POST',{'k':key,'e':e1['id']}); dk=j['url'].split('k=')[1]
+    ok('reader opens the event’s door link, made on the spot', st==200 and j['url'].startswith('/door?k=') and a.req('/api/hq/events/'+e1['id'])[1]['event']['doorUrl']==j['url'], j)
+    ok('asking again gives the same reader', anon.req('/api/public/venue','POST',{'k':key,'e':e1['id']})[1]['url']==j['url'])
+    st,h,_=anon.req('/door?k='+dk,raw=True); st2,dl,_=anon.req('/api/door/list',headers={'x-door':dk})
+    ok('the reader lists this event only: names and party size, no contact details', st==200 and st2==200 and dl['event']['id']==e1['id'] and len(dl['guests'])>=12 and 'example.com' not in json.dumps(dl), (st,st2))
+    pt=anon.req('/api/public/order?t='+tok)[1]['tickets'][0]; ptok=(pt.get('url') or pt.get('pass') or '').split('t=')[-1]
+    st,j,_=anon.req('/api/door/checkin','POST',{'token':ptok},headers={'x-door':dk}); ok('a ticket QR of this event scans in', st==200 and j['result']=='ok', j)
+    ok('the same QR a second time is flagged', anon.req('/api/door/checkin','POST',{'token':ptok},headers={'x-door':dk})[1]['result']=='duplicate')
+    r2=anon.req('/api/public/venue','POST',{'k':key,'e':e2['id']})[1]['url'].split('k=')[1]
+    ok('a QR of another event is refused by that event’s reader', anon.req('/api/door/checkin','POST',{'token':ptok},headers={'x-door':r2})[1]['result']=='wrong-event')
+    ok('the scan shows on the portal', [t for t in anon.req(P)[1]['event']['tables'] if t['name']=='Depozito Masası'][0]['in']==1)
+    st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','scan':False}); ok('HQ switches scanning off; the link itself is unchanged', st==200 and j['link']['scan'] is False and j['link']['url']==url, j)
+    ok('portal still opens, the reader does not', anon.req(P)[1]['scan'] is False and anon.req('/api/public/venue','POST',{'k':key,'e':e1['id']})[0]==403)
+    a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','scan':True}); ok('and on again', anon.req('/api/public/venue','POST',{'k':key,'e':e1['id']})[0]==200)
+
     # ---------- the other event, the other venue ----------
     j=anon.req(P+'&e='+e2['id'])[1]; ok('second event can be picked; it has its own (empty) lists', j['event']['id']==e2['id'] and j['event']['tables']==[] and j['event']['guests']==[], j['event'])
     ok('an event of another venue cannot be picked through this key', anon.req(P+'&e='+other['id'])[1]['event']['id']==e1['id'])
@@ -94,8 +112,8 @@ try:
     ok('the door role is signed in but cannot read or make venue links', d.req('/api/hq/session')[1].get('role')=='door' and d.req('/api/hq/venue-links')[0]==403 and d.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach'})[0]==403)
     st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','close':True}); ok('closed: nothing opens', st==200 and j['closed'] and anon.req('/api/public/venue?k='+new)[0]==404 and a.req('/api/hq/venue-links?venue=Lucca%20Beach')[1]['link'] is None)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
-    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı']), log[:8])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h)
+    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı']), log[:12])
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

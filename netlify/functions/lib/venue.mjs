@@ -1,6 +1,7 @@
 // Venue portal: one private link per venue. Whoever holds it sees, for every published event at that venue that has not
 // passed, who is coming and who has a table: names, party size, table and whether they are in. No e-mail, phone, notes,
-// prices paid or anything from another venue. The link is made, renewed and closed in HQ.
+// prices paid or anything from another venue. Unless HQ switches it off, the venue's door staff can also open the QR
+// reader of those events and check guests in. The link is made, renewed and closed in HQ.
 import { all } from './store.mjs';
 import { token, hash } from './auth.mjs';
 import { json, fail, now, str, body, istToday, slugify } from './util.mjs';
@@ -51,21 +52,33 @@ async function detail(e0, enquiries) {
 const head = (e0) => { const e = live(e0); return { id: e0.id, title: e.title, artist: e.artist || '', date: e.date || '', time: e.time || '', doors: e.doors || '', city: e.city || '' }; };
 
 /* ---------- the portal itself: GET /api/public/venue?k=<key>[&e=<event id>] ---------- */
+// POST { k, e } opens the QR reader of one of the venue's events: the venue's own door staff scan entry passes and
+// tickets of that event only. It hands out the event's door link (made here if HQ has not made one yet), so the reader
+// is the same screen More Life's door staff use, and it closes with the event like any door link.
 export async function venuePublic(req, s, url, limitedNow) {
-  if (req.method !== 'GET') return fail(405, 'Method not allowed');
-  const k = str(url.searchParams.get('k'), 60).replace(/[^A-Za-z0-9_-]/g, ''), l = k && await s.get('vlinks/' + k);
+  if (req.method !== 'GET' && req.method !== 'POST') return fail(405, 'Method not allowed');
+  const b = req.method === 'POST' ? await body(req) : null;
+  const k = str(b ? b.k : url.searchParams.get('k'), 60).replace(/[^A-Za-z0-9_-]/g, ''), l = k && await s.get('vlinks/' + k);
   if (await limitedNow()) return fail(429, 'Too many requests. Please try again in a few minutes.');
   if (!l || !l.key) return fail(404, 'This link is not valid.');
+  if (b) {
+    if (l.scan === false) return fail(403, 'Scanning is switched off for this venue. Please ask More Life.');
+    const e0 = (await eventsAt(l.key)).find((x) => x.id === str(b.e, 40));
+    if (!e0) return fail(404, 'This event is not available.');
+    if (!(e0.door && e0.door.token)) { e0.door = { token: token(24), createdAt: now(), by: 'Mekân portalı' }; e0.updatedAt = now(); await s.set('doors/' + e0.door.token, { eventId: e0.id }); await s.set('events/' + e0.id, e0); }
+    return json({ url: '/door?k=' + e0.door.token });
+  }
   const evs = await eventsAt(l.key), enquiries = evs.length ? await all('enquiries/') : [], out = [];
   for (const e0 of evs) out.push({ ...head(e0), d: await detail(e0, enquiries) });
   const want = str(url.searchParams.get('e'), 40), pick = out.find((x) => x.id === want) || out.find((x) => !x.date || x.date >= istToday()) || out[out.length - 1] || null;
-  return json({ venue: l.venue, at: now(), events: out.map(({ d, ...x }) => ({ ...x, counts: d.counts })), event: pick ? { id: pick.id, tables: pick.d.tables, guests: pick.d.guests } : null });
+  return json({ venue: l.venue, scan: l.scan !== false, at: now(), events: out.map(({ d, ...x }) => ({ ...x, counts: d.counts })), event: pick ? { id: pick.id, tables: pick.d.tables, guests: pick.d.guests } : null });
 }
 
 /* ---------- HQ: /api/hq/venue-links ---------- */
 // GET ?venue=<name> → the link of that venue (or none) · GET → every link · POST { venue, close } → make / renew / close
+// POST { venue, scan } → QR reading on / off
 export async function venueAdmin(req, s, url, me) {
-  const m = req.method, view = async (l) => ({ venue: l.venue, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
+  const m = req.method, view = async (l) => ({ venue: l.venue, scan: l.scan !== false, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
   if (m === 'GET') {
     const v = url.searchParams.get('venue');
     if (v != null) { const key = venueKey(v), l = await linkOf(s, key); return json({ venue: str(v, 160), link: l ? await view(l) : null, events: key ? (await eventsAt(key)).length : 0 }); }
@@ -76,6 +89,8 @@ export async function venueAdmin(req, s, url, me) {
     const b = await body(req), venue = str(b.venue, 160), key = venueKey(venue);
     if (!key) return fail(400, 'Mekân adı gerekli.');
     const old = await linkOf(s, key);
+    // QR reading on / off without changing the link
+    if (typeof b.scan === 'boolean' && !b.close) { if (!old) return fail(404, 'Bu mekânın linki yok.'); old.scan = b.scan; await s.set('vlinks/' + old.token, old); return json({ venue: old.venue, link: await view(old), scan: b.scan }); }
     if (old) await s.del('vlinks/' + old.token); // the old link stops working at once
     if (b.close) { await s.del('vvenue/' + hash(key)); return json({ venue: old ? old.venue : venue, link: null, closed: true }); }
     const l = { token: token(24), venue, key, createdAt: now(), by: (me && me.name) || '' };
