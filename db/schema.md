@@ -134,3 +134,14 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - Capacity: `counts.capacity` is `events/<id>.capacity`; `counts.level` is `near` from 90 % of it and `full` at 100 %. The portal and the HQ check-in screen show the same warning.
 - `events/<id>.venueInvite` = `{ token, venue, createdAt }` + `invites/<token>` → `{ eventId, venue: true }` — the venue's own invitation link of that event, handed out by `POST /api/public/venue { k, e, a: 'invite' }`. It opens the same `/invite` page as More Life's link but is a different key; it works only while the venue's portal link exists and `vlinks/<token>.invite` is not `false` (switched in HQ).
 - `rsvps/<event>/<id>.via` = `venue` + `.invitedBy` (venue name) for a guest who asked through that link. HQ shows “Mekân daveti” on the request and in the guest export; the request still waits for More Life's decision. The portal marks those guests as the venue's and counts `yours` (people approved) and `yoursPending` (requests not decided yet).
+
+## Personal invitation links (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `pinv/<eventId>/<contactId>` | One person's own key for the event's invitation page: `token`, `name`, `g`, `createdAt`. Made when an invitation is sent to an audience, or when the audience's links are downloaded as CSV |
+| `invites/<token>` | Now also `{ eventId, contactId, g }` for such a key. `g` is a mark of the event's invite key at that time: “Linki yenile” ends every personal link with the shared one |
+| `pinvhits/<eventId>/<contactId>/<id>` | One record per opening of that person's link (link-preview robots are not counted) |
+
+- `rsvps/<event>/<id>.inviteOf` = contact whose link was used. When the request's e-mail, phone or name matches that contact it also gets `.personal: true`; otherwise `.via` = `forward` with `.forwardedBy` (contact id) and `.forwardedByName`.
+- `GET /api/hq/events/<id>/invite-tracking` — per invited person: channels sent, openings, own request, requests of the people they passed the link on to. `GET …/invite-links.csv?audience=<id>` makes and lists the links of an audience without sending anything.
+- A request through the shared invite link carries none of these marks and cannot be traced to a person.

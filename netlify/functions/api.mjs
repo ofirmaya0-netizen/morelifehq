@@ -14,7 +14,7 @@ import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.
 import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
-import { inviteRoute } from './lib/invites.mjs';
+import { inviteRoute, personalOf, markPersonal, personalOpen } from './lib/invites.mjs';
 import { emailStatus, sendPass, sendTable, passMail, notifyEnquiry } from './lib/email.mjs';
 import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
@@ -64,6 +64,7 @@ async function publicPage(req, url, parts) {
   if (url.pathname === '/invite') {
     const it = str(url.searchParams.get('t'), 60), ref = await s.get('invites/' + it), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
     if (!e || !(await inviteOk(s, e0, it)) || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
+    if (ref.contactId && !isBot(req.headers.get('user-agent'))) await personalOpen(s, e0, ref.contactId); // how often a personal link was opened
     return page(renderEvent(e, set, { mode: 'invite', token: it }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
   }
   if (parts[0] === 'tickets') { // the shop alone: /tickets/slug for public events, /tickets?t=invite-key for private ones; ?embed=1 inside an iframe
@@ -134,6 +135,8 @@ async function publicApi(req, ctx, parts, url) {
     Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, showName: b.showName === true, referredBy: '', utm, via: b.t ? 'invite' : 'event-page' });
     // asked through the venue's own invitation link: marked, so HQ sees whose guest this is
     const byVenue = b.t ? venueOfInvite(e0, str(b.t, 60)) : ''; if (byVenue) { r.via = 'venue'; r.invitedBy = byVenue; }
+    // asked through one person's own link: theirs, or passed on by them
+    const owner = b.t && !byVenue ? await personalOf(s, e0, str(b.t, 60)) : null; if (owner) markPersonal(r, owner);
     // One request per e-mail per event: only the first writer of this key creates a guest.
     if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
     if (b.ref) { const rf = await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')); if (rf && rf.eventId === e.id) r.referredBy = rf.rsvpId; }
@@ -408,7 +411,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       const pv = (key, label, on, m) => ({ key, label, on, subject: m.subject, html: m.html });
       return json({ email: { status: emailStatus(), pass: { subject: pm.subject, html: pm.html }, all: [pv('pass', 'Giriş kartı (onayda)', true, pm), pv('d1', 'Hatırlatma: bir gün önce', iv.reminders !== false, reminderMail(e, sample, url.origin, 'd1')), pv('h4', 'Hatırlatma: son 4 saat', iv.reminders !== false, reminderMail(e, sample, url.origin, 'h4')), pv('offer', 'Bekleme listesi: yer açıldı', iv.autoWaitlist === true, offerMail(e, sample, url.origin)), pv('thanks', 'Teşekkür (ertesi gün)', iv.thanks !== false, thanksMail(e, sample, url.origin))] }, whatsapp: { status: waStatus(), inviteReady: !!(ws.invite.projectId && ws.invite.version), passReady: !!(ws.pass.projectId && ws.pass.version), invite: invitePreview(e, sample), pass: passParams(e, sample) } });
     }
-    if (parts[2] === 'invite-sends' || parts[2] === 'invite-send') return inviteRoute(req, s, e, url, parts[2]);
+    if (['invite-sends', 'invite-send', 'invite-tracking', 'invite-links.csv'].includes(parts[2])) return inviteRoute(req, s, e, url, parts[2]);
     if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, await rsvpsOf(e.id)), changes: routeChanges(e), seo: eventSeo(e, await seoSettings(s)) });
     if (!parts[2] && m === 'PUT') {
       const r = eventInput(await body(req), e); if (r.error) return fail(400, r.error);
@@ -460,7 +463,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     const e = await s.get('events/' + str(url.searchParams.get('event'), 40)); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const st = url.searchParams.get('status') || '', q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr');
     const rows = (await rsvpsOf(e.id)).filter((r) => (!st || (st === 'checkedin' ? !!r.checkedInAt : r.status === st)) && (!q || (r.name + ' ' + r.email + ' ' + r.phone).toLocaleLowerCase('tr').includes(q))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya', 'Davet eden']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || '', r.via === 'venue' ? 'Mekân: ' + (r.invitedBy || '') : ''])));
+    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya', 'Davet eden']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || '', r.via === 'venue' ? 'Mekân: ' + (r.invitedBy || '') : r.via === 'forward' ? 'İletti: ' + (r.forwardedByName || '') : r.personal ? 'Kişisel link' : ''])));
   }
   if (parts[0] === 'rsvps' && parts[1]) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');

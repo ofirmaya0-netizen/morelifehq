@@ -2,11 +2,41 @@
 // Each person gets each channel at most once per event: `sent/<event>/c-<contact>/invite-<channel>` is an atomic claim,
 // released again if the provider refuses the message so it can be retried.
 import { all, pool } from './store.mjs';
-import { json, fail, now, str, int, body, normPhone } from './util.mjs';
+import { json, fail, now, str, int, body, normPhone, csv } from './util.mjs';
 import { live } from './model.mjs';
 import { audienceMembers } from './admin2.mjs';
 import { emailStatus, sendInvite, inviteMail } from './email.mjs';
 import { waStatus, waSettings, waSend, inviteParams } from './whatsapp.mjs';
+import { token, id } from './auth.mjs';
+import { inviteGen } from './venue.mjs';
+import { normEmail } from './util.mjs';
+
+/* ---------- personal invitation links ---------- */
+// Every person an invitation is sent to gets their own key for the same invitation page (`/invite?t=<key>`), so a request
+// that comes in through it is known to be theirs, or, when somebody else's details are on it, forwarded by them.
+// `pinv/<event>/<contact>` holds the key; `invites/<key>` → { eventId, contactId, g } opens the page.
+export async function personalToken(s, e, c) {
+  const g = inviteGen(e), old = await s.get('pinv/' + e.id + '/' + c.id);
+  if (old && old.g === g) return old.token;
+  const rec = { contactId: c.id, name: c.name || '', token: token(24), g, createdAt: now() };
+  await s.set('invites/' + rec.token, { eventId: e.id, contactId: c.id, g }); await s.set('pinv/' + e.id + '/' + c.id, rec);
+  return rec.token;
+}
+// The CRM person whose link this key is, or null (the event's shared link, a venue's link, an old key).
+export async function personalOf(s, e0, t) {
+  const ref = t && t !== e0.inviteToken ? await s.get('invites/' + t) : null;
+  if (!ref || !ref.contactId || ref.eventId !== e0.id || ref.g !== inviteGen(e0)) return null;
+  return (await s.get('contacts/' + ref.contactId)) || { id: ref.contactId, name: ((await s.get('pinv/' + e0.id + '/' + ref.contactId)) || {}).name || '', email: '', phone: '' };
+}
+const foldName = (n) => str(n, 120).toLocaleLowerCase('tr').replace(/\s+/g, ' ');
+// Marks a new request made through a personal link: the invited person's own, or forwarded by them to somebody else.
+export function markPersonal(r, c) {
+  r.inviteOf = c.id;
+  const self = (c.email && normEmail(c.email) === r.email) || (r.phone && c.phone && normPhone(c.phone) === normPhone(r.phone)) || (c.name && foldName(c.name) === foldName(r.name));
+  if (self) r.personal = true; else { r.via = 'forward'; r.forwardedBy = c.id; r.forwardedByName = c.name || ''; }
+}
+export const personalOpen = (s, e0, contactId) => s.set('pinvhits/' + e0.id + '/' + contactId + '/' + id(), { at: now() });
+
 
 export const OPT_OUT = 'mesaj-istemiyor'; // contacts with this tag are never messaged
 const key = (e, c, ch) => 'sent/' + e.id + '/c-' + c.id + '/invite-' + ch;
@@ -24,6 +54,23 @@ export async function inviteRoute(req, s, e, url, sub) {
     const keys = await s.list('sent/' + e.id + '/c-'), auds = (await all('audiences/')).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
     const sample = { name: 'Ada Yılmaz', email: 'ada@example.com' }, pm = inviteMail(live(e) || e, sample, url.origin, e.inviteToken);
     return json({ audiences: auds.map((a) => ({ id: a.id, name: a.name })), sent: { wa: keys.filter((k) => k.endsWith('/invite-wa')).length, mail: keys.filter((k) => k.endsWith('/invite-mail')).length }, ready: { wa: rd.wa, mail: rd.mail, waWhy: rd.waWhy, mailWhy: rd.mailWhy, block: rd.block }, optOutTag: OPT_OUT, mail: { subject: pm.subject, html: pm.html } });
+  }
+  // Who was sent a personal link, how often it was opened, whether they asked for a place and who they passed it on to.
+  if (sub === 'invite-tracking' && m === 'GET') {
+    const g = inviteGen(e), links = (await all('pinv/' + e.id + '/')).filter((l) => l.g === g), rs = await all('rsvps/' + e.id + '/'), hits = await s.list('pinvhits/' + e.id + '/'), sentKeys = new Set(await s.list('sent/' + e.id + '/c-'));
+    const opens = {}; for (const k of hits) { const c = k.split('/')[2]; opens[c] = (opens[c] || 0) + 1; }
+    const rows = links.map((l) => {
+      const own = rs.find((r) => r.inviteOf === l.contactId && r.via !== 'forward'), fw = rs.filter((r) => r.forwardedBy === l.contactId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return { contactId: l.contactId, name: l.name, url: '/invite?t=' + l.token, sent: { wa: sentKeys.has('sent/' + e.id + '/c-' + l.contactId + '/invite-wa'), mail: sentKeys.has('sent/' + e.id + '/c-' + l.contactId + '/invite-mail') }, opens: opens[l.contactId] || 0, own: own ? { id: own.id, status: own.status, guests: own.guests } : null, forwarded: fw.map((r) => ({ id: r.id, name: r.name, status: r.status, guests: r.guests, at: r.createdAt })) };
+    }).sort((a, b) => b.forwarded.length - a.forwarded.length || b.opens - a.opens || a.name.localeCompare(b.name, 'tr'));
+    return json({ rows, totals: { links: rows.length, opened: rows.filter((x) => x.opens).length, applied: rows.filter((x) => x.own).length, forwarders: rows.filter((x) => x.forwarded.length).length, forwarded: rows.reduce((n, x) => n + x.forwarded.length, 0) } });
+  }
+  // Makes the personal links of a whole audience without sending anything (for invitations sent by hand): name, phone, link.
+  if (sub === 'invite-links.csv' && m === 'GET') {
+    const a = await s.get('audiences/' + str(url.searchParams.get('audience'), 40)); if (!a) return fail(404, 'Kitle bulunamadı.');
+    if (rd.block) return fail(409, rd.block);
+    const rows = []; for (const c of (await audienceMembers(a)).sort((x, y) => (x.name || '').localeCompare(y.name || '', 'tr'))) { if ((c.tags || []).includes(OPT_OUT)) continue; rows.push([c.name, c.phone || '', c.email || '', url.origin + '/invite?t=' + await personalToken(s, e, c)]); }
+    return csv('kisisel-davet-linkleri-' + e.slug + '.csv', [['Ad Soyad', 'Telefon', 'E-posta', 'Kişisel davet linki']].concat(rows));
   }
   if (sub !== 'invite-send' || m !== 'POST') return fail(405, 'Desteklenmiyor.');
   const b = await body(req), a = await s.get('audiences/' + str(b.audienceId, 40)); if (!a) return fail(404, 'Kitle bulunamadı.');
@@ -54,8 +101,9 @@ export async function inviteRoute(req, s, e, url, sub) {
     else { await s.del(key(e, c, ch)); failed.push({ name: c.name, channel: ch, error: r.error || 'Gönderilemedi.' }); }
   };
   await pool(todo, 2, async (t) => { // two at a time keeps under the mail provider's per-second limit
-    if (t.wa) await one(t.c, 'wa', () => waSend(s, t.c.phone, rd.tpl, inviteParams(le, t.c, url.origin, e.inviteToken)));
-    if (t.mail) await one(t.c, 'mail', () => sendInvite(le, t.c, url.origin, e.inviteToken));
+    const pt = await personalToken(s, e, t.c); // each person's own link, so what comes back can be traced to them
+    if (t.wa) await one(t.c, 'wa', () => waSend(s, t.c.phone, rd.tpl, inviteParams(le, t.c, url.origin, pt)));
+    if (t.mail) await one(t.c, 'mail', () => sendInvite(le, t.c, url.origin, pt));
   });
   return json({ sent, failed, skip: plan.skip, total: mem.length, next: to < mem.length ? to : null });
 }
