@@ -44,9 +44,9 @@ try:
     to=sorted(x['to'][0] for x in MAIL); ok('mail only to the audience: no outsider, no opt-out, no one who applied', to==['ada@x.com','bora@x.com','mail@only.com'], to)
     ph=sorted(x['receiver']['contacts'][0]['identifierValue'] for x in WA); ok('WhatsApp only to valid audience numbers', ph==['+905321110001','+905321110003'], ph)
     prm={x['key']:x['value'] for x in [w for w in WA if w['receiver']['contacts'][0]['identifierValue']=='+905321110001'][0]['template']['parameters']}
-    ok('WhatsApp variables', prm['name']=='Ada' and prm['title']=='Santa' and prm['token']==tok and prm['promo']=='Strictly by invitation.' and 'V, Istanbul' in prm['line'], prm)
+    ok('WhatsApp variables (the link key is the person’s own)', prm['name']=='Ada' and prm['title']=='Santa' and prm['token']!=tok and len(prm['token'])>=24 and anon.req('/invite?t='+prm['token'],raw=True)[0]==200 and prm['promo']=='Strictly by invitation.' and 'V, Istanbul' in prm['line'], prm)
     ma=[x for x in MAIL if x['to']==['ada@x.com']][0]; mo=[x for x in MAIL if x['to']==['mail@only.com']][0]
-    ok('mail: subject, first name, invite link, promo line', ma['subject']=='You’re invited — Santa' and 'Ada, you’re on the list' in ma['html'] and '/invite?t='+tok in ma['html'] and 'Strictly by invitation.' in ma['html'], ma['subject'])
+    ok('mail: subject, first name, the same personal link, promo line', ma['subject']=='You’re invited — Santa' and 'Ada, you’re on the list' in ma['html'] and '/invite?t='+prm['token'] in ma['html'] and 'Strictly by invitation.' in ma['html'], ma['subject'])
     ok('nameless contact is not greeted by e-mail address', 'You’re on the list' in mo['html'] and 'mail@only.com, you' not in mo['html'])
     st,j,_=a.req(S,'POST',dict(both,dryRun=True)); ok('second run: nobody left', j['plan']['people']==0 and j['plan']['skip']['already']==4, j['plan'])
     st,j,_=a.req(S,'POST',dict(both,**{'from':0,'size':25})); ok('second send delivers nothing twice', j['sent']=={'wa':0,'mail':0} and len(WA)==2 and len(MAIL)==3, j)

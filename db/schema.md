@@ -120,3 +120,30 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - “Geçmiş mesajları yükle” reads the channel's incoming messages from Bird page by page (`POST /api/hq/inbox/import`). A message already stored is skipped; one older than 24 hours arrives as read. Then it reads the sent ones (`direction: outgoing`): replies typed in Bird and templates.
 - Every template HQ sends (invitation, entry pass, test) is also written to `wamsgs/` as `kind: template`, with one line saying what it was about; the full wording stays in Bird. A number that has never written has messages but no `wathreads/` record, so it is not in the list until it writes.
 - Media is not copied into HQ: such a message shows its type and caption, the file stays in Bird.
+
+## Venue portal (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `vlinks/<token>` | One private link per venue: `venue` (name as typed), `key` (the name folded with `slugify`, so spellings match), `createdAt`, `by` |
+| `vvenue/<hash of key>` | Venue → its current token. Renewing deletes the old `vlinks/` record, so the old link stops at once |
+
+- `/venue?k=<token>` reads `GET /api/public/venue`: every published event whose published venue name folds to the link's key, until two days after its date. Per event: approved guests (name, party size), valid tickets (name, type), tables (plan tables, units that admit several people with what is still due at the venue, and table requests confirmed in HQ) and who is in. No e-mail, phone, note, QR key or price paid.
+- `vlinks/<token>.scan` (absent = on): the venue's door staff may open the QR reader. `POST /api/public/venue { k, e }` returns the door link of that event (`events/<id>.door`, made on the spot when HQ has not made one), so they scan with the same `/door` screen, for that event only. Switched off in HQ without changing the link.
+- Made, renewed and closed in HQ (event → Check-in → “Mekân portalı”, `/api/hq/venue-links`): owner and managers; a viewer can read the link; the rsvp and door roles cannot.
+- `vnotes/<eventId>/<table key>` — `{ key, note, at, by }`: a short note More Life writes for the venue about one table (HQ → Check-in → Mekân portalı → “Masa notları”, `/api/hq/venue-links/notes`). The key is `t-<hash of order and unit>` for a bought table and `q-<enquiry id>` for a confirmed request; it stays in HQ. What a guest typed into a form is never shown to the venue.
+- Capacity: `counts.capacity` is `events/<id>.capacity`; `counts.level` is `near` from 90 % of it and `full` at 100 %. The portal and the HQ check-in screen show the same warning.
+- `events/<id>.venueInvite` = `{ token, venue, createdAt }` + `invites/<token>` → `{ eventId, venue: true }` — the venue's own invitation link of that event, handed out by `POST /api/public/venue { k, e, a: 'invite' }`. It opens the same `/invite` page as More Life's link but is a different key; it works only while the venue's portal link exists and `vlinks/<token>.invite` is not `false` (switched in HQ).
+- `rsvps/<event>/<id>.via` = `venue` + `.invitedBy` (venue name) for a guest who asked through that link. HQ shows “Mekân daveti” on the request and in the guest export; the request still waits for More Life's decision. The portal marks those guests as the venue's and counts `yours` (people approved) and `yoursPending` (requests not decided yet).
+
+## Personal invitation links (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `pinv/<eventId>/<contactId>` | One person's own key for the event's invitation page: `token`, `name`, `g`, `createdAt`. Made when an invitation is sent to an audience, or when the audience's links are downloaded as CSV |
+| `invites/<token>` | Now also `{ eventId, contactId, g }` for such a key. `g` is a mark of the event's invite key at that time: “Linki yenile” ends every personal link with the shared one |
+| `pinvhits/<eventId>/<contactId>/<id>` | One record per opening of that person's link (link-preview robots are not counted) |
+
+- `rsvps/<event>/<id>.inviteOf` = contact whose link was used. When the request's e-mail, phone or name matches that contact it also gets `.personal: true`; otherwise `.via` = `forward` with `.forwardedBy` (contact id) and `.forwardedByName`.
+- `GET /api/hq/events/<id>/invite-tracking` — per invited person: channels sent, openings, own request, requests of the people they passed the link on to. `GET …/invite-links.csv?audience=<id>` makes and lists the links of an audience without sending anything.
+- A request through the shared invite link carries none of these marks and cannot be traced to a person.
+- The next rings: everybody who asks for a place through an invitation link (not the venue's link, not the public event page) gets a link of their own. `rsvps/<event>/<id>.shareToken` + `.shareG`; for a CRM person it is the link they were sent, for anybody else a new key with `invites/<key>` → `{ eventId, rsvpId, g }`. It is shown after the request ("Bringing someone?") and on the entry pass ("Bring a friend").
+- A request through a guest's link gets `.via` = `forward`, `.referredBy` = that guest's request and `.forwardedByName`; openings are counted under `pinvhits/<eventId>/r-<rsvpId>/`. The tracking report follows `referredBy` to any depth (`children`), lists guests from the shared link who passed their own link on (`guest: true`) and gives `totals.rings`.

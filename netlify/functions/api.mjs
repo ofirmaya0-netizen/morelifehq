@@ -14,12 +14,13 @@ import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.
 import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
-import { inviteRoute } from './lib/invites.mjs';
+import { inviteRoute, personalOf, markPersonal, personalOpen, shareToken, shareUrl } from './lib/invites.mjs';
 import { emailStatus, sendPass, sendTable, passMail, notifyEnquiry } from './lib/email.mjs';
 import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
+import { venuePublic, venueAdmin, inviteOk, venueOfInvite } from './lib/venue.mjs';
 
 export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/pay/*', '/tickets', '/tickets/*', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
 
@@ -61,13 +62,14 @@ async function publicPage(req, url, parts) {
     return page(renderHome(rec, set, featured, preview), 200, cache);
   }
   if (url.pathname === '/invite') {
-    const ref = await s.get('invites/' + str(url.searchParams.get('t'), 60)), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
-    if (!e || e.inviteToken !== url.searchParams.get('t') || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
-    return page(renderEvent(e, set, { mode: 'invite', token: e.inviteToken }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
+    const it = str(url.searchParams.get('t'), 60), ref = await s.get('invites/' + it), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
+    if (!e || !(await inviteOk(s, e0, it)) || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
+    if ((ref.contactId || ref.rsvpId) && !isBot(req.headers.get('user-agent'))) await personalOpen(s, e0, ref.contactId || 'r-' + ref.rsvpId); // how often a personal link was opened
+    return page(renderEvent(e, set, { mode: 'invite', token: it }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
   }
   if (parts[0] === 'tickets') { // the shop alone: /tickets/slug for public events, /tickets?t=invite-key for private ones; ?embed=1 inside an iframe
     const tk = str(url.searchParams.get('t'), 60), ref = parts[1] ? await s.get('slugs/' + slugify(parts[1])) : tk ? await s.get('invites/' + tk) : null, e0 = ref && await s.get('events/' + (ref.id || ref.eventId)), e = e0 && live(e0);
-    if (!e || (parts[1] ? !isListed(e0) : e0.inviteToken !== tk)) return page(notFound('Tickets not found.', 'This ticket page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
+    if (!e || (parts[1] ? !isListed(e0) : !(await inviteOk(s, e0, tk)))) return page(notFound('Tickets not found.', 'This ticket page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
     const embed = url.searchParams.get('embed') === '1';
     // the embedded page must be allowed inside other sites' frames; everything else it links to opens at the top level
     return page(renderShop(e, { token: parts[1] ? '' : tk, embed, look: (await shopOf(s, e.id)).look || {} }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', ...(parts[1] ? {} : { 'referrer-policy': 'no-referrer' }) });
@@ -115,7 +117,7 @@ async function publicApi(req, ctx, parts, url) {
     if (str(b.website)) return json({ ok: true, created: false }); // honeypot: pretend success
     if (await limited('rsvp/' + hash(ipOf(req, ctx)), 12, 3600)) return fail(429, 'Too many requests. Please try again later.');
     let e0 = null;
-    if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && e0.inviteToken !== b.t) e0 = null; }
+    if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && !(await inviteOk(s, e0, str(b.t, 60)))) e0 = null; }
     else if (b.slug) { const ref = await s.get('slugs/' + slugify(b.slug)); e0 = ref && await s.get('events/' + ref.id); if (e0 && !isListed(e0)) e0 = null; }
     const e = e0 && live(e0);
     if (!e) return fail(404, 'This event is not available.');
@@ -131,12 +133,19 @@ async function publicApi(req, ctx, parts, url) {
     const u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
     Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, showName: b.showName === true, referredBy: '', utm, via: b.t ? 'invite' : 'event-page' });
+    // asked through the venue's own invitation link: marked, so HQ sees whose guest this is
+    const byVenue = b.t ? venueOfInvite(e0, str(b.t, 60)) : ''; if (byVenue) { r.via = 'venue'; r.invitedBy = byVenue; }
+    // asked through one person's own link: theirs, or passed on by them
+    const owner = b.t && !byVenue ? await personalOf(s, e0, str(b.t, 60)) : null; if (owner) markPersonal(r, owner);
+
     // One request per e-mail per event: only the first writer of this key creates a guest.
     if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
     if (b.ref) { const rf = await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')); if (rf && rf.eventId === e.id) r.referredBy = rf.rsvpId; }
     r.contactId = await upsertContactFromRsvp(s, r);
+    // their own link to pass on (a CRM person keeps the one they were sent), so the next ring is traced to them
+    if (b.t && !byVenue) await shareToken(s, e0, r, owner && !owner.rsvp && r.personal ? str(b.t, 60) : '');
     await s.set('rsvps/' + e.id + '/' + r.id, r);
-    return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16) });
+    return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16), share: shareUrl(e0, r) });
   }
   if (parts[0] === 'enquiries' && req.method === 'POST') {
     const b = await body(req);
@@ -179,10 +188,12 @@ async function publicApi(req, ctx, parts, url) {
     const pref = url.searchParams.get('p') ? await s.get('passes/' + str(url.searchParams.get('p'), 60)) : null;
     const pr = pref && pref.eventId === e.id ? await s.get('rsvps/' + e.id + '/' + pref.rsvpId) : null, holder = !!pr && pr.status === 'approved';
     // a private event's list opens only with its invite key or an entry pass
-    if (e.visibility !== 'public' && !holder && str(url.searchParams.get('t'), 60) !== e0.inviteToken) return fail(404, 'Not found');
+    if (e.visibility !== 'public' && !holder && !(await inviteOk(s, e0, str(url.searchParams.get('t'), 60)))) return fail(404, 'Not found');
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
+  // The venue's own page: who is coming and who has a table, for the events at that venue only.
+  if (parts[0] === 'venue') return venuePublic(req, s, url, () => limited('venue/' + hash(ipOf(req, ctx)), 900, 3600));
   if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale', 'promoter', 'mytickets'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
@@ -195,7 +206,7 @@ async function publicApi(req, ctx, parts, url) {
     if (!r || !e || r.status !== 'approved') return fail(404, 'This pass is not valid.');
     const le = live(e) || e, iv = e.invite || {}, open = !r.checkedInAt && (!e.date || Date.now() < Date.parse(e.date + 'T23:59:00+03:00'));
     // the friend link is offered for public events only: a private event's invite key stays with the host
-    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt, canCancel: open && iv.selfCancel !== false, friendUrl: open && iv.referrals !== false && isListed(e) && r.refCode ? '/events/' + le.slug + '?ref=' + r.refCode : '' }, event: guestEvent(le) });
+    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt, canCancel: open && iv.selfCancel !== false, friendUrl: open && iv.referrals !== false && isListed(e) && r.refCode ? '/events/' + le.slug + '?ref=' + r.refCode : open ? shareUrl(e, r) : '' }, event: guestEvent(le) });
   }
   if (parts[0] === 'pass' && req.method === 'POST') { // the guest gives the place back
     const b = await body(req), ref = await s.get('passes/' + str(b.t, 60));
@@ -403,7 +414,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       const pv = (key, label, on, m) => ({ key, label, on, subject: m.subject, html: m.html });
       return json({ email: { status: emailStatus(), pass: { subject: pm.subject, html: pm.html }, all: [pv('pass', 'Giriş kartı (onayda)', true, pm), pv('d1', 'Hatırlatma: bir gün önce', iv.reminders !== false, reminderMail(e, sample, url.origin, 'd1')), pv('h4', 'Hatırlatma: son 4 saat', iv.reminders !== false, reminderMail(e, sample, url.origin, 'h4')), pv('offer', 'Bekleme listesi: yer açıldı', iv.autoWaitlist === true, offerMail(e, sample, url.origin)), pv('thanks', 'Teşekkür (ertesi gün)', iv.thanks !== false, thanksMail(e, sample, url.origin))] }, whatsapp: { status: waStatus(), inviteReady: !!(ws.invite.projectId && ws.invite.version), passReady: !!(ws.pass.projectId && ws.pass.version), invite: invitePreview(e, sample), pass: passParams(e, sample) } });
     }
-    if (parts[2] === 'invite-sends' || parts[2] === 'invite-send') return inviteRoute(req, s, e, url, parts[2]);
+    if (['invite-sends', 'invite-send', 'invite-tracking', 'invite-links.csv'].includes(parts[2])) return inviteRoute(req, s, e, url, parts[2]);
     if (!parts[2] && m === 'GET') return json({ event: adminEvent(e, await rsvpsOf(e.id)), changes: routeChanges(e), seo: eventSeo(e, await seoSettings(s)) });
     if (!parts[2] && m === 'PUT') {
       const r = eventInput(await body(req), e); if (r.error) return fail(400, r.error);
@@ -455,7 +466,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     const e = await s.get('events/' + str(url.searchParams.get('event'), 40)); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const st = url.searchParams.get('status') || '', q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr');
     const rows = (await rsvpsOf(e.id)).filter((r) => (!st || (st === 'checkedin' ? !!r.checkedInAt : r.status === st)) && (!q || (r.name + ' ' + r.email + ' ' + r.phone).toLocaleLowerCase('tr').includes(q))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || ''])));
+    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya', 'Davet eden']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || '', r.via === 'venue' ? 'Mekân: ' + (r.invitedBy || '') : r.via === 'forward' ? 'İletti: ' + (r.forwardedByName || '') : r.personal ? 'Kişisel link' : ''])));
   }
   if (parts[0] === 'rsvps' && parts[1]) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');
@@ -541,6 +552,8 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     }
     return json({ ok: true, created, skipped, total: LEGACY_EVENTS.length });
   }
+
+  if (parts[0] === 'venue-links' && !parts[2]) return venueAdmin(req, s, url, me, parts[1] || '');
 
   return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf, me });
 }

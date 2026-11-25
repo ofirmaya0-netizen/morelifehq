@@ -123,6 +123,10 @@ export async function describe(s, parts, m, b, j) {
     if (del) return ['Ekip üyesini sildi', (j.deleted && j.deleted.name) || ''];
     return ['Ekip üyesini düzenledi', t, j.member ? ROLES[j.member.role].label + (j.member.active ? '' : ' · erişim kapalı') : ''];
   }
+  if (a === 'venue-links' && p1 === 'notes') return [b.note ? 'Mekân için masa notu yazdı' : 'Mekân için masa notunu sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') : ''];
+  if (a === 'venue-links' && typeof b.invite === 'boolean' && !b.close) return [b.invite ? 'Mekânın davet linkini açtı' : 'Mekânın davet linkini kapattı', j.venue || ''];
+  if (a === 'venue-links' && typeof b.scan === 'boolean' && !b.close) return [b.scan ? 'Mekân portalında QR okumayı açtı' : 'Mekân portalında QR okumayı kapattı', j.venue || ''];
+  if (a === 'venue-links') return [b.close ? 'Mekân portalı linkini kapattı' : j.renewed ? 'Mekân portalı linkini yeniledi' : 'Mekân portalı linki oluşturdu', j.venue || ''];
   if (a === 'backups') {
     if (!p1) return ['Yedek aldı', '', (j.backup && j.backup.total) + ' kayıt'];
     if (p2 === 'restore') return b.step === 'begin' ? ['Yedekten geri yüklemeyi başlattı', p1] : b.step === 'finish' ? ['Yedekten geri yükleme tamamlandı', p1] : null;
