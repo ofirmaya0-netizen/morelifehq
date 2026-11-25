@@ -3,8 +3,8 @@
 // prices paid or anything from another venue. Unless HQ switches it off, the venue's door staff can also open the QR
 // reader of those events and check guests in. The link is made, renewed and closed in HQ.
 import { all } from './store.mjs';
-import { token, hash } from './auth.mjs';
-import { json, fail, now, str, body, istToday, slugify } from './util.mjs';
+import { token, hash, id } from './auth.mjs';
+import { json, fail, now, str, int, body, istToday, slugify } from './util.mjs';
 import { live } from './model.mjs';
 import { eventTickets } from './tickets.mjs';
 
@@ -47,7 +47,7 @@ async function detail(e0, enquiries, hq) {
     const t = g[0], cut = ' · ' + t.table, due = g.reduce((n, x) => n + (x.due || 0), 0);
     tables.push({ key: 't-' + hash(t.orderId + '|' + (t.slot || t.table)).slice(0, 20), label: t.table || '', area: t.table && t.typeName.endsWith(cut) ? t.typeName.slice(0, -cut.length) : t.typeName, name: t.name, people: g.length, in: g.filter((x) => x.checkedInAt).length, ...(due ? { due: Math.round(due * 100) / 100, currency: t.currency || '' } : {}) });
   }
-  tables.sort((x, y) => (x.label || '~').localeCompare(y.label || '~', 'tr', { numeric: true }) || x.name.localeCompare(y.name, 'tr'));
+  tables.sort((x, y) => byLabel(x, y) || x.name.localeCompare(y.name, 'tr'));
   // a table asked for on the table page and confirmed in HQ has no ticket; it is held under a name
   const held = enquiries.filter((q) => q.kind === 'table' && q.eventId === e0.id && q.table && q.table.status === 'confirmed')
     .map((q) => ({ key: 'q-' + q.id, label: '', area: q.table.area === 'backstage' ? 'backstage' : 'standard', name: q.name, people: q.table.party || q.party || 1, in: null, request: true }))
@@ -57,7 +57,10 @@ async function detail(e0, enquiries, hq) {
   for (const t of single) { const k = t.orderId + '|' + t.typeId + '|' + t.name, r = rows.get(k) || { name: t.name, people: 0, in: 0, type: t.typeName }; r.people += 1; r.in += t.checkedInAt ? 1 : 0; rows.set(k, r); }
   const guests = rs.map((r) => ({ name: r.name, people: r.guests || 1, in: r.checkedInAt ? r.guests || 1 : 0, list: true, ...(r.via === 'venue' ? { yours: true } : {}) })).concat([...rows.values()])
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
-  const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held).map(({ key, ...x }) => ({ ...(hq ? { key } : {}), ...x, ...(notes.get(key) ? { note: notes.get(key) } : hq ? { note: '' } : {}) }));
+  // a table More Life adds by hand in HQ (sold by phone, a friend of the house): `vtables/<event>/<id>`, held under a name
+  const manual = (await all('vtables/' + e0.id + '/')).map((t) => ({ key: 'm-' + t.id, label: t.label || '', area: t.area === 'backstage' ? 'backstage' : 'standard', name: t.name, people: t.people || 1, in: null, manual: true }))
+    .sort((a, b) => byLabel(a, b) || a.name.localeCompare(b.name, 'tr'));
+  const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held, manual).map(({ key, ...x }) => ({ ...(hq ? { key } : {}), ...x, ...(notes.get(key) ? { note: notes.get(key) } : hq ? { note: '' } : {}) }));
   const counts = {
     tables: all2.length, tablePeople: sum(all2, (x) => x.people),
     list: sum(guests.filter((g) => g.list), (g) => g.people), tickets: sum(guests.filter((g) => !g.list), (g) => g.people),
@@ -71,6 +74,8 @@ async function detail(e0, enquiries, hq) {
   if (cap) { counts.capacity = cap; counts.level = counts.in >= cap ? 'full' : counts.in >= cap * CAP_NEAR ? 'near' : ''; }
   return { tables: all2, guests, counts };
 }
+// numbered tables first (B2 before B10), then the ones without a number
+function byLabel(a, b) { return (a.label ? 0 : 1) - (b.label ? 0 : 1) || (a.label || '').localeCompare(b.label || '', 'tr', { numeric: true }); }
 const head = (e0) => { const e = live(e0); return { id: e0.id, title: e.title, artist: e.artist || '', date: e.date || '', time: e.time || '', doors: e.doors || '', city: e.city || '' }; };
 
 /* ---------- the portal itself: GET /api/public/venue?k=<key>[&e=<event id>] ---------- */
@@ -107,10 +112,25 @@ export async function venuePublic(req, s, url, limitedNow) {
 // POST { venue, scan } or { venue, invite } → QR reading / the venue's invitation links on or off
 export async function venueAdmin(req, s, url, me, sub) {
   const m = req.method;
-  // Table notes for the venue: GET notes?event=<id> → the event's tables with their notes · PUT notes { event, key, note }
+  // Tables for the venue: GET notes?event=<id> → the event's tables with their notes · PUT notes { event, key, note }
   if (sub === 'notes') {
-    const b = m === 'PUT' ? await body(req) : null, e0 = await s.get('events/' + str(b ? b.event : url.searchParams.get('event'), 40).replace(/[^A-Za-z0-9_-]/g, ''));
+    const b = m === 'GET' ? null : await body(req), e0 = await s.get('events/' + str(b ? b.event : url.searchParams.get('event'), 40).replace(/[^A-Za-z0-9_-]/g, ''));
     if (!e0) return fail(404, 'Etkinlik bulunamadı.');
+    // POST notes { event, name, people, area, label, note } adds a table by hand
+    if (m === 'POST') {
+      const t = { id: id(), name: str(b.name, 120), people: int(b.people, 1, 200, 0), area: b.area === 'backstage' ? 'backstage' : 'standard', label: str(b.label, 20), createdAt: now(), by: (me && me.name) || '' }, note = str(b.note, 200);
+      if (!t.name) return fail(400, 'Masanın kimin adına olduğunu yazın.');
+      if (!t.people) return fail(400, 'Kişi sayısını yazın.');
+      await s.set('vtables/' + e0.id + '/' + t.id, t); if (note) await s.set('vnotes/' + e0.id + '/m-' + t.id, { key: 'm-' + t.id, note, at: now(), by: t.by });
+      return json({ table: { key: 'm-' + t.id, label: t.label, area: t.area, name: t.name, people: t.people, in: null, manual: true, note }, eventTitle: e0.title, added: true }, 201);
+    }
+    // DELETE notes { event, key } removes a table that was added by hand (bought tables and confirmed requests are not removed here)
+    if (m === 'DELETE') {
+      const k = str(b.key, 60), t = /^m-[A-Za-z0-9_-]+$/.test(k) ? await s.get('vtables/' + e0.id + '/' + k.slice(2)) : null;
+      if (!t) return fail(404, 'Elle eklenmiş böyle bir masa yok.');
+      await s.del('vtables/' + e0.id + '/' + t.id); await s.del('vnotes/' + e0.id + '/' + k);
+      return json({ ok: true, table: { name: t.name, label: t.label }, eventTitle: e0.title, removed: true });
+    }
     const d = await detail(e0, await all('enquiries/'), true);
     if (m === 'GET') return json({ tables: d.tables, counts: d.counts });
     if (m !== 'PUT') return fail(405, 'Method not allowed');

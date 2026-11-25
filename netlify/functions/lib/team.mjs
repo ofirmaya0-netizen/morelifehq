@@ -123,6 +123,7 @@ export async function describe(s, parts, m, b, j) {
     if (del) return ['Ekip üyesini sildi', (j.deleted && j.deleted.name) || ''];
     return ['Ekip üyesini düzenledi', t, j.member ? ROLES[j.member.role].label + (j.member.active ? '' : ' · erişim kapalı') : ''];
   }
+  if (a === 'venue-links' && p1 === 'notes' && (j.added || j.removed)) return [j.added ? 'Elle masa ekledi' : 'Elle eklenen masayı sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') + (j.table.people ? ' · ' + j.table.people + ' kişi' : '') : ''];
   if (a === 'venue-links' && p1 === 'notes') return [b.note ? 'Mekân için masa notu yazdı' : 'Mekân için masa notunu sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') : ''];
   if (a === 'venue-links' && typeof b.invite === 'boolean' && !b.close) return [b.invite ? 'Mekânın davet linkini açtı' : 'Mekânın davet linkini kapattı', j.venue || ''];
   if (a === 'venue-links' && typeof b.scan === 'boolean' && !b.close) return [b.scan ? 'Mekân portalında QR okumayı açtı' : 'Mekân portalında QR okumayı kapattı', j.venue || ''];
