@@ -52,7 +52,7 @@ try:
     ok('the venue gets its own link, not More Life’s, and the same one each time', st==200 and j['url'].startswith('/invite?t=') and vt!=own and anon.req('/api/public/venue','POST',{'k':key,'e':e1['id'],'a':'invite'})[1]['url']==j['url'], j)
     st,h,_=anon.req('/invite?t='+vt,raw=True); ok('its invitation page opens and posts with the venue’s key', st==200 and vt in h and own not in h, st)
     ok('the portal data never carries More Life’s invite key', own not in anon.req(P,raw=True)[1])
-    st,j,_=anon.req('/api/public/rsvp','POST',{'t':vt,'name':'Mekân Misafiri','email':'mm@example.com','plus':1,'consent':True}); ok('a guest signs up through the venue’s link', st==200 and j['created'], j)
+    st,j,_=anon.req('/api/public/rsvp','POST',{'t':vt,'name':'Mekân Misafiri','email':'mm@example.com','plus':1,'consent':True}); ok('a guest signs up through the venue’s link (and is handed no link of their own)', st==200 and j['created'] and not j.get('share'), j)
     anon.req('/api/public/rsvp','POST',{'t':own,'name':'Bizim Misafir','email':'bm@example.com','consent':True})
     rv={r['email']:r for r in a.req('/api/hq/rsvps/'+e1['id'])[1]['rsvps']}
     ok('HQ: that guest is marked as the venue’s, the others are not', rv['mm@example.com']['via']=='venue' and rv['mm@example.com']['invitedBy']=='Lucca Beach' and rv['mm@example.com']['status']=='pending' and rv['bm@example.com']['via']=='invite' and 'invitedBy' not in rv['bm@example.com'] and 'invitedBy' not in rv['ayse@example.com'], rv['mm@example.com'])

@@ -20,7 +20,7 @@ export async function inviteOk(s, e0, t) {
   if (!t || !e0) return false;
   if (e0.inviteToken === t) return true;
   const v = e0.venueInvite;
-  if (!v || v.token !== t) { const ref = await s.get('invites/' + t); return !!(ref && ref.contactId && ref.eventId === e0.id && ref.g === inviteGen(e0)); } // one person's own link
+  if (!v || v.token !== t) { const ref = await s.get('invites/' + t); return !!(ref && (ref.contactId || ref.rsvpId) && ref.eventId === e0.id && ref.g === inviteGen(e0)); } // one person's own link
   const l = await linkOf(s, venueKey((e0.live || e0).venue)); return !!l && l.invite !== false;
 }
 export const venueOfInvite = (e0, t) => (e0 && e0.venueInvite && e0.venueInvite.token === t ? e0.venueInvite.venue : '');

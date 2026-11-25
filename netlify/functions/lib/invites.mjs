@@ -25,16 +25,29 @@ export async function personalToken(s, e, c) {
 // The CRM person whose link this key is, or null (the event's shared link, a venue's link, an old key).
 export async function personalOf(s, e0, t) {
   const ref = t && t !== e0.inviteToken ? await s.get('invites/' + t) : null;
-  if (!ref || !ref.contactId || ref.eventId !== e0.id || ref.g !== inviteGen(e0)) return null;
+  if (!ref || !(ref.contactId || ref.rsvpId) || ref.eventId !== e0.id || ref.g !== inviteGen(e0)) return null;
+  if (ref.rsvpId) { const o = await s.get('rsvps/' + e0.id + '/' + ref.rsvpId); return o ? { rsvp: true, id: o.id, name: o.name, email: o.email, phone: o.phone } : null; } // the link of somebody who asked for a place
   return (await s.get('contacts/' + ref.contactId)) || { id: ref.contactId, name: ((await s.get('pinv/' + e0.id + '/' + ref.contactId)) || {}).name || '', email: '', phone: '' };
 }
 const foldName = (n) => str(n, 120).toLocaleLowerCase('tr').replace(/\s+/g, ' ');
 // Marks a new request made through a personal link: the invited person's own, or forwarded by them to somebody else.
 export function markPersonal(r, c) {
+  // through the link of a guest (not a CRM person): the next ring of the chain. `referredBy` is that guest's request.
+  if (c.rsvp) { r.via = 'forward'; r.referredBy = c.id; r.forwardedByName = c.name || ''; return; }
   r.inviteOf = c.id;
   const self = (c.email && normEmail(c.email) === r.email) || (r.phone && c.phone && normPhone(c.phone) === normPhone(r.phone)) || (c.name && foldName(c.name) === foldName(r.name));
   if (self) r.personal = true; else { r.via = 'forward'; r.forwardedBy = c.id; r.forwardedByName = c.name || ''; }
 }
+// Everybody who asks for a place gets a link of their own to pass on, so the chain goes on past the first ring:
+// a CRM person keeps the link they were sent; anybody else gets a new key (`invites/<key>` → { eventId, rsvpId, g }).
+export async function shareToken(s, e0, r, ownKey) {
+  const g = inviteGen(e0);
+  if (r.shareToken && r.shareG === g) return r.shareToken;
+  r.shareG = g; r.shareToken = ownKey || token(24);
+  if (!ownKey) await s.set('invites/' + r.shareToken, { eventId: e0.id, rsvpId: r.id, g });
+  return r.shareToken;
+}
+export const shareUrl = (e0, r) => (r.shareToken && r.shareG === inviteGen(e0) && (e0.invite || {}).enabled !== false ? '/invite?t=' + r.shareToken : '');
 export const personalOpen = (s, e0, contactId) => s.set('pinvhits/' + e0.id + '/' + contactId + '/' + id(), { at: now() });
 
 
@@ -57,13 +70,21 @@ export async function inviteRoute(req, s, e, url, sub) {
   }
   // Who was sent a personal link, how often it was opened, whether they asked for a place and who they passed it on to.
   if (sub === 'invite-tracking' && m === 'GET') {
-    const g = inviteGen(e), links = (await all('pinv/' + e.id + '/')).filter((l) => l.g === g), rs = await all('rsvps/' + e.id + '/'), hits = await s.list('pinvhits/' + e.id + '/'), sentKeys = new Set(await s.list('sent/' + e.id + '/c-'));
+    const g = inviteGen(e), links = (await all('pinv/' + e.id + '/')).filter((l) => l.g === g).map((l) => ({ ...l })), rs = await all('rsvps/' + e.id + '/'), hits = await s.list('pinvhits/' + e.id + '/'), sentKeys = new Set(await s.list('sent/' + e.id + '/c-'));
     const opens = {}; for (const k of hits) { const c = k.split('/')[2]; opens[c] = (opens[c] || 0) + 1; }
+    // the chain: a request made through a guest's own link points at that guest's request (`referredBy`)
+    const kids = {}; for (const r of rs) if (r.via === 'forward' && r.referredBy) (kids[r.referredBy] = kids[r.referredBy] || []).push(r);
+    let chained = 0, deepest = 0, passers = 0;
+    const node = (r, depth, seen) => { deepest = Math.max(deepest, depth); const ch = seen.has(r.id) ? [] : (kids[r.id] || []).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); seen.add(r.id); chained += ch.length; if (ch.length) passers += 1; return { id: r.id, name: r.name, status: r.status, guests: r.guests, at: r.createdAt, opens: opens['r-' + r.id] || 0, children: ch.map((x) => node(x, depth + 1, seen)) }; };
     const rows = links.map((l) => {
-      const own = rs.find((r) => r.inviteOf === l.contactId && r.via !== 'forward'), fw = rs.filter((r) => r.forwardedBy === l.contactId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-      return { contactId: l.contactId, name: l.name, url: '/invite?t=' + l.token, sent: { wa: sentKeys.has('sent/' + e.id + '/c-' + l.contactId + '/invite-wa'), mail: sentKeys.has('sent/' + e.id + '/c-' + l.contactId + '/invite-mail') }, opens: opens[l.contactId] || 0, own: own ? { id: own.id, status: own.status, guests: own.guests } : null, forwarded: fw.map((r) => ({ id: r.id, name: r.name, status: r.status, guests: r.guests, at: r.createdAt })) };
-    }).sort((a, b) => b.forwarded.length - a.forwarded.length || b.opens - a.opens || a.name.localeCompare(b.name, 'tr'));
-    return json({ rows, totals: { links: rows.length, opened: rows.filter((x) => x.opens).length, applied: rows.filter((x) => x.own).length, forwarders: rows.filter((x) => x.forwarded.length).length, forwarded: rows.reduce((n, x) => n + x.forwarded.length, 0) } });
+      const own = rs.find((r) => r.inviteOf === l.contactId && r.via !== 'forward'), fw = rs.filter((r) => r.forwardedBy === l.contactId).concat(own ? kids[own.id] || [] : []).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return { contactId: l.contactId, name: l.name, url: '/invite?t=' + l.token, sent: { wa: sentKeys.has('sent/' + e.id + '/c-' + l.contactId + '/invite-wa'), mail: sentKeys.has('sent/' + e.id + '/c-' + l.contactId + '/invite-mail') }, opens: opens[l.contactId] || 0, own: own ? { id: own.id, status: own.status, guests: own.guests } : null, forwarded: fw.map((r) => node(r, 1, new Set(own ? [own.id] : []))) };
+    })
+      // people who came through the shared link (or were added by hand) and passed their own link on
+      .concat(rs.filter((r) => kids[r.id] && r.via !== 'forward' && !r.inviteOf).map((r) => ({ guest: true, contactId: '', name: r.name, url: shareUrl(e, r), sent: { wa: false, mail: false }, opens: opens['r-' + r.id] || 0, own: { id: r.id, status: r.status, guests: r.guests }, forwarded: node(r, 0, new Set()).children })))
+      .sort((a, b) => b.forwarded.length - a.forwarded.length || b.opens - a.opens || a.name.localeCompare(b.name, 'tr'));
+    const mine = rows.filter((x) => !x.guest);
+    return json({ rows, totals: { links: mine.length, opened: mine.filter((x) => x.opens).length, applied: mine.filter((x) => x.own).length, forwarders: mine.filter((x) => x.forwarded.length).length + passers, forwarded: mine.reduce((n, x) => n + x.forwarded.length, 0) + chained, rings: deepest } });
   }
   // Makes the personal links of a whole audience without sending anything (for invitations sent by hand): name, phone, link.
   if (sub === 'invite-links.csv' && m === 'GET') {

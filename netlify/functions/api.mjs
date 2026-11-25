@@ -14,7 +14,7 @@ import { approve, offerNext, cancelByGuest, runSchedule } from './lib/guestflow.
 import { reminderMail, offerMail, thanksMail } from './lib/email.mjs';
 import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
-import { inviteRoute, personalOf, markPersonal, personalOpen } from './lib/invites.mjs';
+import { inviteRoute, personalOf, markPersonal, personalOpen, shareToken, shareUrl } from './lib/invites.mjs';
 import { emailStatus, sendPass, sendTable, passMail, notifyEnquiry } from './lib/email.mjs';
 import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
@@ -64,7 +64,7 @@ async function publicPage(req, url, parts) {
   if (url.pathname === '/invite') {
     const it = str(url.searchParams.get('t'), 60), ref = await s.get('invites/' + it), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
     if (!e || !(await inviteOk(s, e0, it)) || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
-    if (ref.contactId && !isBot(req.headers.get('user-agent'))) await personalOpen(s, e0, ref.contactId); // how often a personal link was opened
+    if ((ref.contactId || ref.rsvpId) && !isBot(req.headers.get('user-agent'))) await personalOpen(s, e0, ref.contactId || 'r-' + ref.rsvpId); // how often a personal link was opened
     return page(renderEvent(e, set, { mode: 'invite', token: it }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
   }
   if (parts[0] === 'tickets') { // the shop alone: /tickets/slug for public events, /tickets?t=invite-key for private ones; ?embed=1 inside an iframe
@@ -137,12 +137,15 @@ async function publicApi(req, ctx, parts, url) {
     const byVenue = b.t ? venueOfInvite(e0, str(b.t, 60)) : ''; if (byVenue) { r.via = 'venue'; r.invitedBy = byVenue; }
     // asked through one person's own link: theirs, or passed on by them
     const owner = b.t && !byVenue ? await personalOf(s, e0, str(b.t, 60)) : null; if (owner) markPersonal(r, owner);
+
     // One request per e-mail per event: only the first writer of this key creates a guest.
     if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
     if (b.ref) { const rf = await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')); if (rf && rf.eventId === e.id) r.referredBy = rf.rsvpId; }
     r.contactId = await upsertContactFromRsvp(s, r);
+    // their own link to pass on (a CRM person keeps the one they were sent), so the next ring is traced to them
+    if (b.t && !byVenue) await shareToken(s, e0, r, owner && !owner.rsvp && r.personal ? str(b.t, 60) : '');
     await s.set('rsvps/' + e.id + '/' + r.id, r);
-    return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16) });
+    return json({ ok: true, created: true, ref: hash(r.id).slice(0, 16), share: shareUrl(e0, r) });
   }
   if (parts[0] === 'enquiries' && req.method === 'POST') {
     const b = await body(req);
@@ -203,7 +206,7 @@ async function publicApi(req, ctx, parts, url) {
     if (!r || !e || r.status !== 'approved') return fail(404, 'This pass is not valid.');
     const le = live(e) || e, iv = e.invite || {}, open = !r.checkedInAt && (!e.date || Date.now() < Date.parse(e.date + 'T23:59:00+03:00'));
     // the friend link is offered for public events only: a private event's invite key stays with the host
-    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt, canCancel: open && iv.selfCancel !== false, friendUrl: open && iv.referrals !== false && isListed(e) && r.refCode ? '/events/' + le.slug + '?ref=' + r.refCode : '' }, event: guestEvent(le) });
+    return json({ eventId: e.id, pass: { name: r.name, guests: r.guests, checkedIn: !!r.checkedInAt, canCancel: open && iv.selfCancel !== false, friendUrl: open && iv.referrals !== false && isListed(e) && r.refCode ? '/events/' + le.slug + '?ref=' + r.refCode : open ? shareUrl(e, r) : '' }, event: guestEvent(le) });
   }
   if (parts[0] === 'pass' && req.method === 'POST') { // the guest gives the place back
     const b = await body(req), ref = await s.get('passes/' + str(b.t, 60));

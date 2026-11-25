@@ -22,7 +22,7 @@ try:
     a.req('/api/hq/whatsapp/settings','PUT',{'invite':{'projectId':'aaaa1111','version':'bbbb2222'}})
     E='/api/hq/events/'+eid
     ok('anon cannot read the tracking', anon.req(E+'/invite-tracking')[0]==401)
-    ok('nothing to track before a send', a.req(E+'/invite-tracking')[1]=={'rows':[],'totals':{'links':0,'opened':0,'applied':0,'forwarders':0,'forwarded':0}})
+    ok('nothing to track before a send', a.req(E+'/invite-tracking')[1]=={'rows':[],'totals':{'links':0,'opened':0,'applied':0,'forwarders':0,'forwarded':0,'rings':0}})
     st,j,_=a.req(E+'/invite-send','POST',{'audienceId':aid,'channels':{'wa':True,'mail':True}}); ok('sent to the audience', st==200 and j['sent']=={'wa':3,'mail':3}, j)
     key=lambda html: re.search(r'/invite\?t=([A-Za-z0-9_-]+)', html).group(1)
     mk={x['to'][0]:key(x['html']) for x in MAIL}
@@ -30,7 +30,7 @@ try:
     ok('every e-mail carries a different link, none of them the shared one', len(set(mk.values()))==3 and tok not in mk.values(), mk)
     ok('WhatsApp and e-mail of the same person carry the same link; the template is unchanged', wk['+905321110001']==mk['ada@x.com'] and wk['+905321110004']==mk['derin@x.com'] and len(set(wk.values()))==3, wk)
     st,j,_=a.req(E+'/invite-tracking'); rows={r['name']:r for r in j['rows']}
-    ok('tracking lists the four people with their own link, nothing opened yet', st==200 and j['totals']=={'links':4,'opened':0,'applied':0,'forwarders':0,'forwarded':0} and rows['Ada Yılmaz']['url']=='/invite?t='+mk['ada@x.com'] and rows['Cem Demir']['sent']=={'wa':True,'mail':False} and rows['Bora Kaya']['sent']=={'wa':False,'mail':True}, j)
+    ok('tracking lists the four people with their own link, nothing opened yet', st==200 and j['totals']=={'links':4,'opened':0,'applied':0,'forwarders':0,'forwarded':0,'rings':0} and rows['Ada Yılmaz']['url']=='/invite?t='+mk['ada@x.com'] and rows['Cem Demir']['sent']=={'wa':True,'mail':False} and rows['Bora Kaya']['sent']=={'wa':False,'mail':True}, j)
 
     # ---------- opening ----------
     st,h,_=anon.req('/invite?t='+mk['ada@x.com'],raw=True); ok('a personal link opens the invitation page and posts with its own key', st==200 and mk['ada@x.com'] in h and tok not in h, st)
@@ -51,8 +51,24 @@ try:
     a.req('/api/hq/rsvps/'+eid+'/'+rs['zeynep@y.com']['id']+'/decision','POST',{'decision':'approved'})
     st,j,_=a.req(E+'/invite-tracking'); rows={r['name']:r for r in j['rows']}
     ok('tracking: Ada first, with her own request and the two she passed it on to', j['rows'][0]['name']=='Ada Yılmaz' and rows['Ada Yılmaz']['own']['status']=='pending' and [(f['name'],f['status'],f['guests']) for f in rows['Ada Yılmaz']['forwarded']]==[('Zeynep Arkadaş','approved',2),('Mert Arkadaş','pending',1)], rows['Ada Yılmaz'])
-    ok('totals', j['totals']=={'links':4,'opened':1,'applied':3,'forwarders':1,'forwarded':2} and rows['Bora Kaya']['own'] is None and rows['Bora Kaya']['forwarded']==[], j['totals'])
+    ok('totals', j['totals']=={'links':4,'opened':1,'applied':3,'forwarders':1,'forwarded':2,'rings':1} and rows['Bora Kaya']['own'] is None and rows['Bora Kaya']['forwarded']==[], j['totals'])
     c=a.req('/api/hq/rsvps.csv?event='+eid,raw=True)[1]; ok('guest export says who passed the link on', 'İletti: Ada Yılmaz' in c and 'Kişisel link' in c)
+
+    # ---------- the next rings ----------
+    st,j,_=RS(mk['bora@x.com'],'Bora Kaya','bora@x.com'); ok('a CRM person’s own link stays their link to pass on', j['share']=='/invite?t='+mk['bora@x.com'], j)
+    st,j,_=RS(mk['bora@x.com'],'Halka Bir','h1@y.com'); s1=j['share'].split('t=')[1]
+    ok('a forwarded guest gets a link of their own', st==200 and s1 not in mk.values() and s1!=tok and anon.req('/invite?t='+s1,raw=True)[0]==200, j)
+    st,j,_=RS(s1,'Halka İki','h2@y.com',plus=1); s2=j['share'].split('t=')[1]; RS(s2,'Halka Üç','h3@y.com')
+    st,j,_=RS(tok,'Ortak Zincir','oz@y.com'); so=j['share'].split('t=')[1]; RS(so,'Ortaktan Gelen','og@y.com')
+    rs={r['email']:r for r in a.req('/api/hq/rsvps/'+eid)[1]['rsvps']}
+    ok('each ring points at the request before it', rs['h1@y.com']['forwardedBy']==cid['Bora Kaya'] and rs['h2@y.com']['via']=='forward' and rs['h2@y.com']['referredBy']==rs['h1@y.com']['id'] and rs['h2@y.com']['forwardedByName']=='Halka Bir' and rs['h3@y.com']['referredBy']==rs['h2@y.com']['id'] and rs['og@y.com']['referredBy']==rs['oz@y.com']['id'], rs['h2@y.com'])
+    st,j,_=a.req(E+'/invite-tracking'); rows={r['name']:r for r in j['rows']}; b0=rows['Bora Kaya']['forwarded'][0]
+    ok('tracking shows the chain under Bora: Bir → İki → Üç', [f['name'] for f in rows['Bora Kaya']['forwarded']]==['Halka Bir'] and [c['name'] for c in b0['children']]==['Halka İki'] and [c['name'] for c in b0['children'][0]['children']]==['Halka Üç'] and b0['children'][0]['guests']==2, b0)
+    ok('somebody from the shared link who passed their own link on is listed too', rows['Ortak Zincir'].get('guest') is True and [f['name'] for f in rows['Ortak Zincir']['forwarded']]==['Ortaktan Gelen'] and rows['Ortak Zincir']['url']=='/invite?t='+so)
+    ok('totals count every ring', j['totals']['links']==4 and j['totals']['forwarded']==6 and j['totals']['forwarders']==5 and j['totals']['rings']==3 and j['totals']['applied']==4, j['totals'])
+    anon.req('/invite?t='+s1,raw=True); ok('openings of a guest’s link are counted on that guest', a.req(E+'/invite-tracking')[1]['rows'] and {r['name']:r for r in a.req(E+'/invite-tracking')[1]['rows']}['Bora Kaya']['forwarded'][0]['opens']>=2)
+    a.req('/api/hq/rsvps/'+eid+'/'+rs['h1@y.com']['id']+'/decision','POST',{'decision':'approved'}); ptk=a.req('/api/hq/rsvps/'+eid)[1]['rsvps']; ptk=[r for r in ptk if r['email']=='h1@y.com'][0]['passToken']
+    ok('once approved, the entry pass offers the same link (“Bring a friend”)', anon.req('/api/public/pass?t='+ptk)[1]['pass']['friendUrl']=='/invite?t='+s1)
 
     # ---------- links for invitations sent by hand ----------
     a.req('/api/hq/contacts','POST',{'name':'Elif Yeni','email':'elif@x.com','phone':'05321110006','tags':'ff'})
@@ -63,8 +79,8 @@ try:
 
     # ---------- renewing the invite link ends the personal ones ----------
     a.req(E+'/invite-token','POST',{})
-    ok('after “Linki yenile” the personal links are dead, like the shared one', anon.req('/invite?t='+mk['bora@x.com'],raw=True)[0]==404 and RS(mk['bora@x.com'],'Bora Kaya','bora@x.com')[0]==404 and a.req(E+'/invite-tracking')[1]['totals']['links']==0)
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the tracking card and the forwarded mark', 'Davet takibi' in h and 'invite-tracking' in h and 'İleten: ' in h)
+    ok('after “Linki yenile” the personal links are dead, like the shared one', anon.req('/invite?t='+mk['bora@x.com'],raw=True)[0]==404 and anon.req('/invite?t='+s1,raw=True)[0]==404 and anon.req('/api/public/pass?t='+ptk)[1]['pass']['friendUrl']=='' and a.req(E+'/invite-tracking')[1]['totals']['links']==0)
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the tracking card and the forwarded mark', 'Davet takibi' in h and 'invite-tracking' in h and 'İleten: ' in h and '↳' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)
