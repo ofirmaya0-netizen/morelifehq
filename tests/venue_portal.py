@@ -32,7 +32,7 @@ try:
     ok('a wrong key opens nothing', anon.req('/api/public/venue?k=nope')[0]==404 and anon.req('/api/public/venue')[0]==404)
     P='/api/public/venue?k='+key
     st,j,hd=anon.req(P); ok('only this venue’s published, current events, soonest first', st==200 and j['venue']=='Lucca Beach' and [x['title'] for x in j['events']]==['Sunset One','Sunset Two'] and j['event']['id']==e1['id'] and hd.get('cache-control')=='no-store', j)
-    ok('empty event: zero counts', j['events'][0]['counts']=={'tables':0,'tablePeople':0,'list':0,'tickets':0,'in':0,'expected':0} and j['event']['tables']==[] and j['event']['guests']==[], j['events'][0])
+    ok('empty event: zero counts', j['events'][0]['counts']=={'tables':0,'tablePeople':0,'list':0,'tickets':0,'in':0,'expected':0,'yours':0,'yoursPending':0} and j['event']['tables']==[] and j['event']['guests']==[], j['events'][0])
 
     # ---------- guest list ----------
     a.req('/api/hq/events/'+e1['id'],'PUT',{'invite':{'plusOnes':3}})
@@ -43,6 +43,27 @@ try:
     j=anon.req(P)[1]; g=j['event']['guests']
     ok('approved guest only, with party size', g==[{'name':'Ayşe Yılmaz','people':3,'in':0,'list':True}] and j['events'][0]['counts']['list']==3, g)
     raw=anon.req(P,raw=True)[1]; ok('no e-mail, phone, note or pass key leaves the server', 'example.com' not in raw and '532' not in raw and 'gizli' not in raw and 'passToken' not in raw and 'token' not in raw)
+
+    # ---------- the venue's own invitation link ----------
+    own=a.req('/api/hq/events/'+e1['id'])[1]['event']['inviteUrl'].split('t=')[1]
+    ok('portal says invitations are on', anon.req(P)[1]['invite'] is True)
+    ok('invite link needs an event of this venue', anon.req('/api/public/venue','POST',{'k':key,'e':other['id'],'a':'invite'})[0]==404 and anon.req('/api/public/venue','POST',{'k':'nope','e':e1['id'],'a':'invite'})[0]==404)
+    st,j,_=anon.req('/api/public/venue','POST',{'k':key,'e':e1['id'],'a':'invite'}); vt=j['url'].split('t=')[1]
+    ok('the venue gets its own link, not More Life’s, and the same one each time', st==200 and j['url'].startswith('/invite?t=') and vt!=own and anon.req('/api/public/venue','POST',{'k':key,'e':e1['id'],'a':'invite'})[1]['url']==j['url'], j)
+    st,h,_=anon.req('/invite?t='+vt,raw=True); ok('its invitation page opens and posts with the venue’s key', st==200 and vt in h and own not in h, st)
+    ok('the portal data never carries More Life’s invite key', own not in anon.req(P,raw=True)[1])
+    st,j,_=anon.req('/api/public/rsvp','POST',{'t':vt,'name':'Mekân Misafiri','email':'mm@example.com','plus':1,'consent':True}); ok('a guest signs up through the venue’s link', st==200 and j['created'], j)
+    anon.req('/api/public/rsvp','POST',{'t':own,'name':'Bizim Misafir','email':'bm@example.com','consent':True})
+    rv={r['email']:r for r in a.req('/api/hq/rsvps/'+e1['id'])[1]['rsvps']}
+    ok('HQ: that guest is marked as the venue’s, the others are not', rv['mm@example.com']['via']=='venue' and rv['mm@example.com']['invitedBy']=='Lucca Beach' and rv['mm@example.com']['status']=='pending' and rv['bm@example.com']['via']=='invite' and 'invitedBy' not in rv['bm@example.com'] and 'invitedBy' not in rv['ayse@example.com'], rv['mm@example.com'])
+    cy=anon.req(P)[1]['events'][0]['counts']; ok('the venue sees one request awaiting approval, not yet on the list', cy['yoursPending']==1 and cy['yours']==0 and 'Mekân Misafiri' not in [g['name'] for g in anon.req(P)[1]['event']['guests']], cy)
+    a.req(base+rv['mm@example.com']['id']+'/decision','POST',{'decision':'approved'}); jy=anon.req(P)[1]; gy={g['name']:g for g in jy['event']['guests']}
+    ok('once approved: on the list as the venue’s invite', jy['events'][0]['counts']['yours']==2 and jy['events'][0]['counts']['yoursPending']==0 and gy['Mekân Misafiri'].get('yours') is True and 'yours' not in gy['Ayşe Yılmaz'], gy)
+    ok('guest export names who invited', 'Mekân: Lucca Beach' in a.req('/api/hq/rsvps.csv?event='+e1['id'],raw=True)[1])
+    st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','invite':False}); ok('HQ switches the venue’s invitations off; the portal link is unchanged', st==200 and j['link']['invite'] is False and j['link']['url']==url, j)
+    ok('then the venue’s link is dead everywhere, More Life’s own still works', anon.req('/invite?t='+vt,raw=True)[0]==404 and anon.req('/api/public/rsvp','POST',{'t':vt,'name':'Geç Kalan','email':'gk@example.com','consent':True})[0]==404 and anon.req(P)[1]['invite'] is False and anon.req('/api/public/venue','POST',{'k':key,'e':e1['id'],'a':'invite'})[0]==403 and anon.req('/invite?t='+own,raw=True)[0]==200)
+    a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','invite':True}); ok('and on again, same link', anon.req('/invite?t='+vt,raw=True)[0]==200)
+    a.req(base+rv['mm@example.com']['id']+'/decision','POST',{'decision':'rejected'}); a.req(base+rv['bm@example.com']['id']+'/decision','POST',{'decision':'rejected'})
 
     # ---------- tickets and tables ----------
     T='/api/hq/tickets/'+e1['id']
@@ -135,9 +156,10 @@ try:
     d=d0
     ok('the door role is signed in but cannot read or make venue links', d.req('/api/hq/session')[1].get('role')=='door' and d.req('/api/hq/venue-links')[0]==403 and d.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach'})[0]==403)
     st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','close':True}); ok('closed: nothing opens', st==200 and j['closed'] and anon.req('/api/public/venue?k='+new)[0]==404 and a.req('/api/hq/venue-links?venue=Lucca%20Beach')[1]['link'] is None)
+    ok('closing the portal link closes the venue’s invitation link too', anon.req('/invite?t='+vt,raw=True)[0]==404 and anon.req('/invite?t='+own,raw=True)[0]==200)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
-    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı','masa notu yazdı','masa notunu sildi']), log[:16])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masa notları' in h and 'Kapasiteye yaklaşıldı' in h)
+    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı','masa notu yazdı','masa notunu sildi','davet linkini kapattı','davet linkini açtı']), log[:20])
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masa notları' in h and 'Kapasiteye yaklaşıldı' in h and 'Mekân daveti' in h and 'Davet linkini kapat' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

@@ -54,7 +54,7 @@
 .vp-note{font-size:13px;color:var(--mute)}
 @media (max-width:560px){.vp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media print{
-  body{background:#fff;color:#000}.g-wrap{background:none;padding:0}.g-wrap::before,.vp-tools,#vp-msg,.vp-evs,.vp-live,.vp-note{display:none!important}
+  body{background:#fff;color:#000}.g-wrap{background:none;padding:0}.g-wrap::before,.vp-tools,#vp-msg,#vp-invbox,#vp-yours,.vp-evs,.vp-live,.vp-note{display:none!important}
   .g-card{background:none;border:0;padding:0}.vp-stat,.vp-list,.vp-row{border-color:#bbb;background:none}.vp-n,.vp-cap{background:none!important;border:1px solid #999;color:#000!important}.vp-main span,.vp-side span,.vp-stat span,.vp-when,.vp-h span{color:#444}.vp-tag{border:1px solid #999;color:#000;background:none}.vp-row{break-inside:avoid}.g-logo img{filter:invert(1)}
 }
 </style>
@@ -85,7 +85,7 @@
         '<div class="vp-side"><b>' + ppl(t.people) + '</b>' + (t.in == null ? '' : '<span class="vp-tag' + (t.in ? ' in' : '') + '">' + (full ? S('All in', 'Hepsi içeride') : t.in + ' / ' + t.people + ' ' + S('in', 'içeride')) + '</span>') + (t.due ? '<span class="vp-due">' + money(t.due, t.currency) + ' ' + S('due at venue', 'mekânda ödenecek') + '</span>' : '') + '</div></div>';
     }).join('') : '<p class="vp-empty">' + (f ? S('No table matches.', 'Eşleşen masa yok.') : S('No tables yet.', 'Henüz masa yok.')) + '</p>';
     var gHtml = gs.length ? gs.map(function (g) {
-      return '<div class="vp-row"><div class="vp-main"><b>' + esc(g.name) + '</b><span>' + (g.list ? S('Guest list', 'Misafir listesi') + (g.people > 1 ? ' · +' + (g.people - 1) : '') : esc(g.type || S('Ticket', 'Bilet'))) + '</span></div>' +
+      return '<div class="vp-row"><div class="vp-main"><b>' + esc(g.name) + '</b><span>' + (g.list ? S('Guest list', 'Misafir listesi') + (g.people > 1 ? ' · +' + (g.people - 1) : '') + (g.yours ? ' · ' + S('your invite', 'sizin davetiniz') : '') : esc(g.type || S('Ticket', 'Bilet'))) + '</span></div>' +
         '<div class="vp-side">' + (g.people > 1 ? '<b>' + ppl(g.people) + '</b>' : '') + (g.in ? '<span class="vp-tag in">' + (g.in >= g.people ? S('In', 'İçeride') : g.in + ' / ' + g.people + ' ' + S('in', 'içeride')) + '</span>' : '') + '</div></div>';
     }).join('') : '<p class="vp-empty">' + (f ? S('No guest matches.', 'Eşleşen misafir yok.') : S('Nobody on the list yet.', 'Listede henüz kimse yok.')) + '</p>';
     document.getElementById('vp-t').innerHTML = tHtml; document.getElementById('vp-g').innerHTML = gHtml;
@@ -96,18 +96,26 @@
     var ev = data.events.filter(function (x) { return x.id === data.event.id; })[0], c = ev.counts;
     if (!built) {
       card.innerHTML = '<div class="vp-top"><span class="g-pill">' + esc(data.venue) + '</span><span class="vp-live" id="vp-live"><i></i><span></span></span></div><div class="vp-evs" id="vp-evs"></div><div id="vp-head"></div><div class="vp-stats" id="vp-stats"></div><div id="vp-cap" role="status"></div>' +
-        '<div class="vp-tools"><label class="sr-only" for="vp-q">' + S('Search', 'Ara') + '</label><input id="vp-q" type="search" autocomplete="off" placeholder="' + S('Search a name or table', 'İsim ya da masa ara') + '"><button class="btn" type="button" id="vp-scan" hidden>' + S('QR reader', 'QR okuyucu') + '</button><button class="btn quiet" type="button" id="vp-print">' + S('Print', 'Yazdır') + '</button></div>' +
-        '<p class="g-msg bad" id="vp-msg" role="alert" style="min-height:0"></p>' +
+        '<div class="vp-tools"><label class="sr-only" for="vp-q">' + S('Search', 'Ara') + '</label><input id="vp-q" type="search" autocomplete="off" placeholder="' + S('Search a name or table', 'İsim ya da masa ara') + '"><button class="btn quiet" type="button" id="vp-inv" hidden>' + S('Invite link', 'Davet linki') + '</button><button class="btn" type="button" id="vp-scan" hidden>' + S('QR reader', 'QR okuyucu') + '</button><button class="btn quiet" type="button" id="vp-print">' + S('Print', 'Yazdır') + '</button></div>' +
+        '<p class="g-msg bad" id="vp-msg" role="alert" style="min-height:0"></p><div id="vp-invbox" hidden></div>' +
         '<section><div class="vp-h"><h2>' + S('Tables', 'Masalar') + '</h2><span id="vp-tn"></span></div><div class="vp-list" id="vp-t"></div></section>' +
-        '<section><div class="vp-h"><h2>' + S('Guest list & tickets', 'Misafir listesi ve biletler') + '</h2><span id="vp-gn"></span></div><div class="vp-list" id="vp-g"></div></section>' +
+        '<section><div class="vp-h"><h2>' + S('Guest list & tickets', 'Misafir listesi ve biletler') + '</h2><span id="vp-gn"></span></div><p class="vp-note" id="vp-yours" style="margin:-4px 0 10px"></p><div class="vp-list" id="vp-g"></div></section>' +
         '<p class="vp-note">' + S('This page updates by itself. “QR reader” opens the door screen for the selected event. It is for the venue team only; please do not forward the link.', 'Bu sayfa kendiliğinden güncellenir. “QR okuyucu” seçili etkinliğin kapı ekranını açar. Yalnızca mekân ekibi içindir; lütfen linki başkasıyla paylaşmayın.') + '</p>';
       document.getElementById('vp-q').oninput = function () { q = this.value; rows(); };
       document.getElementById('vp-print').onclick = function () { window.print(); };
+      document.getElementById('vp-inv').onclick = function () {
+        var btn = this, box = document.getElementById('vp-invbox'); if (!box.hidden) { box.hidden = true; return; } btn.disabled = true; alertMsg('');
+        fetch('/api/public/venue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ k: k, e: cur, a: 'invite' }) }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); return j; }); }).then(function (j) {
+          var link = location.origin + j.url; btn.disabled = false; box.hidden = false;
+          box.innerHTML = '<div class="sh-code"><label class="sr-only" for="vp-il">' + S('Your invite link', 'Davet linkiniz') + '</label><input id="vp-il" readonly value="' + esc(link) + '" style="text-transform:none" onfocus="this.select()"><button class="btn quiet" type="button" id="vp-ic">' + S('Copy', 'Kopyala') + '</button></div><p class="vp-note" style="margin-top:8px">' + S('Your own invitation link for this event. Guests who sign up through it are marked as yours; More Life approves each request before the guest gets an entry pass.', 'Bu etkinlik için size özel davet linki. Bu linkten kaydolanlar sizin davetliniz olarak işaretlenir; giriş kartı gönderilmeden önce her başvuruyu More Life onaylar.') + '</p>';
+          document.getElementById('vp-ic').onclick = function () { var c = this; if (navigator.clipboard) navigator.clipboard.writeText(link).then(function () { c.textContent = S('Copied', 'Kopyalandı'); }); };
+        }).catch(function (err) { btn.disabled = false; alertMsg(err.message || S('Could not get the link.', 'Link alınamadı.')); });
+      };
       document.getElementById('vp-scan').onclick = function () {
         var btn = this; btn.disabled = true;
         fetch('/api/public/venue', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ k: k, e: cur }) }).then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); location.href = j.url; }); }).catch(function (err) { btn.disabled = false; alertMsg(err.message || S('Could not open the reader.', 'Okuyucu açılamadı.')); });
       };
-      document.getElementById('vp-evs').onclick = function (x) { var b = x.target.closest('[data-e]'); if (b && b.getAttribute('data-e') !== cur) { cur = b.getAttribute('data-e'); load(); } };
+      document.getElementById('vp-evs').onclick = function (x) { var b = x.target.closest('[data-e]'); if (b && b.getAttribute('data-e') !== cur) { cur = b.getAttribute('data-e'); document.getElementById('vp-invbox').hidden = true; load(); } };
       built = true;
     }
     var evs = document.getElementById('vp-evs'); evs.hidden = data.events.length < 2;
@@ -116,7 +124,8 @@
     var st = function (n, l, sub) { return '<div class="vp-stat"><span>' + l + '</span><b>' + n + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; };
     document.getElementById('vp-stats').innerHTML = st(c.expected, S('Expected', 'Beklenen'), S('people in total', 'toplam kişi')) + st(c.tables, S('Tables', 'Masa'), ppl(c.tablePeople)) + st(c.list + c.tickets, S('List & tickets', 'Liste ve bilet'), c.list + ' ' + S('list', 'liste') + ' · ' + c.tickets + ' ' + S('tickets', 'bilet')) + st(c.in + (c.capacity ? '<small style="font-size:.5em;color:var(--mute)"> / ' + c.capacity + '</small>' : ''), S('Arrived', 'Giriş yapan'), c.capacity ? S('capacity ', 'kapasite ') + Math.round(c.in / c.capacity * 100) + '%' : c.expected ? Math.round(c.in / c.expected * 100) + '%' : '');
     document.getElementById('vp-cap').innerHTML = c.level ? '<p class="vp-cap' + (c.level === 'full' ? ' full' : '') + '">' + (c.level === 'full' ? S('<b>At capacity:</b> ', '<b>Kapasite doldu:</b> ') : S('<b>Close to capacity:</b> ', '<b>Kapasiteye yaklaşıldı:</b> ')) + c.in + ' / ' + c.capacity + ' ' + S('in', 'içeride') + '</p>' : '';
-    document.getElementById('vp-scan').hidden = !data.scan;
+    document.getElementById('vp-scan').hidden = !data.scan; document.getElementById('vp-inv').hidden = !data.invite; if (!data.invite) document.getElementById('vp-invbox').hidden = true;
+    document.getElementById('vp-yours').textContent = c.yours || c.yoursPending ? S('Through your invite link: ', 'Davet linkinizden: ') + c.yours + ' ' + S('approved', 'onaylı') + (c.yoursPending ? ' · ' + c.yoursPending + ' ' + S('awaiting approval', 'onay bekliyor') : '') : '';
     rows();
   }
   function alertMsg(t) { var n = document.getElementById('vp-msg'); n.textContent = t; }

@@ -20,7 +20,7 @@ import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePrevie
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
-import { venuePublic, venueAdmin } from './lib/venue.mjs';
+import { venuePublic, venueAdmin, inviteOk, venueOfInvite } from './lib/venue.mjs';
 
 export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/pay/*', '/tickets', '/tickets/*', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
 
@@ -62,13 +62,13 @@ async function publicPage(req, url, parts) {
     return page(renderHome(rec, set, featured, preview), 200, cache);
   }
   if (url.pathname === '/invite') {
-    const ref = await s.get('invites/' + str(url.searchParams.get('t'), 60)), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
-    if (!e || e.inviteToken !== url.searchParams.get('t') || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
-    return page(renderEvent(e, set, { mode: 'invite', token: e.inviteToken }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
+    const it = str(url.searchParams.get('t'), 60), ref = await s.get('invites/' + it), e0 = ref && await s.get('events/' + ref.eventId), e = e0 && live(e0);
+    if (!e || !(await inviteOk(s, e0, it)) || (e.invite && e.invite.enabled === false)) return page(notFound('Invitation unavailable.', 'This invitation link is not active.'), 404, { 'x-robots-tag': 'noindex', 'cache-control': 'no-store' });
+    return page(renderEvent(e, set, { mode: 'invite', token: it }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex, nofollow', 'referrer-policy': 'no-referrer' });
   }
   if (parts[0] === 'tickets') { // the shop alone: /tickets/slug for public events, /tickets?t=invite-key for private ones; ?embed=1 inside an iframe
     const tk = str(url.searchParams.get('t'), 60), ref = parts[1] ? await s.get('slugs/' + slugify(parts[1])) : tk ? await s.get('invites/' + tk) : null, e0 = ref && await s.get('events/' + (ref.id || ref.eventId)), e = e0 && live(e0);
-    if (!e || (parts[1] ? !isListed(e0) : e0.inviteToken !== tk)) return page(notFound('Tickets not found.', 'This ticket page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
+    if (!e || (parts[1] ? !isListed(e0) : !(await inviteOk(s, e0, tk)))) return page(notFound('Tickets not found.', 'This ticket page does not exist or is no longer published.'), 404, { 'x-robots-tag': 'noindex' });
     const embed = url.searchParams.get('embed') === '1';
     // the embedded page must be allowed inside other sites' frames; everything else it links to opens at the top level
     return page(renderShop(e, { token: parts[1] ? '' : tk, embed, look: (await shopOf(s, e.id)).look || {} }), 200, { 'cache-control': 'no-store', 'x-robots-tag': 'noindex', ...(parts[1] ? {} : { 'referrer-policy': 'no-referrer' }) });
@@ -116,7 +116,7 @@ async function publicApi(req, ctx, parts, url) {
     if (str(b.website)) return json({ ok: true, created: false }); // honeypot: pretend success
     if (await limited('rsvp/' + hash(ipOf(req, ctx)), 12, 3600)) return fail(429, 'Too many requests. Please try again later.');
     let e0 = null;
-    if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && e0.inviteToken !== b.t) e0 = null; }
+    if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && !(await inviteOk(s, e0, str(b.t, 60)))) e0 = null; }
     else if (b.slug) { const ref = await s.get('slugs/' + slugify(b.slug)); e0 = ref && await s.get('events/' + ref.id); if (e0 && !isListed(e0)) e0 = null; }
     const e = e0 && live(e0);
     if (!e) return fail(404, 'This event is not available.');
@@ -132,6 +132,8 @@ async function publicApi(req, ctx, parts, url) {
     const u = b.utm && typeof b.utm === 'object' ? b.utm : {}, utm = {};
     for (const k of ['source', 'medium', 'campaign', 'content']) if (u[k]) utm[k] = str(u[k], 80).toLowerCase();
     Object.assign(r, { id: id(), eventId: e.id, status: 'pending', createdAt: now(), decidedAt: '', passToken: '', checkedInAt: '', scanCount: 0, showName: b.showName === true, referredBy: '', utm, via: b.t ? 'invite' : 'event-page' });
+    // asked through the venue's own invitation link: marked, so HQ sees whose guest this is
+    const byVenue = b.t ? venueOfInvite(e0, str(b.t, 60)) : ''; if (byVenue) { r.via = 'venue'; r.invitedBy = byVenue; }
     // One request per e-mail per event: only the first writer of this key creates a guest.
     if (!(await s.create('rsvpEmail/' + e.id + '/' + hash(r.email), { id: r.id }))) return json({ ok: true, created: false });
     if (b.ref) { const rf = await s.get('refs/' + str(b.ref, 20).replace(/[^A-Za-z0-9_-]/g, '')); if (rf && rf.eventId === e.id) r.referredBy = rf.rsvpId; }
@@ -180,7 +182,7 @@ async function publicApi(req, ctx, parts, url) {
     const pref = url.searchParams.get('p') ? await s.get('passes/' + str(url.searchParams.get('p'), 60)) : null;
     const pr = pref && pref.eventId === e.id ? await s.get('rsvps/' + e.id + '/' + pref.rsvpId) : null, holder = !!pr && pr.status === 'approved';
     // a private event's list opens only with its invite key or an entry pass
-    if (e.visibility !== 'public' && !holder && str(url.searchParams.get('t'), 60) !== e0.inviteToken) return fail(404, 'Not found');
+    if (e.visibility !== 'public' && !holder && !(await inviteOk(s, e0, str(url.searchParams.get('t'), 60)))) return fail(404, 'Not found');
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
@@ -458,7 +460,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     const e = await s.get('events/' + str(url.searchParams.get('event'), 40)); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const st = url.searchParams.get('status') || '', q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr');
     const rows = (await rsvpsOf(e.id)).filter((r) => (!st || (st === 'checkedin' ? !!r.checkedInAt : r.status === st)) && (!q || (r.name + ' ' + r.email + ' ' + r.phone).toLocaleLowerCase('tr').includes(q))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || ''])));
+    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya', 'Davet eden']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || '', r.via === 'venue' ? 'Mekân: ' + (r.invitedBy || '') : ''])));
   }
   if (parts[0] === 'rsvps' && parts[1]) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');

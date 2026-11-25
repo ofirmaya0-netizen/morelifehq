@@ -1,5 +1,6 @@
 // Ticket sales: ticket types, stock, codes, checkout, orders, tickets, refunds, transfers and sales figures.
 // Storage has no transactions, so every unit of stock is one record created atomically: two buyers can never hold the same unit.
+import { inviteOk } from './venue.mjs';
 import crypto from 'node:crypto';
 import { all, pool } from './store.mjs';
 import { id, token, hash } from './auth.mjs';
@@ -269,7 +270,7 @@ const orderView = (o) => ({ ...o, slots: undefined, payment: o.payment ? { ref: 
 /* ---------- public: shop, checkout, payment, order page ---------- */
 async function eventFor(s, b) { // by invite key (private events) or slug (public ones)
   let e0 = null;
-  if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && e0.inviteToken !== b.t) e0 = null; }
+  if (b.t) { const ref = await s.get('invites/' + str(b.t, 60)); e0 = ref && await s.get('events/' + ref.eventId); if (e0 && !(await inviteOk(s, e0, str(b.t, 60)))) e0 = null; }
   else if (b.slug) { const ref = await s.get('slugs/' + str(b.slug, 80)); e0 = ref && await s.get('events/' + ref.id); if (e0 && !isListed(e0)) e0 = null; }
   return e0 && live(e0) ? e0 : null;
 }

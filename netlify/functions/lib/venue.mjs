@@ -11,6 +11,16 @@ import { eventTickets } from './tickets.mjs';
 // "Lucca Beach", "lucca beach " and "LUCCA BEACH" are one venue.
 export const venueKey = (v) => slugify(str(v, 160));
 const linkOf = async (s, key) => { const ref = key && await s.get('vvenue/' + hash(key)), l = ref && await s.get('vlinks/' + ref.token); return l && l.key === key ? l : null; };
+// The venue's own invitation link of an event (`events/<id>.venueInvite`, key also in `invites/`). It is a different key
+// from More Life's invite link, so guests who ask through it are marked as the venue's; it works only while the venue's
+// portal link exists and its invitations are not switched off in HQ.
+export async function inviteOk(s, e0, t) {
+  if (!t || !e0) return false;
+  if (e0.inviteToken === t) return true;
+  const v = e0.venueInvite; if (!v || v.token !== t) return false;
+  const l = await linkOf(s, venueKey((e0.live || e0).venue)); return !!l && l.invite !== false;
+}
+export const venueOfInvite = (e0, t) => (e0 && e0.venueInvite && e0.venueInvite.token === t ? e0.venueInvite.venue : '');
 // Shown until two days after the event, like a door link.
 const current = (e) => !e.date || istToday() <= new Date(Date.parse(e.endDate || e.date) + 2 * 864e5).toISOString().slice(0, 10);
 const eventsAt = async (key) => (await all('events/')).filter((e) => e.status === 'published' && e.live && venueKey(e.live.venue) === key && current(e.live))
@@ -21,7 +31,7 @@ const eventsAt = async (key) => (await all('events/')).filter((e) => e.status ==
 // `vnotes/<event>/<table key>`; what a guest wrote in a form is never passed on.
 const CAP_NEAR = 0.9; // the portal and HQ warn from 90 % of the event's capacity
 async function detail(e0, enquiries, hq) {
-  const rs = (await all('rsvps/' + e0.id + '/')).filter((r) => r.status === 'approved'), ts = await eventTickets(e0.id);
+  const rsAll = await all('rsvps/' + e0.id + '/'), rs = rsAll.filter((r) => r.status === 'approved'), ts = await eventTickets(e0.id);
   // A bought table is one unit of stock: its tickets share an order and a slot. A unit that admits several people
   // (a table sold by number, without a plan) is a table too; everything else is one person with one ticket.
   const notes = new Map((await all('vnotes/' + e0.id + '/')).map((n) => [n.key, n.note]));
@@ -42,7 +52,7 @@ async function detail(e0, enquiries, hq) {
   // tickets of one order in the same name and type are one row ("Deniz Arslan · General · 2 people")
   const rows = new Map();
   for (const t of single) { const k = t.orderId + '|' + t.typeId + '|' + t.name, r = rows.get(k) || { name: t.name, people: 0, in: 0, type: t.typeName }; r.people += 1; r.in += t.checkedInAt ? 1 : 0; rows.set(k, r); }
-  const guests = rs.map((r) => ({ name: r.name, people: r.guests || 1, in: r.checkedInAt ? r.guests || 1 : 0, list: true })).concat([...rows.values()])
+  const guests = rs.map((r) => ({ name: r.name, people: r.guests || 1, in: r.checkedInAt ? r.guests || 1 : 0, list: true, ...(r.via === 'venue' ? { yours: true } : {}) })).concat([...rows.values()])
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held).map(({ key, ...x }) => ({ ...(hq ? { key } : {}), ...x, ...(notes.get(key) ? { note: notes.get(key) } : hq ? { note: '' } : {}) }));
   const counts = {
@@ -51,6 +61,8 @@ async function detail(e0, enquiries, hq) {
     in: sum(tables, (x) => x.in) + sum(guests, (g) => g.in)
   };
   counts.expected = counts.tablePeople + counts.list + counts.tickets;
+  // what came through the venue's own invitation link: people approved, and requests More Life has not decided yet
+  counts.yours = sum(rs.filter((r) => r.via === 'venue'), (r) => r.guests || 1); counts.yoursPending = rsAll.filter((r) => r.via === 'venue' && r.status === 'pending').length;
   // capacity is the event's own (HQ → Genel Bilgiler); `level` is what the venue and HQ are warned with
   const cap = e0.capacity > 0 ? e0.capacity : 0;
   if (cap) { counts.capacity = cap; counts.level = counts.in >= cap ? 'full' : counts.in >= cap * CAP_NEAR ? 'near' : ''; }
@@ -69,21 +81,27 @@ export async function venuePublic(req, s, url, limitedNow) {
   if (await limitedNow()) return fail(429, 'Too many requests. Please try again in a few minutes.');
   if (!l || !l.key) return fail(404, 'This link is not valid.');
   if (b) {
-    if (l.scan === false) return fail(403, 'Scanning is switched off for this venue. Please ask More Life.');
     const e0 = (await eventsAt(l.key)).find((x) => x.id === str(b.e, 40));
     if (!e0) return fail(404, 'This event is not available.');
+    if (b.a === 'invite') { // the venue's own invitation link for this event
+      if (l.invite === false) return fail(403, 'Invitations are switched off for this venue. Please ask More Life.');
+      if ((e0.invite || {}).enabled === false) return fail(409, 'Invitations for this event are closed.');
+      if (!(e0.venueInvite && e0.venueInvite.token)) { e0.venueInvite = { token: token(24), venue: l.venue, createdAt: now() }; e0.updatedAt = now(); await s.set('invites/' + e0.venueInvite.token, { eventId: e0.id, venue: true }); await s.set('events/' + e0.id, e0); }
+      return json({ url: '/invite?t=' + e0.venueInvite.token });
+    }
+    if (l.scan === false) return fail(403, 'Scanning is switched off for this venue. Please ask More Life.');
     if (!(e0.door && e0.door.token)) { e0.door = { token: token(24), createdAt: now(), by: 'Mekân portalı' }; e0.updatedAt = now(); await s.set('doors/' + e0.door.token, { eventId: e0.id }); await s.set('events/' + e0.id, e0); }
     return json({ url: '/door?k=' + e0.door.token });
   }
   const evs = await eventsAt(l.key), enquiries = evs.length ? await all('enquiries/') : [], out = [];
   for (const e0 of evs) out.push({ ...head(e0), d: await detail(e0, enquiries) });
   const want = str(url.searchParams.get('e'), 40), pick = out.find((x) => x.id === want) || out.find((x) => !x.date || x.date >= istToday()) || out[out.length - 1] || null;
-  return json({ venue: l.venue, scan: l.scan !== false, at: now(), events: out.map(({ d, ...x }) => ({ ...x, counts: d.counts })), event: pick ? { id: pick.id, tables: pick.d.tables, guests: pick.d.guests } : null });
+  return json({ venue: l.venue, scan: l.scan !== false, invite: l.invite !== false, at: now(), events: out.map(({ d, ...x }) => ({ ...x, counts: d.counts })), event: pick ? { id: pick.id, tables: pick.d.tables, guests: pick.d.guests } : null });
 }
 
 /* ---------- HQ: /api/hq/venue-links ---------- */
 // GET ?venue=<name> → the link of that venue (or none) · GET → every link · POST { venue, close } → make / renew / close
-// POST { venue, scan } → QR reading on / off
+// POST { venue, scan } or { venue, invite } → QR reading / the venue's invitation links on or off
 export async function venueAdmin(req, s, url, me, sub) {
   const m = req.method;
   // Table notes for the venue: GET notes?event=<id> → the event's tables with their notes · PUT notes { event, key, note }
@@ -99,7 +117,7 @@ export async function venueAdmin(req, s, url, me, sub) {
     return json({ table: { ...t, note }, eventTitle: e0.title });
   }
   if (sub) return fail(404, 'Bulunamadı.');
-  const view = async (l) => ({ venue: l.venue, scan: l.scan !== false, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
+  const view = async (l) => ({ venue: l.venue, scan: l.scan !== false, invite: l.invite !== false, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
   if (m === 'GET') {
     const v = url.searchParams.get('venue');
     if (v != null) { const key = venueKey(v), l = await linkOf(s, key); return json({ venue: str(v, 160), link: l ? await view(l) : null, events: key ? (await eventsAt(key)).length : 0 }); }
@@ -111,10 +129,11 @@ export async function venueAdmin(req, s, url, me, sub) {
     if (!key) return fail(400, 'Mekân adı gerekli.');
     const old = await linkOf(s, key);
     // QR reading on / off without changing the link
-    if (typeof b.scan === 'boolean' && !b.close) { if (!old) return fail(404, 'Bu mekânın linki yok.'); old.scan = b.scan; await s.set('vlinks/' + old.token, old); return json({ venue: old.venue, link: await view(old), scan: b.scan }); }
+    const sw = ['scan', 'invite'].find((f) => typeof b[f] === 'boolean');
+    if (sw && !b.close) { if (!old) return fail(404, 'Bu mekânın linki yok.'); old[sw] = b[sw]; await s.set('vlinks/' + old.token, old); return json({ venue: old.venue, link: await view(old), [sw]: b[sw] }); }
     if (old) await s.del('vlinks/' + old.token); // the old link stops working at once
     if (b.close) { await s.del('vvenue/' + hash(key)); return json({ venue: old ? old.venue : venue, link: null, closed: true }); }
-    const l = { token: token(24), venue, key, createdAt: now(), by: (me && me.name) || '' };
+    const l = { token: token(24), venue, key, createdAt: now(), by: (me && me.name) || '', ...(old && old.scan === false ? { scan: false } : {}), ...(old && old.invite === false ? { invite: false } : {}) };
     await s.set('vlinks/' + l.token, l); await s.set('vvenue/' + hash(key), { token: l.token });
     return json({ venue, link: await view(l), renewed: !!old }, 201);
   }
