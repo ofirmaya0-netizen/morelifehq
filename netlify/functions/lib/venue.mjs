@@ -131,6 +131,17 @@ export async function venueAdmin(req, s, url, me, sub) {
       await s.del('vtables/' + e0.id + '/' + t.id); await s.del('vnotes/' + e0.id + '/' + k);
       return json({ ok: true, table: { name: t.name, label: t.label }, eventTitle: e0.title, removed: true });
     }
+    // PUT notes { event, key: m-…, name, people, area, label } changes a table that was added by hand (its note is saved like any note)
+    if (m === 'PUT' && 'name' in b) {
+      const k = str(b.key, 60), t = /^m-[A-Za-z0-9_-]+$/.test(k) ? await s.get('vtables/' + e0.id + '/' + k.slice(2)) : null;
+      if (!t) return fail(404, 'Elle eklenmiş böyle bir masa yok.');
+      const n = { ...t, name: str(b.name, 120), people: int(b.people, 1, 200, 0), area: b.area === 'backstage' ? 'backstage' : 'standard', label: str(b.label, 20), updatedAt: now() }, note = str(b.note, 200);
+      if (!n.name) return fail(400, 'Masanın kimin adına olduğunu yazın.');
+      if (!n.people) return fail(400, 'Kişi sayısını yazın.');
+      await s.set('vtables/' + e0.id + '/' + t.id, n);
+      if ('note' in b) { if (note) await s.set('vnotes/' + e0.id + '/' + k, { key: k, note, at: now(), by: (me && me.name) || '' }); else await s.del('vnotes/' + e0.id + '/' + k); }
+      return json({ table: { key: k, label: n.label, area: n.area, name: n.name, people: n.people, in: null, manual: true }, eventTitle: e0.title, edited: true });
+    }
     const d = await detail(e0, await all('enquiries/'), true);
     if (m === 'GET') return json({ tables: d.tables, counts: d.counts });
     if (m !== 'PUT') return fail(405, 'Method not allowed');
@@ -138,6 +149,14 @@ export async function venueAdmin(req, s, url, me, sub) {
     if (!t) return fail(404, 'Masa bulunamadı.');
     if (note) await s.set('vnotes/' + e0.id + '/' + t.key, { key: t.key, note, at: now(), by: (me && me.name) || '' }); else await s.del('vnotes/' + e0.id + '/' + t.key);
     return json({ table: { ...t, note }, eventTitle: e0.title });
+  }
+  // GET overview → every venue that has a current published event or a link: its link and its events with their numbers
+  if (sub === 'overview' && m === 'GET') {
+    const evs = (await all('events/')).filter((e) => e.status === 'published' && e.live && venueKey(e.live.venue) && current(e.live)).sort((a, b) => (a.live.date || '9').localeCompare(b.live.date || '9'));
+    const enquiries = evs.length ? await all('enquiries/') : [], by = new Map();
+    for (const e0 of evs) { const k = venueKey(e0.live.venue); if (!by.has(k)) by.set(k, { key: k, venue: str(e0.live.venue, 160), city: e0.live.city || '', link: null, events: [] }); by.get(k).events.push({ ...head(e0), counts: (await detail(e0, enquiries, true)).counts }); }
+    for (const l of await all('vlinks/')) { if (!by.has(l.key)) by.set(l.key, { key: l.key, venue: l.venue, city: '', link: null, events: [] }); by.get(l.key).link = { url: '/venue?k=' + l.token, scan: l.scan !== false, invite: l.invite !== false, createdAt: l.createdAt, by: l.by || '' }; }
+    return json({ venues: [...by.values()].sort((a, b) => (b.events.length ? 1 : 0) - (a.events.length ? 1 : 0) || a.venue.localeCompare(b.venue, 'tr')) });
   }
   if (sub) return fail(404, 'Bulunamadı.');
   const view = async (l) => ({ venue: l.venue, scan: l.scan !== false, invite: l.invite !== false, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
