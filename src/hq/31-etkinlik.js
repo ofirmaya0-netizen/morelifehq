@@ -1,9 +1,11 @@
 /* Etkinlik detayı: Genel Bilgiler · Public Sayfa · Davet Ayarları · Mesajlar · Biletler · Başvurular · Check-in · Görevler · SEO */
 (function () {
   var H = HQ, e = H.esc;
-  var TABS0 = [['genel', 'Genel Bilgiler'], ['public', 'Public Sayfa'], ['davet', 'Davet Ayarları'], ['mesajlar', 'Mesajlar'], ['biletler', 'Biletler'], ['basvurular', 'Başvurular'], ['checkin', 'Check-in'], ['gorevler', 'Görevler'], ['karzarar', 'Kâr/Zarar'], ['seo', 'SEO']];
+  // Seven sections; the ones with several pages get a second row. The `tab` values in links are unchanged.
+  var GROUPS = [['Genel', ['genel', 'public', 'seo', 'gorevler']], ['Davet', ['davet', 'mesajlar']], ['Başvurular', ['basvurular']], ['Masalar', ['masalar']], ['Biletler', ['biletler']], ['Check-in', ['checkin']], ['Kâr/Zarar', ['karzarar']]];
+  var SUB = { genel: 'Bilgiler', public: 'Public sayfa', seo: 'SEO', gorevler: 'Görevler', davet: 'Link ve form', mesajlar: 'Gönderim ve takip' };
   H.views.etkinlik = async function (main) {
-    var TABS = TABS0.filter(function (x) { return x[0] !== 'karzarar' || H.can('booking'); }); // money is for the owner and managers
+    var TABS = GROUPS.filter(function (g) { return g[1][0] !== 'karzarar' || H.can('booking'); }); // money is for the owner and managers
     var id = H.q().get('id'), tab = H.q().get('tab') || 'genel', d = await H.api('events/' + id), ev = d.event, changes = d.changes, clean = null;
     var nav = 'view=etkinlik&id=' + id, live = ev.status === 'published', canPub = ev.status !== 'published' || ev.dirty;
     main.innerHTML = H.head({ back: ['view=etkinlikler', 'Etkinlikler'], title: e(ev.title), sub: H.fmtDate(ev.date) + (ev.time ? ' · ' + e(ev.time) : '') + (ev.venue ? ' · ' + e(ev.venue) : '') + (ev.city ? ', ' + e(ev.city) : ''),
@@ -13,7 +15,8 @@
         (canPub ? '<button class="btn acc" type="button" id="pub">' + (live ? 'Değişiklikleri yayınla' : 'Yayınla') + '</button>' : '') }) +
       '<div class="row" style="margin:-10px 0 18px">' + H.pill(ev.status) + H.pill(ev.visibility) + (ev.eventStatus !== 'scheduled' ? H.pill('bad', { cancelled: 'İptal edildi', postponed: 'Ertelendi', rescheduled: 'Tarihi değişti' }[ev.eventStatus]) : '') + (ev.dirty ? H.pill('warn', 'Yayınlanmamış değişiklik var') : '') +
       '<span style="flex:1"></span>' + (live ? '<button class="btn sm ghost" type="button" data-st="draft">Taslağa al</button>' : '') + (ev.status !== 'archived' ? '<button class="btn sm ghost" type="button" data-st="archived">Arşivle</button>' : '<button class="btn sm ghost" type="button" data-st="draft">Arşivden çıkar</button>') + '</div>' +
-      '<div class="tabs" role="tablist">' + TABS.map(function (t) { return '<button type="button" role="tab" aria-selected="' + (t[0] === tab) + '" data-nav="' + nav + '&tab=' + t[0] + '">' + t[1] + (t[0] === 'basvurular' && ev.counts.pending ? '<span class="cnt">' + ev.counts.pending + '</span>' : '') + '</button>'; }).join('') + '</div><div id="tab"></div>';
+      '<div class="tabs" role="tablist">' + TABS.map(function (g) { return '<button type="button" role="tab" aria-selected="' + (g[1].indexOf(tab) > -1) + '" data-nav="' + nav + '&tab=' + g[1][0] + '">' + g[0] + (g[1][0] === 'basvurular' && ev.counts.pending ? '<span class="cnt">' + ev.counts.pending + '</span>' : '') + '</button>'; }).join('') + '</div>' +
+      (function () { var g = TABS.filter(function (x) { return x[1].indexOf(tab) > -1; })[0]; return g && g[1].length > 1 ? '<div class="subtabs" style="margin:-8px 0 18px">' + H.seg(g[1].map(function (t) { return [nav + '&tab=' + t, SUB[t]]; }), nav + '&tab=' + tab, 'data-nav') + '</div>' : ''; })() + '<div id="tab"></div>';
     var box = main.querySelector('#tab'), F = H.field;
     async function put(data, okMsg) { var r = await H.api('events/' + id, 'PUT', data); H.toast(okMsg || 'Kaydedildi', 'ok'); H.render(); return r; }
     function saveForm(form, build) {
@@ -95,6 +98,7 @@
       H.inviteSend(box.querySelector('#inv-send'), id); H.inviteTrack(box.querySelector('#inv-track'), id);
       saveForm(box.querySelector('#wf'), function (v) { return v; });
     }
+    else if (tab === 'masalar') await H.parts.tables(box, id, ev.title);
     else if (tab === 'biletler') await H.parts.tickets(box, id);
     else if (tab === 'karzarar' && H.can('booking')) await H.parts.pnl(box, id);
     else if (tab === 'basvurular') await H.parts.apps(box, id, { f: H.q().get('durum') || (ev.counts.pending ? 'pending' : 'all') });
