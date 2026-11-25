@@ -81,7 +81,7 @@
     var ts = ev.tables.filter(hit), gs = ev.guests.filter(hit);
     var tHtml = ts.length ? ts.map(function (t) {
       var area = AREA[t.area] || t.area, full = t.in != null && t.in >= t.people;
-      return '<div class="vp-row"><div class="vp-main"><b>' + esc(t.name) + '</b><span>' + esc([t.label, area].filter(Boolean).join(' · ')) + (t.request ? ' · ' + S('held by name', 'isimle ayrıldı') : '') + '</span>' + (t.note ? '<span class="vp-n">' + esc(t.note) + '</span>' : '') + '</div>' +
+      return '<div class="vp-row"><div class="vp-main"><b>' + esc(t.name) + '</b><span>' + esc([t.label, area].filter(Boolean).join(' · ')) + (t.request || t.manual ? ' · ' + S('held by name', 'isimle ayrıldı') : '') + '</span>' + (t.note ? '<span class="vp-n">' + esc(t.note) + '</span>' : '') + '</div>' +
         '<div class="vp-side"><b>' + ppl(t.people) + '</b>' + (t.in == null ? '' : '<span class="vp-tag' + (t.in ? ' in' : '') + '">' + (full ? S('All in', 'Hepsi içeride') : t.in + ' / ' + t.people + ' ' + S('in', 'içeride')) + '</span>') + (t.due ? '<span class="vp-due">' + money(t.due, t.currency) + ' ' + S('due at venue', 'mekânda ödenecek') + '</span>' : '') + '</div></div>';
     }).join('') : '<p class="vp-empty">' + (f ? S('No table matches.', 'Eşleşen masa yok.') : S('No tables yet.', 'Henüz masa yok.')) + '</p>';
     var gHtml = gs.length ? gs.map(function (g) {
