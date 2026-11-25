@@ -147,6 +147,16 @@ try:
     ok('the venue sees both: name, party, area, table number and note; held by name', mt==[{'label':'B7','area':'backstage','name':'Telefonla Gelen','people':8,'in':None,'manual':True,'note':'Şampanya hazır olsun'},{'label':'','area':'standard','name':'Ev Sahibi Misafiri','people':3,'in':None,'manual':True}], mt)
     ok('they count as tables and expected people', jm['events'][0]['counts']['tables']==before['tables']+2 and jm['events'][0]['counts']['tablePeople']==before['tablePeople']+11 and jm['events'][0]['counts']['expected']==before['expected']+11, jm['events'][0]['counts'])
     ok('its note can be changed like any table’s', a.req(N,'PUT',{'event':e1['id'],'key':mkey,'note':'VIP'})[0]==200 and [t for t in anon.req(P)[1]['event']['tables'] if t.get('label')=='B7'][0]['note']=='VIP')
+    st,j,_=a.req(N,'PUT',{'event':e1['id'],'key':mkey,'name':'Telefonla Gelen Bey','people':10,'area':'standard','label':'A1','note':'VIP · pasta'}); ok('a hand-added table can be changed', st==200 and j['edited'] and j['table']['people']==10, j)
+    em=[t for t in anon.req(P)[1]['event']['tables'] if t.get('manual') and t['label']=='A1']
+    ok('the venue sees the changed table at once, counts follow', em==[{'label':'A1','area':'standard','name':'Telefonla Gelen Bey','people':10,'in':None,'manual':True,'note':'VIP · pasta'}] and anon.req(P)[1]['events'][0]['counts']['tablePeople']==before['tablePeople']+13, em)
+    ok('a change needs a name and a party size; bought tables cannot be changed this way; the door role cannot', a.req(N,'PUT',{'event':e1['id'],'key':mkey,'name':'','people':4})[0]==400 and a.req(N,'PUT',{'event':e1['id'],'key':mkey,'name':'X','people':'abc'})[0]==400 and a.req(N,'PUT',{'event':e1['id'],'key':tk['B2']['key'],'name':'X','people':2})[0]==404 and d0.req(N,'PUT',{'event':e1['id'],'key':mkey,'name':'X','people':2})[0]==403)
+    a.req(N,'PUT',{'event':e1['id'],'key':mkey,'note':'VIP'})
+    # ---------- Mekânlar: every venue in one place ----------
+    st,j,_=a.req('/api/hq/venue-links/overview'); vs={v['venue']:v for v in j['venues']}
+    ok('overview: both venues, with link state and their current events', st==200 and set(vs)=={'Lucca Beach','Before Sunset'} and vs['Lucca Beach']['link']['url']==url and vs['Lucca Beach']['link']['scan'] is True and vs['Before Sunset']['link'] is None and [x['title'] for x in vs['Lucca Beach']['events']]==['Sunset One','Sunset Two'] and [x['title'] for x in vs['Before Sunset']['events']]==['Elsewhere'], j)
+    ok('overview numbers match the portal', vs['Lucca Beach']['events'][0]['counts']==anon.req(P)[1]['events'][0]['counts'])
+    ok('anon and the door role cannot read the overview', anon.req('/api/hq/venue-links/overview')[0]==401 and d0.req('/api/hq/venue-links/overview')[0]==403)
     ok('a bought table cannot be removed here', a.req(N,'DELETE',{'event':e1['id'],'key':tk['B2']['key']})[0]==404 and a.req(N,'DELETE',{'event':e1['id'],'key':'m-nope'})[0]==404)
     st,j,_=a.req(N,'DELETE',{'event':e1['id'],'key':mkey}); ok('a hand-added one can; it leaves the portal with its note', st==200 and j['removed'] and [t['name'] for t in anon.req(P)[1]['event']['tables'] if t.get('manual')]==['Ev Sahibi Misafiri'] and 'VIP' not in anon.req(P,raw=True)[1])
     ok('the other event has none of them', anon.req(P+'&e='+e2['id'])[1]['event']['tables']==[])
@@ -173,8 +183,8 @@ try:
     st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','close':True}); ok('closed: nothing opens', st==200 and j['closed'] and anon.req('/api/public/venue?k='+new)[0]==404 and a.req('/api/hq/venue-links?venue=Lucca%20Beach')[1]['link'] is None)
     ok('closing the portal link closes the venue’s invitation link too', anon.req('/invite?t='+vt,raw=True)[0]==404 and anon.req('/invite?t='+own,raw=True)[0]==200)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
-    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı','masa notu yazdı','masa notunu sildi','davet linkini kapattı','davet linkini açtı','Elle masa ekledi','Elle eklenen masayı sildi']), log[:20])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masalar ve notlar' in h and 'Masa ekle' in h and 'Kapasiteye yaklaşıldı' in h and 'Mekân daveti' in h and 'Davet linkini kapat' in h)
+    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı','masa notu yazdı','masa notunu sildi','davet linkini kapattı','davet linkini açtı','Elle masa ekledi','Elle eklenen masayı düzenledi','Elle eklenen masayı sildi']), log[:30])
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masalar ve notlar' in h and 'Masa ekle' in h and 'Masayı düzenle' in h and 'Mekânlar' in h and 'venue-links/overview' in h and 'Kapasiteye yaklaşıldı' in h and 'Mekân daveti' in h and 'Davet linkini kapat' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

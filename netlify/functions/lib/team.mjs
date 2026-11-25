@@ -49,9 +49,9 @@ export function allowed(u, m, parts) {
 }
 // The screens each role gets in the menu (the server check above is what actually protects the data).
 export function screens(role) {
-  if (role === 'owner') return ['ozet', 'etkinlikler', 'satislar', 'booking', 'rsvp', 'kapi', 'crm', 'mesajlar', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ekip', 'yedekler', 'ayarlar'];
-  if (role === 'manager') return ['ozet', 'etkinlikler', 'satislar', 'booking', 'rsvp', 'kapi', 'crm', 'mesajlar', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ekip', 'ayarlar'];
-  if (role === 'viewer') return ['ozet', 'etkinlikler', 'satislar', 'rsvp', 'crm', 'mesajlar', 'talepler', 'gorevler', 'website', 'seo', 'marketing', 'ayarlar'];
+  if (role === 'owner') return ['ozet', 'etkinlikler', 'satislar', 'booking', 'rsvp', 'kapi', 'crm', 'mesajlar', 'talepler', 'gorevler', 'mekanlar', 'website', 'seo', 'marketing', 'ekip', 'yedekler', 'ayarlar'];
+  if (role === 'manager') return ['ozet', 'etkinlikler', 'satislar', 'booking', 'rsvp', 'kapi', 'crm', 'mesajlar', 'talepler', 'gorevler', 'mekanlar', 'website', 'seo', 'marketing', 'ekip', 'ayarlar'];
+  if (role === 'viewer') return ['ozet', 'etkinlikler', 'satislar', 'rsvp', 'crm', 'mesajlar', 'talepler', 'gorevler', 'mekanlar', 'website', 'seo', 'marketing', 'ayarlar'];
   if (role === 'rsvp') return ['ozet', 'rsvp', 'kapi'];
   return ['ozet', 'kapi'];
 }
@@ -88,6 +88,8 @@ export async function describe(s, parts, m, b, j) {
     const who = (j.rsvp && j.rsvp.name) || '';
     if (p3 === 'decision') return ['Başvuruyu ' + (DECISION[b.decision] || b.decision), who, t];
     if (p3 === 'send-table') return ['Masa linkini gönderdi', who, t];
+    if (p3 === 'send-guest-names') return ['Misafir isimlerini WhatsApp’tan sordu', who, t];
+    if (p3 === 'guest-names') return ['Misafir isimlerini kaydetti', who, t];
     if (p3 === 'send-pass') return ['Giriş kartını e-postayla gönderdi', who, t];
     if (p3 === 'send-pass-wa') return ['Giriş kartını WhatsApp’tan gönderdi', who, t];
     return null;
@@ -123,7 +125,7 @@ export async function describe(s, parts, m, b, j) {
     if (del) return ['Ekip üyesini sildi', (j.deleted && j.deleted.name) || ''];
     return ['Ekip üyesini düzenledi', t, j.member ? ROLES[j.member.role].label + (j.member.active ? '' : ' · erişim kapalı') : ''];
   }
-  if (a === 'venue-links' && p1 === 'notes' && (j.added || j.removed)) return [j.added ? 'Elle masa ekledi' : 'Elle eklenen masayı sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') + (j.table.people ? ' · ' + j.table.people + ' kişi' : '') : ''];
+  if (a === 'venue-links' && p1 === 'notes' && (j.added || j.removed || j.edited)) return [j.added ? 'Elle masa ekledi' : j.edited ? 'Elle eklenen masayı düzenledi' : 'Elle eklenen masayı sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') + (j.table.people ? ' · ' + j.table.people + ' kişi' : '') : ''];
   if (a === 'venue-links' && p1 === 'notes') return [b.note ? 'Mekân için masa notu yazdı' : 'Mekân için masa notunu sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') : ''];
   if (a === 'venue-links' && typeof b.invite === 'boolean' && !b.close) return [b.invite ? 'Mekânın davet linkini açtı' : 'Mekânın davet linkini kapattı', j.venue || ''];
   if (a === 'venue-links' && typeof b.scan === 'boolean' && !b.close) return [b.scan ? 'Mekân portalında QR okumayı açtı' : 'Mekân portalında QR okumayı kapattı', j.venue || ''];

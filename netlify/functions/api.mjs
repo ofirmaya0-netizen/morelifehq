@@ -16,7 +16,7 @@ import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { inviteRoute, personalOf, markPersonal, personalOpen, shareToken, shareUrl } from './lib/invites.mjs';
 import { emailStatus, sendPass, sendTable, passMail, notifyEnquiry } from './lib/email.mjs';
-import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
+import { waStatus, waSettings, sendPassWa, sendTableWa, sendGuestNamesWa, guestNamesParams, guestNamesText, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
@@ -466,7 +466,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     const e = await s.get('events/' + str(url.searchParams.get('event'), 40)); if (!e) return fail(404, 'Etkinlik bulunamadı.');
     const st = url.searchParams.get('status') || '', q = (url.searchParams.get('q') || '').toLocaleLowerCase('tr');
     const rows = (await rsvpsOf(e.id)).filter((r) => (!st || (st === 'checkedin' ? !!r.checkedInAt : r.status === st)) && (!q || (r.name + ' ' + r.email + ' ' + r.phone).toLocaleLowerCase('tr').includes(q))).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya', 'Davet eden']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || '', r.via === 'venue' ? 'Mekân: ' + (r.invitedBy || '') : r.via === 'forward' ? 'İletti: ' + (r.forwardedByName || '') : r.personal ? 'Kişisel link' : ''])));
+    return csv('misafir-' + e.slug + '.csv', [['Ad Soyad', 'E-posta', 'Telefon', 'Kişi', 'Durum', 'Not', 'Başvuru', 'Karar', 'Giriş', 'Kaynak', 'Kampanya', 'Davet eden', 'Misafir isimleri']].concat(rows.map((r) => [r.name, r.email, r.phone, r.guests, r.checkedInAt ? 'giriş yaptı' : r.status, r.note, r.createdAt, r.decidedAt, r.checkedInAt, (r.utm && r.utm.source) || '', (r.utm && r.utm.campaign) || '', r.via === 'venue' ? 'Mekân: ' + (r.invitedBy || '') : r.via === 'forward' ? 'İletti: ' + (r.forwardedByName || '') : r.personal ? 'Kişisel link' : '', r.guestNames || ''])));
   }
   if (parts[0] === 'rsvps' && parts[1]) {
     const e = await s.get('events/' + parts[1]); if (!e) return fail(404, 'Etkinlik bulunamadı.');
@@ -474,7 +474,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     if (!parts[2] && m === 'GET') {
       // the door role gets what a door link gets: approved guests, name and party size only
       if (me.role === 'door') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue, status: e.status, counts: counts(rs) }, rsvps: rs.filter((r) => r.status === 'approved').map((r) => ({ ...doorGuest(r), status: r.status, email: '', phone: '' })), tickets: (await eventTickets(e.id)).map(ticketGuest), email: { connected: false }, whatsapp: { connected: false } });
-      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: { ...waStatus(), table: !!(await waSettings(s)).table.projectId } });
+      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: { ...waStatus(), table: !!(await waSettings(s)).table.projectId, guestNames: !!(await waSettings(s)).guestNames.projectId, guestNamesText: guestNamesText(guestNamesParams(e, { name: 'Ada Yılmaz', guests: 3 })) } });
     }
     let freed = false;
     const decide = async (r, dec) => {
@@ -503,6 +503,21 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
       r.wa = await sendPassWa(s, live(e) || e, r, url.origin); await s.set('rsvps/' + e.id + '/' + r.id, r);
       return r.wa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.wa.error || ''), { rsvp: r });
+    }
+    // Asks a guest who is bringing people for their names, by WhatsApp (its own approved template). The reply arrives in Mesajlar.
+    if (parts[3] === 'send-guest-names' && m === 'POST') {
+      if (r.status !== 'approved') return fail(400, 'İsimler yalnızca onaylı misafire sorulur.');
+      if ((r.guests || 1) < 2) return fail(400, 'Bu misafir yanında kimseyi getirmiyor.');
+      if (!waStatus().connected) return fail(409, 'WhatsApp bağlı değil.');
+      if (!(await waSettings(s)).guestNames.projectId) return fail(409, 'Misafir isimleri şablonu Ayarlar’da tanımlı değil.');
+      if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
+      r.namesWa = await sendGuestNamesWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r);
+      return r.namesWa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.namesWa.error || ''), { rsvp: r });
+    }
+    // The names the guest sent back, typed in by the team.
+    if (parts[3] === 'guest-names' && m === 'PUT') {
+      r.guestNames = str((await body(req)).names, 400); await s.set('rsvps/' + e.id + '/' + r.id, r);
+      return json({ rsvp: r });
     }
     // The table page of this event, to an approved guest: by WhatsApp (needs its own approved template) or by e-mail.
     if (parts[3] === 'send-table' && m === 'POST') {

@@ -1,6 +1,27 @@
 /* Mekân portalı: mekâna verilen tek link. O mekândaki yayındaki etkinliklerde kim geliyor, kimin masası var. */
 (function () {
   var H = HQ, e = H.esc;
+  // The event's tables as the venue sees them: add one by hand, change or remove a hand-added one, and one short note per
+  // table (birthday, bottles ordered ahead, VIP). A note is saved when its field is left. edit: key of the table in the form.
+  H.parts.venueTables = async function (eventId, title, edit) {
+    var d; try { d = await H.api('venue-links/notes?event=' + eventId); } catch (err) { H.toast(err.message, 'bad'); return; }
+    var can = H.me.role !== 'viewer', AREA = { backstage: 'Backstage', standard: 'Normal masa' }, F = H.field, again = function (k) { H.parts.venueTables(eventId, title, k); };
+    var cur = edit ? d.tables.filter(function (t) { return t.key === edit; })[0] : null, v = cur || { people: 4, area: 'standard' };
+    var dr = H.drawer({ title: 'Masalar ve notlar' + (title ? ' · ' + title : ''), body:
+      (can ? '<form id="vt-add" class="card" style="margin-bottom:18px"><h3 class="h2" style="margin-bottom:4px">' + (cur ? 'Masayı düzenle' : 'Masa ekle') + '</h3><p class="small mute" style="margin-bottom:12px">' + (cur ? e(cur.name) + ' adına elle eklenen masa. Değişiklik mekânın portalında hemen görünür.' : 'Bilet ya da masa talebi olmadan ayırdığınız masalar için (telefonla satılan, misafiriniz olan). Mekânın portalında diğer masalarla birlikte, isimle ayrılmış olarak görünür.') + '</p><div class="form">' +
+        F({ name: 'name', label: 'Kimin adına', value: v.name, required: 1, max: 120, full: 1 }) + F({ name: 'people', label: 'Kişi sayısı', type: 'number', value: v.people, attrs: ' min="1" max="200" inputmode="numeric"' }) + F({ name: 'area', label: 'Alan', type: 'select', value: v.area, options: [['standard', 'Normal masa'], ['backstage', 'Backstage']] }) +
+        F({ name: 'label', label: 'Masa no', value: v.label, max: 20, ph: 'B4', hint: 'İsteğe bağlı' }) + F({ name: 'note', label: 'Mekân için not', value: v.note, max: 200, ph: 'Doğum günü, şişe ön siparişi, VIP', full: 1 }) + '</div><div class="row between" style="margin-top:12px"><p class="msg bad" role="alert"></p><div class="row">' + (cur ? '<button class="btn" type="button" id="vt-cancel">Vazgeç</button>' : '') + '<button class="btn pri" type="submit">' + (cur ? 'Kaydet' : 'Masa ekle') + '</button></div></div></form>' : '') +
+      '<p class="small mute" style="margin-bottom:14px">Not, mekânın portalda masanın altında gördüğü kısa bilgidir; misafire gitmez. Alandan çıkınca kaydedilir.</p>' +
+      (d.tables.length ? '<div class="stack">' + d.tables.map(function (t, i) { return '<div class="f"><div class="row between"><label for="vn-' + i + '"><b>' + e(t.name) + '</b> · ' + e([t.label, AREA[t.area] || t.area, t.people + ' kişi'].filter(Boolean).join(' · ')) + (t.manual ? ' · <span class="dim">elle eklendi</span>' : '') + '</label>' + (t.manual && can ? '<span class="row" style="gap:4px"><button class="btn sm ghost" type="button" data-edit="' + e(t.key) + '">Düzenle</button><button class="btn sm ghost" type="button" data-del="' + e(t.key) + '" data-name="' + e(t.name) + '">Sil</button></span>' : '') + '</div><input id="vn-' + i + '" data-key="' + e(t.key) + '" value="' + e(t.note || '') + '" maxlength="200" placeholder="Not yok"' + (can ? '' : ' disabled') + '><span class="hint" aria-live="polite"></span></div>'; }).join('') + '</div>' : H.empty('qr', 'Henüz masa yok', 'Satılan, onaylanan ya da elle eklediğiniz masalar burada listelenir.')) });
+    dr.querySelectorAll('input[data-key]').forEach(function (inp) {
+      var last = inp.value;
+      inp.onchange = async function () { var hint = inp.parentNode.querySelector('.hint'), val = inp.value.trim(); if (val === last) return; try { await H.api('venue-links/notes', 'PUT', { event: eventId, key: inp.getAttribute('data-key'), note: val }); last = val; hint.textContent = val ? 'Kaydedildi' : 'Not silindi'; } catch (err) { hint.textContent = err.message; } };
+    });
+    var add = dr.querySelector('#vt-add'), cancel = dr.querySelector('#vt-cancel'); if (cancel) cancel.onclick = function () { again(); };
+    if (add) add.onsubmit = async function (x) { x.preventDefault(); var btn = add.querySelector('button[type=submit]'), msg = add.querySelector('.msg'); msg.textContent = ''; H.busy(btn, 1); try { await H.api('venue-links/notes', cur ? 'PUT' : 'POST', Object.assign({ event: eventId }, cur ? { key: cur.key } : {}, H.vals(add))); H.toast(cur ? 'Masa güncellendi' : 'Masa eklendi', 'ok'); again(); } catch (err) { msg.textContent = err.message; H.busy(btn, 0); } };
+    dr.querySelectorAll('[data-edit]').forEach(function (b) { b.onclick = function () { again(b.getAttribute('data-edit')); }; });
+    dr.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = async function () { if (!(await H.modal({ title: 'Masa silinsin mi?', text: b.getAttribute('data-name') + ' adına elle eklenen masa mekânın portalından da kalkar.', ok: 'Sil', danger: 1 }))) { again(); return; } try { await H.api('venue-links/notes', 'DELETE', { event: eventId, key: b.getAttribute('data-del') }); H.toast('Masa silindi', 'ok'); } catch (err) { H.toast(err.message, 'bad'); } again(); }; });
+  };
   H.parts.venueLink = async function (box, venue, eventId) {
     var head = '<h2 class="h2" style="margin-bottom:6px">Mekân portalı</h2>';
     if (!venue) { box.innerHTML = head + '<p class="small mute">Bu etkinliğin mekânı girilmemiş. “Genel Bilgiler”e mekânı yazıp yayınlayın; link mekân adına göre açılır.</p>'; return; }
@@ -12,35 +33,16 @@
         (l ? '<p class="small mute" style="margin-bottom:12px">QR okuma: ' + (l.scan ? '<b>açık</b>. Mekânın kapı ekibi portaldaki “QR okuyucu” ile yalnızca o etkinliğin giriş kartlarını ve biletlerini okutup giriş yapabilir (etkinliğin kapı linkiyle aynı ekran).' : '<b>kapalı</b>. Mekân listeyi görür ama giriş okutamaz.') + '</p><p class="small mute" style="margin-bottom:12px">Mekânın davet linki: ' + (l.invite ? '<b>açık</b>. Mekân portaldan her etkinlik için kendi davet linkini alır; sizin davet linkinizden ayrıdır. Bu linkten gelen başvurular Başvurular’da “Mekân daveti” etiketiyle görünür ve yine sizin onayınızı bekler.' : '<b>kapalı</b>. Mekânın daha önce paylaştığı davet linkleri de açılmaz.') + '</p>' : '') +
         (l ? '<p class="url" style="padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.3);border:1px solid var(--line)">' + e(location.origin + l.url) + '</p><div class="row" style="margin-top:12px"><button class="btn pri" type="button" data-copy="' + e(l.url) + '" data-copied="Mekân linki kopyalandı">' + H.ico('copy') + 'Kopyala</button><a class="btn" href="' + e(l.url) + '" target="_blank" rel="noopener">' + H.ico('ext') + 'Aç</a>' + (can ? '<button class="btn" type="button" data-vl="' + (l.scan ? 'scanoff' : 'scanon') + '">' + (l.scan ? 'QR okumayı kapat' : 'QR okumayı aç') + '</button><button class="btn" type="button" data-vl="' + (l.invite ? 'invoff' : 'invon') + '">' + (l.invite ? 'Davet linkini kapat' : 'Davet linkini aç') + '</button><button class="btn" type="button" data-vl="renew">Yenile</button><button class="btn" type="button" data-vl="close">Kapat</button>' : '') + '</div>'
           : can ? '<button class="btn pri" type="button" data-vl="new">Mekân linki oluştur</button>' : '<p class="small dim">Henüz link oluşturulmadı.</p>') +
-        '<div class="row" style="margin-top:12px"><button class="btn" type="button" data-vl="notes">Masalar ve notlar</button></div>';
+        (eventId ? '<div class="row" style="margin-top:12px"><button class="btn" type="button" data-vl="notes">Masalar ve notlar</button></div>' : '');
     }
     box.onclick = async function (x) {
       var b = x.target.closest('[data-vl]'); if (!b) return; var a = b.getAttribute('data-vl');
-      if (a === 'notes') { notes(); return; }
+      if (a === 'notes') { H.parts.venueTables(eventId); return; }
       if (a === 'invon' || a === 'invoff') { try { await H.api('venue-links', 'POST', { venue: venue, invite: a === 'invon' }); H.toast(a === 'invon' ? 'Mekânın davet linki açıldı' : 'Mekânın davet linki kapatıldı', 'ok'); await draw(); } catch (err) { H.toast(err.message, 'bad'); } return; }
       if (a === 'scanon' || a === 'scanoff') { try { await H.api('venue-links', 'POST', { venue: venue, scan: a === 'scanon' }); H.toast(a === 'scanon' ? 'QR okuma açıldı' : 'QR okuma kapatıldı', 'ok'); await draw(); } catch (err) { H.toast(err.message, 'bad'); } return; }
       if (a !== 'new' && !(await H.modal({ title: a === 'close' ? 'Mekân linki kapatılsın mı?' : 'Mekân linki yenilensin mi?', text: 'Mevcut link hemen çalışmaz olur; mekâna yeniden göndermeniz gerekir.', ok: a === 'close' ? 'Kapat' : 'Yenile', danger: 1 }))) return;
       try { await H.api('venue-links', 'POST', { venue: venue, close: a === 'close' }); H.toast(a === 'close' ? 'Mekân linki kapatıldı' : 'Mekân linki hazır', 'ok'); await draw(); } catch (err) { H.toast(err.message, 'bad'); }
     };
-    // The event's tables as the venue sees them: add one by hand, remove a hand-added one, and one short note per table
-    // (birthday, bottles ordered ahead, VIP). A note is saved when its field is left.
-    async function notes() {
-      var d; try { d = await H.api('venue-links/notes?event=' + eventId); } catch (err) { H.toast(err.message, 'bad'); return; }
-      var can = H.me.role !== 'viewer', AREA = { backstage: 'Backstage', standard: 'Normal masa' }, F = H.field;
-      var dr = H.drawer({ title: 'Masalar ve notlar', body:
-        (can ? '<form id="vt-add" class="card" style="margin-bottom:18px"><h3 class="h2" style="margin-bottom:4px">Masa ekle</h3><p class="small mute" style="margin-bottom:12px">Bilet ya da masa talebi olmadan ayırdığınız masalar için (telefonla satılan, misafiriniz olan). Mekânın portalında diğer masalarla birlikte, isimle ayrılmış olarak görünür.</p><div class="form">' +
-          F({ name: 'name', label: 'Kimin adına', required: 1, max: 120, full: 1 }) + F({ name: 'people', label: 'Kişi sayısı', type: 'number', value: 4, attrs: ' min="1" max="200" inputmode="numeric"' }) + F({ name: 'area', label: 'Alan', type: 'select', value: 'standard', options: [['standard', 'Normal masa'], ['backstage', 'Backstage']] }) +
-          F({ name: 'label', label: 'Masa no', max: 20, ph: 'B4', hint: 'İsteğe bağlı' }) + F({ name: 'note', label: 'Mekân için not', max: 200, ph: 'Doğum günü, şişe ön siparişi, VIP', full: 1 }) + '</div><div class="row between" style="margin-top:12px"><p class="msg bad" role="alert"></p><button class="btn pri" type="submit">Masa ekle</button></div></form>' : '') +
-        '<p class="small mute" style="margin-bottom:14px">Not, mekânın portalda masanın altında gördüğü kısa bilgidir; misafire gitmez. Alandan çıkınca kaydedilir.</p>' +
-        (d.tables.length ? '<div class="stack">' + d.tables.map(function (t, i) { return '<div class="f"><div class="row between"><label for="vn-' + i + '"><b>' + e(t.name) + '</b> · ' + e([t.label, AREA[t.area] || t.area, t.people + ' kişi'].filter(Boolean).join(' · ')) + (t.manual ? ' · <span class="dim">elle eklendi</span>' : '') + '</label>' + (t.manual && can ? '<button class="btn sm ghost" type="button" data-del="' + e(t.key) + '" data-name="' + e(t.name) + '">Sil</button>' : '') + '</div><input id="vn-' + i + '" data-key="' + e(t.key) + '" value="' + e(t.note || '') + '" maxlength="200" placeholder="Not yok"' + (can ? '' : ' disabled') + '><span class="hint" aria-live="polite"></span></div>'; }).join('') + '</div>' : H.empty('qr', 'Henüz masa yok', 'Satılan, onaylanan ya da elle eklediğiniz masalar burada listelenir.')) });
-      dr.querySelectorAll('input[data-key]').forEach(function (inp) {
-        var last = inp.value;
-        inp.onchange = async function () { var hint = inp.parentNode.querySelector('.hint'), v = inp.value.trim(); if (v === last) return; try { await H.api('venue-links/notes', 'PUT', { event: eventId, key: inp.getAttribute('data-key'), note: v }); last = v; hint.textContent = v ? 'Kaydedildi' : 'Not silindi'; } catch (err) { hint.textContent = err.message; } };
-      });
-      var add = dr.querySelector('#vt-add');
-      if (add) add.onsubmit = async function (x) { x.preventDefault(); var btn = add.querySelector('button[type=submit]'), msg = add.querySelector('.msg'); msg.textContent = ''; H.busy(btn, 1); try { await H.api('venue-links/notes', 'POST', Object.assign({ event: eventId }, H.vals(add))); H.toast('Masa eklendi', 'ok'); notes(); } catch (err) { msg.textContent = err.message; H.busy(btn, 0); } };
-      dr.querySelectorAll('[data-del]').forEach(function (b) { b.onclick = async function () { if (!(await H.modal({ title: 'Masa silinsin mi?', text: b.getAttribute('data-name') + ' adına elle eklenen masa mekânın portalından da kalkar.', ok: 'Sil', danger: 1 }))) { notes(); return; } try { await H.api('venue-links/notes', 'DELETE', { event: eventId, key: b.getAttribute('data-del') }); H.toast('Masa silindi', 'ok'); } catch (err) { H.toast(err.message, 'bad'); } notes(); }; });
-    }
     await draw();
   };
 })();
