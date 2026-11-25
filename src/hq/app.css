@@ -288,3 +288,9 @@ ul.dots{display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--mu
 .bub.out div{border-radius:14px 14px 4px 14px;background:rgba(127,209,160,.12);border-color:rgba(127,209,160,.28)}.bub span{font-size:11.5px;color:var(--dim)}
 button.link{background:none;border:0;padding:0;color:var(--mute);font:inherit;text-decoration:underline;cursor:pointer}button.link:hover{color:var(--ink)}
 .bub.tpl div{border-style:dashed}
+
+/* secondary row actions behind one control: opens in place, below the row's buttons */
+details.more>summary{list-style:none;cursor:pointer}details.more>summary::-webkit-details-marker{display:none}
+details.more[open]{flex-basis:100%;order:9}details.more[open]>summary{background:var(--card2)}
+.more-menu{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:10px;border-radius:12px;background:var(--bg2);border:1px solid var(--line)}
+.subtabs .seg{flex-wrap:wrap}
