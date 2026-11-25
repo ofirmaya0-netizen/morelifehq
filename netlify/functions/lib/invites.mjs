@@ -47,7 +47,7 @@ export async function shareToken(s, e0, r, ownKey) {
   if (!ownKey) await s.set('invites/' + r.shareToken, { eventId: e0.id, rsvpId: r.id, g });
   return r.shareToken;
 }
-export const shareUrl = (e0, r) => (r.shareToken && r.shareG === inviteGen(e0) && (e0.invite || {}).enabled !== false ? '/invite?t=' + r.shareToken : '');
+export const shareUrl = (e0, r) => (r.shareToken && r.shareG === inviteGen(e0) && (e0.invite || {}).enabled !== false && (e0.invite || {}).referrals !== false ? '/invite?t=' + r.shareToken : ''); // “Arkadaşını getir linki” off: nobody is shown a link to pass on
 export const personalOpen = (s, e0, contactId) => s.set('pinvhits/' + e0.id + '/' + contactId + '/' + id(), { at: now() });
 
 

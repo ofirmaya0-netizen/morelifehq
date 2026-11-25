@@ -50,7 +50,8 @@ try:
     pv=event('Secret', 50, visibility='private'); z=None
     st,j,_=a.req('/api/hq/events/'+pv['id']); tok=j['event']['inviteUrl'].split('t=')[1]
     anon.req('/api/public/rsvp','POST',{'t':tok,'name':'Priv Guest','email':'priv@example.com','consent':True}); pg=decide(pv, get(pv,'Priv Guest'), 'approved')
-    st,j,_=anon.req('/api/public/pass?t='+pg['passToken']); ok('private event: no friend link', j['pass']['friendUrl']=='', j)
+    st,j,_=anon.req('/api/public/pass?t='+pg['passToken']); ok('private event: the pass offers the guest’s own invitation link, never the host’s key', j['pass']['friendUrl'].startswith('/invite?t=') and j['pass']['friendUrl']!='/invite?t='+a.req('/api/hq/events/'+j['eventId'])[1]['event']['inviteUrl'].split('t=')[1], j)
+    a.req('/api/hq/events/'+j['eventId'],'PUT',{'invite':{'referrals':False}}); ok('with “Arkadaşını getir linki” off: no link', anon.req('/api/public/pass?t='+pg['passToken'])[1]['pass']['friendUrl']=='')
     # --- self cancel + waitlist offer
     e4=event('Full House', 60); a.req('/api/hq/events/'+e4['id'],'PUT',{'capacity':1,'invite':{'autoWaitlist':True}})
     g1=decide(e4, rsvp(e4,'Mert Aksoy'), 'approved'); w1=decide(e4, rsvp(e4,'Selin Ozturk'), 'waitlist'); w2=decide(e4, rsvp(e4,'Deniz Ar'), 'waitlist')
