@@ -120,3 +120,12 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - “Geçmiş mesajları yükle” reads the channel's incoming messages from Bird page by page (`POST /api/hq/inbox/import`). A message already stored is skipped; one older than 24 hours arrives as read. Then it reads the sent ones (`direction: outgoing`): replies typed in Bird and templates.
 - Every template HQ sends (invitation, entry pass, test) is also written to `wamsgs/` as `kind: template`, with one line saying what it was about; the full wording stays in Bird. A number that has never written has messages but no `wathreads/` record, so it is not in the list until it writes.
 - Media is not copied into HQ: such a message shows its type and caption, the file stays in Bird.
+
+## Venue portal (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `vlinks/<token>` | One private link per venue: `venue` (name as typed), `key` (the name folded with `slugify`, so spellings match), `createdAt`, `by` |
+| `vvenue/<hash of key>` | Venue → its current token. Renewing deletes the old `vlinks/` record, so the old link stops at once |
+
+- `/venue?k=<token>` reads `GET /api/public/venue`: every published event whose published venue name folds to the link's key, until two days after its date. Per event: approved guests (name, party size), valid tickets (name, type), tables (plan tables, units that admit several people with what is still due at the venue, and table requests confirmed in HQ) and who is in. No e-mail, phone, note, QR key or price paid; nothing can be changed through it.
+- Made, renewed and closed in HQ (event → Check-in → “Mekân portalı”, `/api/hq/venue-links`): owner and managers; a viewer can read the link; the rsvp and door roles cannot.

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Venue — More Life</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter+Tight:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="/css/guest.css">
+<style>
+.vp{width:min(760px,100%);display:flex;flex-direction:column;gap:22px}
+.vp-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.vp-live{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--mute)}
+.vp-live i{width:7px;height:7px;border-radius:50%;background:#7FD1A0}
+.vp-live.off i{background:#F2C46B}
+.vp-evs{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.vp-evs::-webkit-scrollbar{display:none}
+.vp-ev{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 16px;border-radius:16px;border:1px solid rgba(243,238,230,.16);background:rgba(243,238,230,.04);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.vp-ev span{font-size:12px;color:var(--mute);letter-spacing:.04em}
+.vp-ev b{font-weight:600;white-space:nowrap}
+.vp-ev[aria-pressed=true]{border-color:var(--accent);background:rgba(var(--accent-rgb),.14)}
+.vp-when{color:var(--mute)}
+.vp-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.vp-stat{display:flex;flex-direction:column;gap:4px;padding:16px;border-radius:18px;background:rgba(243,238,230,.06);border:1px solid rgba(243,238,230,.1)}
+.vp-stat b{font-size:clamp(24px,6vw,34px);line-height:1;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.vp-stat span{font-size:12px;color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.vp-stat small{font-size:12px;color:var(--dim)}
+.vp-tools{display:flex;flex-wrap:wrap;gap:8px}
+.vp-tools input{flex:1 1 220px;min-width:0;height:48px;padding:0 16px;border-radius:14px;border:1px solid rgba(243,238,230,.2);background:rgba(243,238,230,.06);color:var(--ink);font:500 16px var(--sans)}
+.vp-tools input:focus{outline:none;border-color:var(--accent)}
+.vp-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.vp-h h2{font-size:22px;font-weight:500;letter-spacing:-.02em;text-transform:none;color:var(--ink);text-align:left}
+.vp-h span{font-size:13px;color:var(--mute)}
+.vp-list{display:flex;flex-direction:column;border:1px solid rgba(243,238,230,.14);border-radius:18px;overflow:hidden}
+.vp-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 16px;align-items:center;padding:14px 16px;border-top:1px solid rgba(243,238,230,.1)}
+.vp-row:first-child{border-top:0}
+.vp-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.vp-main b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vp-main span{font-size:13px;color:var(--mute)}
+.vp-side{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.vp-side b{font-weight:600}
+.vp-side span{font-size:12px;color:var(--mute)}
+.vp-tag{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;background:rgba(243,238,230,.1);color:var(--mute)}
+.vp-tag.in{background:rgba(127,209,160,.16);color:#7FD1A0}
+.vp-tag.bs{background:rgba(var(--accent-rgb),.18);color:#F6C7BD}
+.vp-due{color:#F2C46B!important}
+.vp-empty{padding:18px 16px;color:var(--mute);font-size:14px}
+.vp-note{font-size:13px;color:var(--mute)}
+@media (max-width:560px){.vp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media print{
+  body{background:#fff;color:#000}.g-wrap{background:none;padding:0}.g-wrap::before,.vp-tools,.vp-evs,.vp-live,.vp-note{display:none!important}
+  .g-card{background:none;border:0;padding:0}.vp-stat,.vp-list,.vp-row{border-color:#bbb;background:none}.vp-main span,.vp-side span,.vp-stat span,.vp-when,.vp-h span{color:#444}.vp-tag{border:1px solid #999;color:#000;background:none}.vp-row{break-inside:avoid}.g-logo img{filter:invert(1)}
+}
+</style>
+</head>
+<body>
+<div class="g-wrap">
+<a class="g-logo" href="/"><img src="/img/logo.svg" alt="">more life</a>
+<main class="g-card vp" id="card"><p class="eyebrow">Loading…</p></main>
+</div>
+<script>
+(function () {
+  var k = new URLSearchParams(location.search).get('k') || '', card = document.getElementById('card'), tr = (navigator.language || '').toLowerCase().indexOf('tr') === 0, loc = tr ? 'tr-TR' : 'en-GB';
+  var S = function (en, trk) { return tr ? trk : en; }, cur = '', q = '', data = null, built = false, timer = null;
+  document.documentElement.lang = tr ? 'tr' : 'en';
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function day(d, long) { if (!d) return S('Date to be announced', 'Tarih açıklanacak'); var p = d.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString(loc, long ? { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' } : { day: 'numeric', month: 'short' }); }
+  function money(n, c) { try { return new Intl.NumberFormat(loc, { style: 'currency', currency: c, currencyDisplay: 'narrowSymbol', maximumFractionDigits: n % 1 ? 2 : 0 }).format(n); } catch (x) { return n + ' ' + (c || ''); } }
+  function ppl(n) { return n + ' ' + S(n === 1 ? 'person' : 'people', 'kişi'); }
+  function fold(s) { return String(s || '').toLocaleLowerCase(loc); }
+  var AREA = { backstage: 'Backstage', standard: S('Table', 'Masa') };
+
+  function rows() {
+    var ev = data.event, f = fold(q), hit = function (x) { return !f || fold(x.name + ' ' + (x.label || '') + ' ' + (x.area || '') + ' ' + (x.type || '')).indexOf(f) > -1; };
+    var ts = ev.tables.filter(hit), gs = ev.guests.filter(hit);
+    var tHtml = ts.length ? ts.map(function (t) {
+      var area = AREA[t.area] || t.area, full = t.in != null && t.in >= t.people;
+      return '<div class="vp-row"><div class="vp-main"><b>' + esc(t.name) + '</b><span>' + esc([t.label, area].filter(Boolean).join(' · ')) + (t.request ? ' · ' + S('held by name', 'isimle ayrıldı') : '') + '</span></div>' +
+        '<div class="vp-side"><b>' + ppl(t.people) + '</b>' + (t.in == null ? '' : '<span class="vp-tag' + (t.in ? ' in' : '') + '">' + (full ? S('All in', 'Hepsi içeride') : t.in + ' / ' + t.people + ' ' + S('in', 'içeride')) + '</span>') + (t.due ? '<span class="vp-due">' + money(t.due, t.currency) + ' ' + S('due at venue', 'mekânda ödenecek') + '</span>' : '') + '</div></div>';
+    }).join('') : '<p class="vp-empty">' + (f ? S('No table matches.', 'Eşleşen masa yok.') : S('No tables yet.', 'Henüz masa yok.')) + '</p>';
+    var gHtml = gs.length ? gs.map(function (g) {
+      return '<div class="vp-row"><div class="vp-main"><b>' + esc(g.name) + '</b><span>' + (g.list ? S('Guest list', 'Misafir listesi') + (g.people > 1 ? ' · +' + (g.people - 1) : '') : esc(g.type || S('Ticket', 'Bilet'))) + '</span></div>' +
+        '<div class="vp-side">' + (g.people > 1 ? '<b>' + ppl(g.people) + '</b>' : '') + (g.in ? '<span class="vp-tag in">' + (g.in >= g.people ? S('In', 'İçeride') : g.in + ' / ' + g.people + ' ' + S('in', 'içeride')) + '</span>' : '') + '</div></div>';
+    }).join('') : '<p class="vp-empty">' + (f ? S('No guest matches.', 'Eşleşen misafir yok.') : S('Nobody on the list yet.', 'Listede henüz kimse yok.')) + '</p>';
+    document.getElementById('vp-t').innerHTML = tHtml; document.getElementById('vp-g').innerHTML = gHtml;
+    document.getElementById('vp-tn').textContent = ts.length + (f ? ' / ' + ev.tables.length : ''); document.getElementById('vp-gn').textContent = gs.length + (f ? ' / ' + ev.guests.length : '');
+  }
+  function draw() {
+    if (!data.events.length) { card.innerHTML = '<span class="g-pill">' + esc(data.venue) + '</span><h1 class="g-title">' + S('Nothing', 'Yaklaşan') + ' <span class="serif accent">' + S('coming up.', 'etkinlik yok.') + '</span></h1><p class="vp-note">' + S('More Life events at this venue appear here as soon as they are announced.', 'Bu mekândaki More Life etkinlikleri duyurulduğunda burada görünür.') + '</p>'; built = false; return; }
+    var ev = data.events.filter(function (x) { return x.id === data.event.id; })[0], c = ev.counts;
+    if (!built) {
+      card.innerHTML = '<div class="vp-top"><span class="g-pill">' + esc(data.venue) + '</span><span class="vp-live" id="vp-live"><i></i><span></span></span></div><div class="vp-evs" id="vp-evs"></div><div id="vp-head"></div><div class="vp-stats" id="vp-stats"></div>' +
+        '<div class="vp-tools"><label class="sr-only" for="vp-q">' + S('Search', 'Ara') + '</label><input id="vp-q" type="search" autocomplete="off" placeholder="' + S('Search a name or table', 'İsim ya da masa ara') + '"><button class="btn quiet" type="button" id="vp-print">' + S('Print', 'Yazdır') + '</button></div>' +
+        '<section><div class="vp-h"><h2>' + S('Tables', 'Masalar') + '</h2><span id="vp-tn"></span></div><div class="vp-list" id="vp-t"></div></section>' +
+        '<section><div class="vp-h"><h2>' + S('Guest list & tickets', 'Misafir listesi ve biletler') + '</h2><span id="vp-gn"></span></div><div class="vp-list" id="vp-g"></div></section>' +
+        '<p class="vp-note">' + S('This page updates by itself. It is for the venue team only; please do not forward the link.', 'Bu sayfa kendiliğinden güncellenir. Yalnızca mekân ekibi içindir; lütfen linki başkasıyla paylaşmayın.') + '</p>';
+      document.getElementById('vp-q').oninput = function () { q = this.value; rows(); };
+      document.getElementById('vp-print').onclick = function () { window.print(); };
+      document.getElementById('vp-evs').onclick = function (x) { var b = x.target.closest('[data-e]'); if (b && b.getAttribute('data-e') !== cur) { cur = b.getAttribute('data-e'); load(); } };
+      built = true;
+    }
+    var evs = document.getElementById('vp-evs'); evs.hidden = data.events.length < 2;
+    evs.innerHTML = data.events.map(function (x) { return '<button class="vp-ev" type="button" data-e="' + esc(x.id) + '" aria-pressed="' + (x.id === ev.id) + '"><span>' + esc(day(x.date)) + '</span><b>' + esc(x.title) + '</b></button>'; }).join('');
+    document.getElementById('vp-head').innerHTML = '<h1 class="g-title" style="font-size:clamp(30px,7vw,48px)">' + esc(ev.title) + '</h1><p class="vp-when">' + esc([day(ev.date, 1), ev.doors ? S('doors ', 'kapı ') + ev.doors : ev.time, ev.artist].filter(Boolean).join(' · ')) + '</p>';
+    var st = function (n, l, sub) { return '<div class="vp-stat"><span>' + l + '</span><b>' + n + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; };
+    document.getElementById('vp-stats').innerHTML = st(c.expected, S('Expected', 'Beklenen'), S('people in total', 'toplam kişi')) + st(c.tables, S('Tables', 'Masa'), ppl(c.tablePeople)) + st(c.list + c.tickets, S('List & tickets', 'Liste ve bilet'), c.list + ' ' + S('list', 'liste') + ' · ' + c.tickets + ' ' + S('tickets', 'bilet')) + st(c.in, S('Arrived', 'Giriş yapan'), c.expected ? Math.round(c.in / c.expected * 100) + '%' : '');
+    rows();
+  }
+  function live(ok) { var el = document.getElementById('vp-live'); if (!el) return; el.className = 'vp-live' + (ok ? '' : ' off'); el.lastChild.textContent = ok ? S('Updated ', 'Güncellendi ') + new Date().toLocaleTimeString(loc, { hour: '2-digit', minute: '2-digit' }) : S('No connection, retrying', 'Bağlantı yok, yeniden deneniyor'); }
+  function load() {
+    clearTimeout(timer);
+    return fetch('/api/public/venue?k=' + encodeURIComponent(k) + (cur ? '&e=' + encodeURIComponent(cur) : ''), { cache: 'no-store' }).then(function (r) { return r.json().then(function (j) { return { st: r.status, j: j }; }); }).then(function (r) {
+      if (r.st === 404) { card.innerHTML = '<h1 class="g-title">Link <span class="serif accent">' + S('not valid.', 'geçersiz.') + '</span></h1><p class="vp-note">' + S('Ask More Life for the current link.', 'Güncel linki More Life’tan isteyin.') + '</p>'; return; }
+      if (r.st !== 200) throw new Error(r.j.error);
+      data = r.j; cur = data.event ? data.event.id : ''; draw(); live(true); timer = setTimeout(load, 30000);
+    }).catch(function () { if (data) live(false); else card.innerHTML = '<p style="color:var(--mute)">' + S('Could not load. Please refresh.', 'Yüklenemedi. Lütfen sayfayı yenileyin.') + '</p>'; timer = setTimeout(load, 30000); });
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && data) load(); });
+  load();
+})();
+</script>
+</body>
+</html>

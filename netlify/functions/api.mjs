@@ -20,6 +20,7 @@ import { waStatus, waSettings, sendPassWa, sendTableWa, passParams, invitePrevie
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
+import { venuePublic, venueAdmin } from './lib/venue.mjs';
 
 export const config = { path: ['/', '/events/*', '/invite', '/sitemap.xml', '/robots.txt', '/door', '/pay/*', '/tickets', '/tickets/*', '/hq', '/hq/*', '/api/hq/*', '/api/public/*', '/api/door/*'] };
 
@@ -183,6 +184,8 @@ async function publicApi(req, ctx, parts, url) {
     if ((e.invite || {}).showGuests === false) return json({ enabled: false }, 200, { 'cache-control': 'no-store' });
     return json({ enabled: true, ...guestList(await rsvpsOf(e.id), holder) }, 200, { 'cache-control': 'no-store' });
   }
+  // The venue's own page: who is coming and who has a table, for the events at that venue only.
+  if (parts[0] === 'venue') return venuePublic(req, s, url, () => limited('venue/' + hash(ipOf(req, ctx)), 900, 3600));
   if (['shop', 'checkout', 'pay', 'order', 'ticket', 'waitlist', 'resale', 'promoter', 'mytickets'].includes(parts[0])) return ticketsPublic(req, ctx, parts, url, s, { limited, ip: ipOf(req, ctx) });
   if (parts[0] === 'pass' && req.method === 'GET') {
     const ref = await s.get('passes/' + str(url.searchParams.get('t'), 60));
@@ -541,6 +544,8 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     }
     return json({ ok: true, created, skipped, total: LEGACY_EVENTS.length });
   }
+
+  if (parts[0] === 'venue-links' && !parts[1]) return venueAdmin(req, s, url, me);
 
   return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf, me });
 }
