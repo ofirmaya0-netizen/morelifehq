@@ -46,12 +46,16 @@
 .vp-tag.in{background:rgba(127,209,160,.16);color:#7FD1A0}
 .vp-tag.bs{background:rgba(var(--accent-rgb),.18);color:#F6C7BD}
 .vp-due{color:#F2C46B!important}
+.vp-n{display:inline-flex;align-self:flex-start;margin-top:4px;padding:4px 10px;border-radius:10px;background:rgba(242,196,107,.12);color:#F2C46B!important;font-size:13px;white-space:normal}
+.vp-cap{padding:12px 16px;border-radius:14px;font-size:14px;background:rgba(242,196,107,.1);border:1px solid rgba(242,196,107,.35);color:#F2C46B}
+.vp-cap.full{background:rgba(240,154,140,.1);border-color:rgba(240,154,140,.4);color:#F0A79B}
+.vp-cap b{font-weight:600}
 .vp-empty{padding:18px 16px;color:var(--mute);font-size:14px}
 .vp-note{font-size:13px;color:var(--mute)}
 @media (max-width:560px){.vp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media print{
   body{background:#fff;color:#000}.g-wrap{background:none;padding:0}.g-wrap::before,.vp-tools,#vp-msg,.vp-evs,.vp-live,.vp-note{display:none!important}
-  .g-card{background:none;border:0;padding:0}.vp-stat,.vp-list,.vp-row{border-color:#bbb;background:none}.vp-main span,.vp-side span,.vp-stat span,.vp-when,.vp-h span{color:#444}.vp-tag{border:1px solid #999;color:#000;background:none}.vp-row{break-inside:avoid}.g-logo img{filter:invert(1)}
+  .g-card{background:none;border:0;padding:0}.vp-stat,.vp-list,.vp-row{border-color:#bbb;background:none}.vp-n,.vp-cap{background:none!important;border:1px solid #999;color:#000!important}.vp-main span,.vp-side span,.vp-stat span,.vp-when,.vp-h span{color:#444}.vp-tag{border:1px solid #999;color:#000;background:none}.vp-row{break-inside:avoid}.g-logo img{filter:invert(1)}
 }
 </style>
 </head>
@@ -73,11 +77,11 @@
   var AREA = { backstage: 'Backstage', standard: S('Table', 'Masa') };
 
   function rows() {
-    var ev = data.event, f = fold(q), hit = function (x) { return !f || fold(x.name + ' ' + (x.label || '') + ' ' + (x.area || '') + ' ' + (x.type || '')).indexOf(f) > -1; };
+    var ev = data.event, f = fold(q), hit = function (x) { return !f || fold(x.name + ' ' + (x.label || '') + ' ' + (x.area || '') + ' ' + (x.type || '') + ' ' + (x.note || '')).indexOf(f) > -1; };
     var ts = ev.tables.filter(hit), gs = ev.guests.filter(hit);
     var tHtml = ts.length ? ts.map(function (t) {
       var area = AREA[t.area] || t.area, full = t.in != null && t.in >= t.people;
-      return '<div class="vp-row"><div class="vp-main"><b>' + esc(t.name) + '</b><span>' + esc([t.label, area].filter(Boolean).join(' · ')) + (t.request ? ' · ' + S('held by name', 'isimle ayrıldı') : '') + '</span></div>' +
+      return '<div class="vp-row"><div class="vp-main"><b>' + esc(t.name) + '</b><span>' + esc([t.label, area].filter(Boolean).join(' · ')) + (t.request ? ' · ' + S('held by name', 'isimle ayrıldı') : '') + '</span>' + (t.note ? '<span class="vp-n">' + esc(t.note) + '</span>' : '') + '</div>' +
         '<div class="vp-side"><b>' + ppl(t.people) + '</b>' + (t.in == null ? '' : '<span class="vp-tag' + (t.in ? ' in' : '') + '">' + (full ? S('All in', 'Hepsi içeride') : t.in + ' / ' + t.people + ' ' + S('in', 'içeride')) + '</span>') + (t.due ? '<span class="vp-due">' + money(t.due, t.currency) + ' ' + S('due at venue', 'mekânda ödenecek') + '</span>' : '') + '</div></div>';
     }).join('') : '<p class="vp-empty">' + (f ? S('No table matches.', 'Eşleşen masa yok.') : S('No tables yet.', 'Henüz masa yok.')) + '</p>';
     var gHtml = gs.length ? gs.map(function (g) {
@@ -91,7 +95,7 @@
     if (!data.events.length) { card.innerHTML = '<span class="g-pill">' + esc(data.venue) + '</span><h1 class="g-title">' + S('Nothing', 'Yaklaşan') + ' <span class="serif accent">' + S('coming up.', 'etkinlik yok.') + '</span></h1><p class="vp-note">' + S('More Life events at this venue appear here as soon as they are announced.', 'Bu mekândaki More Life etkinlikleri duyurulduğunda burada görünür.') + '</p>'; built = false; return; }
     var ev = data.events.filter(function (x) { return x.id === data.event.id; })[0], c = ev.counts;
     if (!built) {
-      card.innerHTML = '<div class="vp-top"><span class="g-pill">' + esc(data.venue) + '</span><span class="vp-live" id="vp-live"><i></i><span></span></span></div><div class="vp-evs" id="vp-evs"></div><div id="vp-head"></div><div class="vp-stats" id="vp-stats"></div>' +
+      card.innerHTML = '<div class="vp-top"><span class="g-pill">' + esc(data.venue) + '</span><span class="vp-live" id="vp-live"><i></i><span></span></span></div><div class="vp-evs" id="vp-evs"></div><div id="vp-head"></div><div class="vp-stats" id="vp-stats"></div><div id="vp-cap" role="status"></div>' +
         '<div class="vp-tools"><label class="sr-only" for="vp-q">' + S('Search', 'Ara') + '</label><input id="vp-q" type="search" autocomplete="off" placeholder="' + S('Search a name or table', 'İsim ya da masa ara') + '"><button class="btn" type="button" id="vp-scan" hidden>' + S('QR reader', 'QR okuyucu') + '</button><button class="btn quiet" type="button" id="vp-print">' + S('Print', 'Yazdır') + '</button></div>' +
         '<p class="g-msg bad" id="vp-msg" role="alert" style="min-height:0"></p>' +
         '<section><div class="vp-h"><h2>' + S('Tables', 'Masalar') + '</h2><span id="vp-tn"></span></div><div class="vp-list" id="vp-t"></div></section>' +
@@ -110,7 +114,8 @@
     evs.innerHTML = data.events.map(function (x) { return '<button class="vp-ev" type="button" data-e="' + esc(x.id) + '" aria-pressed="' + (x.id === ev.id) + '"><span>' + esc(day(x.date)) + '</span><b>' + esc(x.title) + '</b></button>'; }).join('');
     document.getElementById('vp-head').innerHTML = '<h1 class="g-title" style="font-size:clamp(30px,7vw,48px)">' + esc(ev.title) + '</h1><p class="vp-when">' + esc([day(ev.date, 1), ev.doors ? S('doors ', 'kapı ') + ev.doors : ev.time, ev.artist].filter(Boolean).join(' · ')) + '</p>';
     var st = function (n, l, sub) { return '<div class="vp-stat"><span>' + l + '</span><b>' + n + '</b>' + (sub ? '<small>' + sub + '</small>' : '') + '</div>'; };
-    document.getElementById('vp-stats').innerHTML = st(c.expected, S('Expected', 'Beklenen'), S('people in total', 'toplam kişi')) + st(c.tables, S('Tables', 'Masa'), ppl(c.tablePeople)) + st(c.list + c.tickets, S('List & tickets', 'Liste ve bilet'), c.list + ' ' + S('list', 'liste') + ' · ' + c.tickets + ' ' + S('tickets', 'bilet')) + st(c.in, S('Arrived', 'Giriş yapan'), c.expected ? Math.round(c.in / c.expected * 100) + '%' : '');
+    document.getElementById('vp-stats').innerHTML = st(c.expected, S('Expected', 'Beklenen'), S('people in total', 'toplam kişi')) + st(c.tables, S('Tables', 'Masa'), ppl(c.tablePeople)) + st(c.list + c.tickets, S('List & tickets', 'Liste ve bilet'), c.list + ' ' + S('list', 'liste') + ' · ' + c.tickets + ' ' + S('tickets', 'bilet')) + st(c.in + (c.capacity ? '<small style="font-size:.5em;color:var(--mute)"> / ' + c.capacity + '</small>' : ''), S('Arrived', 'Giriş yapan'), c.capacity ? S('capacity ', 'kapasite ') + Math.round(c.in / c.capacity * 100) + '%' : c.expected ? Math.round(c.in / c.expected * 100) + '%' : '');
+    document.getElementById('vp-cap').innerHTML = c.level ? '<p class="vp-cap' + (c.level === 'full' ? ' full' : '') + '">' + (c.level === 'full' ? S('<b>At capacity:</b> ', '<b>Kapasite doldu:</b> ') : S('<b>Close to capacity:</b> ', '<b>Kapasiteye yaklaşıldı:</b> ')) + c.in + ' / ' + c.capacity + ' ' + S('in', 'içeride') + '</p>' : '';
     document.getElementById('vp-scan').hidden = !data.scan;
     rows();
   }

@@ -17,10 +17,14 @@ const eventsAt = async (key) => (await all('events/')).filter((e) => e.status ==
   .sort((a, b) => (a.live.date || '9').localeCompare(b.live.date || '9'));
 
 // Everything the venue sees about one event.
-async function detail(e0, enquiries) {
+// Notes are what More Life writes for the venue about one table (birthday, bottles ordered ahead, VIP). They live in
+// `vnotes/<event>/<table key>`; what a guest wrote in a form is never passed on.
+const CAP_NEAR = 0.9; // the portal and HQ warn from 90 % of the event's capacity
+async function detail(e0, enquiries, hq) {
   const rs = (await all('rsvps/' + e0.id + '/')).filter((r) => r.status === 'approved'), ts = await eventTickets(e0.id);
   // A bought table is one unit of stock: its tickets share an order and a slot. A unit that admits several people
   // (a table sold by number, without a plan) is a table too; everything else is one person with one ticket.
+  const notes = new Map((await all('vnotes/' + e0.id + '/')).map((n) => [n.key, n.note]));
   const groups = new Map(), single = [];
   for (const t of ts.filter((x) => !x.addon)) { if (!t.slot && !t.table) { single.push(t); continue; } const k = t.orderId + '|' + (t.slot || t.table); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); }
   const tables = [];
@@ -28,25 +32,28 @@ async function detail(e0, enquiries) {
     if (g.length < 2 && !g[0].table) { single.push(g[0]); continue; }
     g.sort((x, y) => (x.seq || 0) - (y.seq || 0));
     const t = g[0], cut = ' · ' + t.table, due = g.reduce((n, x) => n + (x.due || 0), 0);
-    tables.push({ label: t.table || '', area: t.table && t.typeName.endsWith(cut) ? t.typeName.slice(0, -cut.length) : t.typeName, name: t.name, people: g.length, in: g.filter((x) => x.checkedInAt).length, ...(due ? { due: Math.round(due * 100) / 100, currency: t.currency || '' } : {}) });
+    tables.push({ key: 't-' + hash(t.orderId + '|' + (t.slot || t.table)).slice(0, 20), label: t.table || '', area: t.table && t.typeName.endsWith(cut) ? t.typeName.slice(0, -cut.length) : t.typeName, name: t.name, people: g.length, in: g.filter((x) => x.checkedInAt).length, ...(due ? { due: Math.round(due * 100) / 100, currency: t.currency || '' } : {}) });
   }
   tables.sort((x, y) => (x.label || '~').localeCompare(y.label || '~', 'tr', { numeric: true }) || x.name.localeCompare(y.name, 'tr'));
   // a table asked for on the table page and confirmed in HQ has no ticket; it is held under a name
   const held = enquiries.filter((q) => q.kind === 'table' && q.eventId === e0.id && q.table && q.table.status === 'confirmed')
-    .map((q) => ({ label: '', area: q.table.area === 'backstage' ? 'backstage' : 'standard', name: q.name, people: q.table.party || q.party || 1, in: null, request: true }))
+    .map((q) => ({ key: 'q-' + q.id, label: '', area: q.table.area === 'backstage' ? 'backstage' : 'standard', name: q.name, people: q.table.party || q.party || 1, in: null, request: true }))
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   // tickets of one order in the same name and type are one row ("Deniz Arslan · General · 2 people")
   const rows = new Map();
   for (const t of single) { const k = t.orderId + '|' + t.typeId + '|' + t.name, r = rows.get(k) || { name: t.name, people: 0, in: 0, type: t.typeName }; r.people += 1; r.in += t.checkedInAt ? 1 : 0; rows.set(k, r); }
   const guests = rs.map((r) => ({ name: r.name, people: r.guests || 1, in: r.checkedInAt ? r.guests || 1 : 0, list: true })).concat([...rows.values()])
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
-  const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held);
+  const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held).map(({ key, ...x }) => ({ ...(hq ? { key } : {}), ...x, ...(notes.get(key) ? { note: notes.get(key) } : hq ? { note: '' } : {}) }));
   const counts = {
     tables: all2.length, tablePeople: sum(all2, (x) => x.people),
     list: sum(guests.filter((g) => g.list), (g) => g.people), tickets: sum(guests.filter((g) => !g.list), (g) => g.people),
     in: sum(tables, (x) => x.in) + sum(guests, (g) => g.in)
   };
   counts.expected = counts.tablePeople + counts.list + counts.tickets;
+  // capacity is the event's own (HQ → Genel Bilgiler); `level` is what the venue and HQ are warned with
+  const cap = e0.capacity > 0 ? e0.capacity : 0;
+  if (cap) { counts.capacity = cap; counts.level = counts.in >= cap ? 'full' : counts.in >= cap * CAP_NEAR ? 'near' : ''; }
   return { tables: all2, guests, counts };
 }
 const head = (e0) => { const e = live(e0); return { id: e0.id, title: e.title, artist: e.artist || '', date: e.date || '', time: e.time || '', doors: e.doors || '', city: e.city || '' }; };
@@ -77,8 +84,22 @@ export async function venuePublic(req, s, url, limitedNow) {
 /* ---------- HQ: /api/hq/venue-links ---------- */
 // GET ?venue=<name> → the link of that venue (or none) · GET → every link · POST { venue, close } → make / renew / close
 // POST { venue, scan } → QR reading on / off
-export async function venueAdmin(req, s, url, me) {
-  const m = req.method, view = async (l) => ({ venue: l.venue, scan: l.scan !== false, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
+export async function venueAdmin(req, s, url, me, sub) {
+  const m = req.method;
+  // Table notes for the venue: GET notes?event=<id> → the event's tables with their notes · PUT notes { event, key, note }
+  if (sub === 'notes') {
+    const b = m === 'PUT' ? await body(req) : null, e0 = await s.get('events/' + str(b ? b.event : url.searchParams.get('event'), 40).replace(/[^A-Za-z0-9_-]/g, ''));
+    if (!e0) return fail(404, 'Etkinlik bulunamadı.');
+    const d = await detail(e0, await all('enquiries/'), true);
+    if (m === 'GET') return json({ tables: d.tables, counts: d.counts });
+    if (m !== 'PUT') return fail(405, 'Method not allowed');
+    const t = d.tables.find((x) => x.key === str(b.key, 60)), note = str(b.note, 200);
+    if (!t) return fail(404, 'Masa bulunamadı.');
+    if (note) await s.set('vnotes/' + e0.id + '/' + t.key, { key: t.key, note, at: now(), by: (me && me.name) || '' }); else await s.del('vnotes/' + e0.id + '/' + t.key);
+    return json({ table: { ...t, note }, eventTitle: e0.title });
+  }
+  if (sub) return fail(404, 'Bulunamadı.');
+  const view = async (l) => ({ venue: l.venue, scan: l.scan !== false, url: '/venue?k=' + l.token, createdAt: l.createdAt, by: l.by || '', events: (await eventsAt(l.key)).length });
   if (m === 'GET') {
     const v = url.searchParams.get('venue');
     if (v != null) { const key = venueKey(v), l = await linkOf(s, key); return json({ venue: str(v, 160), link: l ? await view(l) : null, events: key ? (await eventsAt(key)).length : 0 }); }

@@ -17,6 +17,8 @@ try:
         return a.req('/api/hq/events/'+e['id']+'/publish','POST',{})[1]['event'] if publish else e
     e1=event('Sunset One','Lucca Beach','2027-07-10'); e2=event('Sunset Two','LUCCA  beach','2027-07-17'); other=event('Elsewhere','Before Sunset','2027-07-11'); draft=event('Draft Night','Lucca Beach','2027-07-20',False); past=event('Long Ago','Lucca Beach','2024-07-10')
 
+    st,j,_=a.req('/api/hq/team','POST',{'name':'Kapı Görevlisi','email':'kapi@example.com','role':'door'}); d0=C()
+    d0.req('/api/hq/setup','POST',{'t':j['setupUrl'].split('kur=')[1],'password':'door-password-123'}); d0.req('/api/hq/login','POST',{'email':'kapi@example.com','password':'door-password-123'})
     # ---------- the link ----------
     st,j,_=anon.req('/api/hq/venue-links?venue=Lucca%20Beach'); ok('anon cannot read venue links', st==401, st)
     st,j,_=a.req('/api/hq/venue-links?venue=Lucca%20Beach'); ok('no link yet; two current events at the venue', st==200 and j['link'] is None and j['events']==2, j)
@@ -51,7 +53,7 @@ try:
     a.req(T+'/shop','PUT',{'enabled':True})
     st,c1,_=a.req(T+'/orders','POST',{'channel':'comp','typeId':ga,'qty':2,'name':'Basın Listesi'}); ok('comp tickets issued', st==201, c1)
     st,c2,_=a.req(T+'/orders','POST',{'channel':'comp','typeId':lo,'tableId':tb['B10']['id'],'name':'Sponsor Masası'}); ok('comp table issued', st==201, c2)
-    a.req(T+'/orders','POST',{'channel':'comp','typeId':lo,'tableId':tb['B2']['id'],'name':'Deniz Kaya'})
+    c3=a.req(T+'/orders','POST',{'channel':'comp','typeId':lo,'tableId':tb['B2']['id'],'name':'Deniz Kaya'})[1]
     a.req('/api/hq/tickets/settings','PUT',{'provider':'test','feeMode':'buyer','feePct':10,'feeFixed':0})
     st,j,_=anon.req('/api/public/checkout','POST',{'slug':e1['slug'],'items':[{'typeId':dp,'qty':1}],'name':'Depozito Masası','email':'dep@example.com','terms':True}); tok=j['url'].split('=')[-1]
     r=urllib.request.Request(B+'/api/public/pay/test?o='+tok,data=b'result=ok',method='POST',headers={'content-type':'application/x-www-form-urlencoded'})
@@ -99,6 +101,29 @@ try:
     ok('portal still opens, the reader does not', anon.req(P)[1]['scan'] is False and anon.req('/api/public/venue','POST',{'k':key,'e':e1['id']})[0]==403)
     a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','scan':True}); ok('and on again', anon.req('/api/public/venue','POST',{'k':key,'e':e1['id']})[0]==200)
 
+    # ---------- notes for the venue, per table ----------
+    N='/api/hq/venue-links/notes'
+    st,j,_=a.req(N+'?event='+e1['id']); tk={(t['label'] or t['name']):t for t in j['tables']}
+    ok('HQ lists the event’s tables with a key each, no notes yet', st==200 and len(j['tables'])==4 and all(t['key'] and t['note']=='' for t in j['tables']), j)
+    ok('anon cannot read or write table notes', anon.req(N+'?event='+e1['id'])[0]==401 and anon.req(N,'PUT',{'event':e1['id'],'key':tk['B2']['key'],'note':'x'})[0]==401)
+    ok('a note needs a real table', a.req(N,'PUT',{'event':e1['id'],'key':'t-nope','note':'x'})[0]==404 and a.req(N,'PUT',{'event':'nope','key':tk['B2']['key'],'note':'x'})[0]==404)
+    st,j,_=a.req(N,'PUT',{'event':e1['id'],'key':tk['B2']['key'],'note':'Doğum günü · 2 şişe ön sipariş'}); ok('note saved on a plan table', st==200 and j['table']['note'].startswith('Doğum günü'), j)
+    a.req(N,'PUT',{'event':e1['id'],'key':tk['Masa İsteyen']['key'],'note':'VIP'})
+    pt2={(t['label'] or t['name']):t for t in anon.req(P)[1]['event']['tables']}
+    ok('the venue sees the notes on those tables only, and never a key', pt2['B2']['note']=='Doğum günü · 2 şişe ön sipariş' and pt2['Masa İsteyen']['note']=='VIP' and 'note' not in pt2['B10'] and all('key' not in t for t in pt2.values()), pt2)
+    ok('the guest’s own form note still does not leave', 'gizli' not in anon.req(P,raw=True)[1])
+    a.req(N,'PUT',{'event':e1['id'],'key':tk['Masa İsteyen']['key'],'note':''}); ok('an emptied note is gone', 'note' not in {(t['label'] or t['name']):t for t in anon.req(P)[1]['event']['tables']}['Masa İsteyen'])
+    ok('the door role cannot write notes', d0.req(N,'PUT',{'event':e1['id'],'key':tk['B2']['key'],'note':'x'})[0]==403)
+
+    # ---------- capacity warning ----------
+    c0=anon.req(P)[1]['events'][0]['counts']; ok('no capacity set: no capacity, no warning', 'capacity' not in c0 and 'level' not in c0, c0)
+    for t in c3['tickets'][:5]: a.req('/api/hq/checkin','POST',{'eventId':e1['id'],'rsvpId':'tk-'+t['id']})
+    n_in=anon.req(P)[1]['events'][0]['counts']['in']
+    a.req('/api/hq/events/'+e1['id'],'PUT',{'capacity':n_in*2}); c1=anon.req(P)[1]['events'][0]['counts']; ok('half full: capacity shown, no warning', c1['capacity']==n_in*2 and c1['level']=='', c1)
+    a.req('/api/hq/events/'+e1['id'],'PUT',{'capacity':n_in+1}); c2=anon.req(P)[1]['events'][0]['counts']; ok('from 90 %: near', n_in>=9 and c2['level']=='near' and c2['in']<c2['capacity'], c2)
+    a.req('/api/hq/events/'+e1['id'],'PUT',{'capacity':n_in}); ok('at capacity: full', anon.req(P)[1]['events'][0]['counts']['level']=='full')
+    a.req('/api/hq/events/'+e1['id'],'PUT',{'capacity':0})
+
     # ---------- the other event, the other venue ----------
     j=anon.req(P+'&e='+e2['id'])[1]; ok('second event can be picked; it has its own (empty) lists', j['event']['id']==e2['id'] and j['event']['tables']==[] and j['event']['guests']==[], j['event'])
     ok('an event of another venue cannot be picked through this key', anon.req(P+'&e='+other['id'])[1]['event']['id']==e1['id'])
@@ -107,13 +132,12 @@ try:
     # ---------- renew, close, roles, log ----------
     st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'lucca beach'}); new=j['link']['url'].split('k=')[1]
     ok('renewed: the old key is dead, the new one works', st==201 and j['renewed'] and new!=key and anon.req(P)[0]==404 and anon.req('/api/public/venue?k='+new)[0]==200)
-    st,j,_=a.req('/api/hq/team','POST',{'name':'Kapı Görevlisi','email':'kapi@example.com','role':'door'}); d=C()
-    d.req('/api/hq/setup','POST',{'t':j['setupUrl'].split('kur=')[1],'password':'door-password-123'}); d.req('/api/hq/login','POST',{'email':'kapi@example.com','password':'door-password-123'})
+    d=d0
     ok('the door role is signed in but cannot read or make venue links', d.req('/api/hq/session')[1].get('role')=='door' and d.req('/api/hq/venue-links')[0]==403 and d.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach'})[0]==403)
     st,j,_=a.req('/api/hq/venue-links','POST',{'venue':'Lucca Beach','close':True}); ok('closed: nothing opens', st==200 and j['closed'] and anon.req('/api/public/venue?k='+new)[0]==404 and a.req('/api/hq/venue-links?venue=Lucca%20Beach')[1]['link'] is None)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
-    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı']), log[:12])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h)
+    ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı','masa notu yazdı','masa notunu sildi']), log[:16])
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masa notları' in h and 'Kapasiteye yaklaşıldı' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

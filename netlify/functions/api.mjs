@@ -545,7 +545,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     return json({ ok: true, created, skipped, total: LEGACY_EVENTS.length });
   }
 
-  if (parts[0] === 'venue-links' && !parts[1]) return venueAdmin(req, s, url, me);
+  if (parts[0] === 'venue-links' && !parts[2]) return venueAdmin(req, s, url, me, parts[1] || '');
 
   return admin2(req, ctx, parts, url, s, { seoSettings, adminEvent, rsvpsOf, me });
 }
