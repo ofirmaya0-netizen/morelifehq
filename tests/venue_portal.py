@@ -184,7 +184,7 @@ try:
     ok('closing the portal link closes the venue’s invitation link too', anon.req('/invite?t='+vt,raw=True)[0]==404 and anon.req('/invite?t='+own,raw=True)[0]==200)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
     ok('making, renewing and closing are in the record of actions', all(any(w in x for x in log) for w in ['linki oluşturdu','linkini yeniledi','linkini kapattı','QR okumayı kapattı','QR okumayı açtı','masa notu yazdı','masa notunu sildi','davet linkini kapattı','davet linkini açtı','Elle masa ekledi','Elle eklenen masayı düzenledi','Elle eklenen masayı sildi']), log[:30])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masalar ve notlar' in h and 'Masa ekle' in h and 'Masayı düzenle' in h and 'Mekânlar' in h and 'venue-links/overview' in h and 'Kapasiteye yaklaşıldı' in h and 'Mekân daveti' in h and 'Davet linkini kapat' in h)
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the venue portal card', 'Mekân portalı' in h and 'venue-links' in h and 'QR okumayı kapat' in h and 'Masalar ve notlar' in h and 'Masa ekle' in h and 'Masayı düzenle' in h and 'Mekânlar' in h and 'venue-links/overview' in h and 'ap-tables-edit' in h and "['tables', 'Masalar'" in h and 'Kapasiteye yaklaşıldı' in h and 'Mekân daveti' in h and 'Davet linkini kapat' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

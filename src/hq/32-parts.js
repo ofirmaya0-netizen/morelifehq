@@ -8,7 +8,9 @@
     var F = [['pending', 'Beklemede'], ['approved', 'Onaylandı'], ['waitlist', 'Bekleme listesi'], ['rejected', 'Reddedildi'], ['cancelled', 'İptal'], ['checkedin', 'Giriş yaptı'], ['all', 'Tümü']];
     var inF = function (r, f) { return f === 'all' || (f === 'checkedin' ? !!r.checkedInAt : r.status === f); };
     var first = true;
-    async function load() { data = await H.api('rsvps/' + eventId); draw(); if (!first) H.refreshBadge(); first = false; }
+    // The event's tables (bought, confirmed requests, added by hand) sit next to the requests; roles that cannot see them get none.
+    var tables = null;
+    async function load() { data = await H.api('rsvps/' + eventId); try { tables = (await H.api('venue-links/notes?event=' + eventId)).tables; } catch (err) { tables = null; } draw(); if (!first) H.refreshBadge(); first = false; }
     function draw() {
       var ev = data.event, rs = data.rsvps, t = st.q.trim().toLocaleLowerCase('tr');
       var rows = rs.filter(function (r) { return inF(r, st.f) && (!t || (r.name + ' ' + r.email + ' ' + r.phone + (r.via === 'venue' ? ' mekân daveti ' + (r.invitedBy || '') : r.via === 'forward' ? ' iletildi ' + (r.forwardedByName || '') : '')).toLocaleLowerCase('tr').indexOf(t) > -1); });
@@ -19,7 +21,7 @@
         '<div class="row"><a class="btn sm" href="/api/hq/rsvps.csv?event=' + ev.id + (st.f !== 'all' ? '&status=' + st.f : '') + (t ? '&q=' + encodeURIComponent(st.q) : '') + '">' + H.ico('down') + 'CSV (' + rows.length + ')</a><button class="btn sm" type="button" data-nav="view=kapi&event=' + ev.id + '">' + H.ico('qr') + 'Check-in</button>' + (canTable && nAppr ? '<button class="btn sm" type="button" id="ap-table-all">' + H.ico('link') + 'Onaylılara masa linki gönder</button>' : '') + (canNames && plusN ? '<button class="btn sm" type="button" id="ap-names-all">' + H.ico('chat') + 'Misafiri olanlara isim sor (' + plusN + ')</button>' : '') +
         (ev.status === 'published' && ev.invite.enabled !== false ? '<button class="btn sm" type="button" data-copy="' + e(ev.inviteUrl) + '" data-copied="Davet linki kopyalandı">' + H.ico('copy') + 'Davet linki</button>' : '') + '</div></div>' + (ev.capacity ? '<div style="margin-top:12px">' + H.meter(ev.counts.approved, ev.capacity) + '</div>' : '') + '</div>' +
         (ev.status !== 'published' ? H.note('warn', 'Etkinlik yayında değil; davet sayfası ve başvuru formu kapalı.') + '<div style="height:14px"></div>' : '') +
-        '<div class="row" style="margin-bottom:14px">' + H.seg(F.map(function (x) { return [x[0], x[1], rs.filter(function (r) { return inF(r, x[0]); }).length]; }), st.f, 'data-af') + '<label class="search"><span class="sr">Ara</span>' + H.ico('search') + '<input type="search" id="ap-q" placeholder="İsim, e-posta veya telefon" value="' + e(st.q) + '"></label></div>' +
+        '<div class="row" style="margin-bottom:14px">' + H.seg(F.map(function (x) { return [x[0], x[1], rs.filter(function (r) { return inF(r, x[0]); }).length]; }).concat(tables ? [['tables', 'Masalar', tables.length]] : []), st.f, 'data-af') + '<label class="search"><span class="sr">Ara</span>' + H.ico('search') + '<input type="search" id="ap-q" placeholder="İsim, e-posta veya telefon" value="' + e(st.q) + '"></label></div>' +
         (rows.length && st.f !== 'approved' && st.f !== 'checkedin' ? '<div class="row" style="margin-bottom:10px"><label class="check small"><input type="checkbox" id="ap-all"' + (ids.length && ids.length === rows.length ? ' checked' : '') + '><span>Listedekilerin tümünü seç</span></label>' + (ids.length ? '<button class="btn sm ok" type="button" id="ap-bulk">' + ids.length + ' başvuruyu onayla…</button>' : '') + '</div>' : '') +
         (rows.length ? '<div class="card flat"><div class="list">' + rows.map(function (r) {
           var tl = function (x, label) { return x ? '<span class="small" style="color:var(--' + (x.status === 'sent' ? 'ok' : 'bad') + ')">' + label + (x.status === 'sent' ? ' gönderildi: ' + H.fmtTime(x.at) : ' gönderilemedi: ' + e(x.error || '')) + '</span>' : ''; };
@@ -34,6 +36,20 @@
             b('approved', 'Onayla', 'ok') + (r.status === 'pending' ? b('waitlist', 'Bekleme listesi', '') : '') + (r.status === 'approved' ? b('cancelled', 'İptal et', 'ghost') : b('rejected', 'Reddet', 'ghost')) + '</div></div>';
         }).join('') + '</div></div>' : H.empty('mail', rs.length ? 'Bu durumda başvuru yok.' : 'Henüz başvuru yok.', rs.length ? '' : 'Davet linkini paylaştığınızda başvurular burada görünür.')) +
         (st.f === 'approved' && rows.length && !data.email.connected ? '<p class="small dim" style="margin-top:12px">E-posta servisi bağlı değil: giriş kartı otomatik gönderilmez. “Kart linki” ile bağlantıyı kopyalayıp misafire iletin.</p>' : '');
+      if (st.f === 'tables' && tables) {
+        var AREA = { backstage: 'Backstage', standard: 'Normal masa' }, tq = st.q.trim().toLocaleLowerCase('tr'), trs = tables.filter(function (x) { return !tq || (x.name + ' ' + (x.label || '') + ' ' + (x.note || '')).toLocaleLowerCase('tr').indexOf(tq) > -1; });
+        var ppl = tables.reduce(function (n, x) { return n + x.people; }, 0), box = root.querySelector('#ap-list') || root.querySelector('.card.flat');
+        var html = '<div class="row between" style="margin-bottom:10px"><span class="small mute"><b style="color:var(--ink)">' + tables.length + '</b> masa · <b style="color:var(--ink)">' + ppl + '</b> kişi</span><button class="btn sm" type="button" id="ap-tables-edit">' + H.ico('plus') + 'Masa ekle / düzenle</button></div>' +
+          (trs.length ? '<div class="card flat"><div class="list">' + trs.map(function (x) {
+            var src = x.manual ? 'Elle eklendi' : x.request ? 'Onaylı masa talebi' : 'Satın alındı';
+            return '<div class="item"><span class="av' + (x.in ? ' in' : '') + '">' + H.initials(x.name) + '</span><div class="main"><div class="row"><span class="t">' + e(x.name) + '</span><span class="pill plain">' + x.people + ' kişi</span>' + (x.label ? '<span class="pill plain">' + e(x.label) + '</span>' : '') + (x.in != null ? H.pill(x.in ? 'checkedin' : 'approved', x.in >= x.people ? 'Hepsi içeride' : x.in + ' / ' + x.people + ' içeride') : '') + '</div>' +
+              '<span class="mute small">' + e(AREA[x.area] || x.area) + ' · ' + src + (x.due ? ' · <b style="color:var(--warn)">Mekânda ' + H.money(x.due, x.currency) + ' alınacak</b>' : '') + '</span>' + (x.note ? '<span class="small">Mekâna not: “' + e(x.note) + '”</span>' : '') + '</div></div>';
+          }).join('') + '</div></div>' : H.empty('qr', tq ? 'Eşleşen masa yok' : 'Henüz masa yok', tq ? '' : 'Satılan, onaylanan ya da elle eklediğiniz masalar burada listelenir.'));
+        var old = root.querySelectorAll('.card.flat, .empty'), last = old[old.length - 1], wrap = document.createElement('div'); wrap.id = 'ap-tables'; wrap.innerHTML = html;
+        var bulk = root.querySelector('#ap-all'); if (bulk) bulk.closest('.row').remove();
+        if (last && !last.closest('#ap-tables')) last.replaceWith(wrap); else root.appendChild(wrap);
+        root.querySelector('#ap-tables-edit').onclick = function () { H.parts.venueTables(eventId, data.event.title); var t = setInterval(async function () { if (document.querySelector('.drawer')) return; clearInterval(t); await load(); }, 600); };
+      }
       var qi = root.querySelector('#ap-q'); if (st.focus) { qi.focus(); qi.setSelectionRange(qi.value.length, qi.value.length); st.focus = 0; }
     }
     // Masa linki (/tables?e=…): seçilen kanaldan, onaylı misafirlere tek tek gönderilir; her sonuç misafirin satırına yazılır.
