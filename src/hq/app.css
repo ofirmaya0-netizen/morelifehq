@@ -296,22 +296,56 @@ details.more[open]{flex-basis:100%;order:9}details.more[open]>summary{background
 .subtabs .seg{flex-wrap:wrap}
 
 /* floor plan */
-.fplan-wrap{border:1px solid var(--line);border-radius:16px;background:#0e0b0a;padding:10px;overflow:auto}
-.fplan{display:block;width:100%;min-width:620px;height:auto;font-family:inherit}
+.fp-layout{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:14px;align-items:start}
+@media (max-width:1080px){.fp-layout{grid-template-columns:minmax(0,1fr)}}
+.fplan-wrap{border:1px solid var(--line2);border-radius:18px;background:radial-gradient(120% 90% at 50% 0,#1d1513 0,#080606 70%);padding:10px;overflow:auto;box-shadow:inset 0 0 60px rgba(0,0,0,.6),0 20px 50px -30px rgba(224,112,95,.35)}
+.fplan{display:block;width:100%;min-width:600px;height:auto;font-family:inherit;user-select:none;-webkit-user-select:none}
 .fplan text{pointer-events:none;font-size:8px;fill:rgba(243,238,230,.85)}
-.fplan .fp-fix{font-weight:600;letter-spacing:.06em;font-size:9px}
-.fplan .fp-note{font-size:6.5px;fill:rgba(243,238,230,.55)}
-.fplan .fp-seat{fill:rgba(243,238,230,.05);stroke:rgba(243,238,230,.32);stroke-dasharray:3 2.5}
-.fplan .fp-seat-t{fill:rgba(243,238,230,.6);font-size:7.5px}
+.fplan .fp-fix{font-weight:600;letter-spacing:.2em;font-size:7.6px;fill:rgba(243,238,230,.78)}
+.fplan .fp-note{font-size:6.5px;fill:rgba(243,238,230,.5);letter-spacing:.04em}
+.fplan .fp-seat{stroke:rgba(243,238,230,.2);stroke-width:.8}
+.fplan .fp-chair{fill:#3b302c;stroke:rgba(243,238,230,.28);stroke-width:.7;transition:fill .2s}.fplan .fp-chair.on{fill:#8E2C28;stroke:rgba(243,154,139,.8)}
+.fplan .fp-seam{stroke:rgba(0,0,0,.4);stroke-width:1}
+.fplan .fp-stool{fill:#3a2f2c;stroke:rgba(243,238,230,.3);stroke-width:.7}
+.fplan .fp-beam{mix-blend-mode:screen;animation:fpBeam 7s ease-in-out infinite alternate}.fplan .fp-beam:nth-of-type(2){animation-delay:-2.5s}.fplan .fp-beam:nth-of-type(3){animation-delay:-5s}
+.fplan .fp-cap{font-size:5.6px;font-weight:600;letter-spacing:.18em;opacity:.6}
+.fplan .fp-num{font-size:12.5px;font-weight:700;letter-spacing:-.01em}
+.fplan .fp-seat-t{fill:rgba(243,238,230,.5);font-size:7px;letter-spacing:.03em}
 .fplan .fp-table{cursor:pointer;outline:none}
-.fplan .fp-table ellipse,.fplan .fp-table rect{fill:#F3EEE6;stroke:#F3EEE6;stroke-width:1.5;transition:fill .15s,stroke .15s}
-.fplan .fp-table .fp-t{fill:#1a1412;font-weight:600;font-size:8px}
-.fplan .fp-table.on ellipse,.fplan .fp-table.on rect{fill:var(--acc);stroke:var(--acc)}
+.fplan .fp-top{stroke:rgba(255,255,255,.55);stroke-width:.8;transition:transform .16s ease;transform-box:fill-box;transform-origin:center}
+.fplan .fp-ring{fill:none;stroke:transparent;stroke-width:1.5;stroke-dasharray:4 3}
+.fplan .fp-table .fp-t{fill:#1a1412;font-weight:700;font-size:9px;letter-spacing:.01em}
 .fplan .fp-table.on .fp-t{fill:#fff}
-.fplan .fp-table .fp-sm{font-size:6px;font-weight:500}
-.fplan .fp-table .fp-b{font-size:7.5px;font-weight:700}
-.fplan .fp-table:hover ellipse,.fplan .fp-table:focus-visible ellipse,.fplan .fp-table:hover rect,.fplan .fp-table:focus-visible rect{stroke:#fff;stroke-width:3}
+.fplan .fp-table .fp-sm{font-size:6.8px;font-weight:600;opacity:.9}
+.fplan .fp-table .fp-b{font-size:8.6px;font-weight:700}
+.fplan .fp-table:hover .fp-top,.fplan .fp-table:focus-visible .fp-top{transform:scale(1.07)}
+.fplan .fp-table:focus-visible .fp-ring{stroke:#fff}
+.fp-dragging .fplan .fp-table .fp-ring{stroke:rgba(243,238,230,.45);animation:fpSpin 6s linear infinite}
+.fplan .fp-table.drop .fp-ring{stroke:#fff;stroke-width:2.5;stroke-dasharray:none}
+.fplan .fp-table.drop .fp-top{transform:scale(1.14)}
+.fplan .fp-pulse{opacity:0;animation:fpPulse 2.7s ease-out infinite}
+@keyframes fpPulse{0%{r:8px;opacity:.7}100%{r:46px;opacity:0}}
+@keyframes fpSpin{to{stroke-dashoffset:-42}}
+@keyframes fpBeam{0%{opacity:.35}100%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.fplan .fp-beam,.fplan .fp-pulse,.fp-dragging .fplan .fp-table .fp-ring{animation:none}.fplan .fp-top{transition:none}}
 .fp-key{display:inline-block;width:12px;height:12px;border-radius:50%;background:#F3EEE6;margin-right:6px;vertical-align:-1px}
-.fp-key.on{background:var(--acc)}.fp-key.seat{background:rgba(243,238,230,.05);border:1px dashed rgba(243,238,230,.4)}
+.fp-key.on{background:var(--acc);box-shadow:0 0 8px var(--acc)}.fp-key.seat{background:#3a2f2c;border:1px solid rgba(243,238,230,.25)}
+.fp-side{display:flex;flex-direction:column;gap:10px;min-width:0}.fp-side>.search{flex:none}
+.fp-side-list{display:flex;flex-direction:column;gap:6px;max-height:430px;overflow-y:auto;padding-right:2px}
+.fp-h{display:flex;justify-content:space-between;font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);padding:2px}
+.fp-h span{color:var(--mute)}
+.fp-chip{display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card2);cursor:grab;user-select:none;-webkit-user-select:none}
+.fp-chip:hover{border-color:var(--line2)}.fp-chip:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.fp-chip.picked{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.fp-chip.lifting{opacity:.35}
+.fp-chip-main{display:flex;flex-direction:column;min-width:0;flex:1}
+.fp-chip-main b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.fp-grip{color:var(--dim);font-size:15px;line-height:1;touch-action:none;padding:4px 2px;cursor:grab}
+.fp-ghost{position:fixed;left:0;top:0;z-index:9999;width:230px;pointer-events:none;border-color:var(--acc);box-shadow:0 18px 40px rgba(0,0,0,.6);opacity:.95;cursor:grabbing}
+.fp-drop{display:none;padding:12px;border:1.5px dashed var(--line2);border-radius:12px;text-align:center;color:var(--mute)}
+.fp-dragging .fp-drop{display:block}.fp-drop.drop{border-color:var(--bad);color:var(--bad);background:rgba(240,154,140,.08)}
+.fp-dragging,.fp-dragging *{cursor:grabbing!important}
+.fp-add{display:grid;grid-template-columns:minmax(0,1fr) 62px auto;gap:6px}
+.fp-add input{min-width:0;height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--line2);background:var(--bg2);color:var(--ink);font:inherit;font-size:14px}
 .fp-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .fp-opt:hover,.fp-opt:focus-visible{border-color:var(--acc);background:rgba(255,255,255,.03)}
