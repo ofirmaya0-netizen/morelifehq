@@ -126,6 +126,7 @@ export async function describe(s, parts, m, b, j) {
     if (del) return ['Ekip üyesini sildi', (j.deleted && j.deleted.name) || ''];
     return ['Ekip üyesini düzenledi', t, j.member ? ROLES[j.member.role].label + (j.member.active ? '' : ' · erişim kapalı') : ''];
   }
+  if (a === 'venue-links' && p1 === 'plan') return [j.did === 'add' ? 'Masaya oturttu' : j.did === 'clear' ? 'Masayı boşalttı' : 'Masadan kaldırdı', j.eventTitle || '', [j.who, j.tableLabel].filter(Boolean).join(' → ')];
   if (a === 'venue-links' && p1 === 'notes' && (j.added || j.removed || j.edited)) return [j.added ? 'Elle masa ekledi' : j.edited ? 'Elle eklenen masayı düzenledi' : 'Elle eklenen masayı sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') + (j.table.people ? ' · ' + j.table.people + ' kişi' : '') : ''];
   if (a === 'venue-links' && p1 === 'notes') return [b.note ? 'Mekân için masa notu yazdı' : 'Mekân için masa notunu sildi', j.eventTitle || '', j.table ? j.table.name + (j.table.label ? ' · ' + j.table.label : '') : ''];
   if (a === 'venue-links' && typeof b.invite === 'boolean' && !b.close) return [b.invite ? 'Mekânın davet linkini açtı' : 'Mekânın davet linkini kapattı', j.venue || ''];

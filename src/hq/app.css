@@ -294,3 +294,24 @@ details.more>summary{list-style:none;cursor:pointer}details.more>summary::-webki
 details.more[open]{flex-basis:100%;order:9}details.more[open]>summary{background:var(--card2)}
 .more-menu{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding:10px;border-radius:12px;background:var(--bg2);border:1px solid var(--line)}
 .subtabs .seg{flex-wrap:wrap}
+
+/* floor plan */
+.fplan-wrap{border:1px solid var(--line);border-radius:16px;background:#0e0b0a;padding:10px;overflow:auto}
+.fplan{display:block;width:100%;min-width:620px;height:auto;font-family:inherit}
+.fplan text{pointer-events:none;font-size:8px;fill:rgba(243,238,230,.85)}
+.fplan .fp-fix{font-weight:600;letter-spacing:.06em;font-size:9px}
+.fplan .fp-note{font-size:6.5px;fill:rgba(243,238,230,.55)}
+.fplan .fp-seat{fill:rgba(243,238,230,.05);stroke:rgba(243,238,230,.32);stroke-dasharray:3 2.5}
+.fplan .fp-seat-t{fill:rgba(243,238,230,.6);font-size:7.5px}
+.fplan .fp-table{cursor:pointer;outline:none}
+.fplan .fp-table ellipse,.fplan .fp-table rect{fill:#F3EEE6;stroke:#F3EEE6;stroke-width:1.5;transition:fill .15s,stroke .15s}
+.fplan .fp-table .fp-t{fill:#1a1412;font-weight:600;font-size:8px}
+.fplan .fp-table.on ellipse,.fplan .fp-table.on rect{fill:var(--acc);stroke:var(--acc)}
+.fplan .fp-table.on .fp-t{fill:#fff}
+.fplan .fp-table .fp-sm{font-size:6px;font-weight:500}
+.fplan .fp-table .fp-b{font-size:7.5px;font-weight:700}
+.fplan .fp-table:hover ellipse,.fplan .fp-table:focus-visible ellipse,.fplan .fp-table:hover rect,.fplan .fp-table:focus-visible rect{stroke:#fff;stroke-width:3}
+.fp-key{display:inline-block;width:12px;height:12px;border-radius:50%;background:#F3EEE6;margin-right:6px;vertical-align:-1px}
+.fp-key.on{background:var(--acc)}.fp-key.seat{background:rgba(243,238,230,.05);border:1px dashed rgba(243,238,230,.4)}
+.fp-opt{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.fp-opt:hover,.fp-opt:focus-visible{border-color:var(--acc);background:rgba(255,255,255,.03)}
