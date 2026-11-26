@@ -128,7 +128,7 @@ export const guestEvent = (e) => ({ slug: e.slug, title: e.title, artist: e.arti
 // full names only for a visitor who holds a valid entry pass for the same event.
 export const initials = (name) => { const w = String(name || '').trim().split(/\s+/).filter(Boolean); return ((w[0] || '').slice(0, 1) + (w.length > 1 ? w[w.length - 1].slice(0, 1) : '')).toLocaleUpperCase('tr'); };
 export function guestList(rs, withNames) {
-  const ok = rs.filter((r) => r.status === 'approved'), shown = ok.filter((r) => r.showName).sort((a, b) => (a.decidedAt || '').localeCompare(b.decidedAt || ''));
+  const ok = rs.filter((r) => r.status === 'approved'), shown = ok.filter((r) => r.showName && !r.listHidden).sort((a, b) => (a.decidedAt || '').localeCompare(b.decidedAt || ''));
   return { going: ok.reduce((n, r) => n + (r.guests || 1), 0), names: !!withNames, guests: shown.map((r) => (withNames ? { i: initials(r.name), n: r.name, g: r.guests || 1 } : { i: initials(r.name) })) };
 }
 export const guestsOf = (rs, status) => rs.filter((r) => r.status === status).reduce((n, r) => n + (r.guests || 1), 0);

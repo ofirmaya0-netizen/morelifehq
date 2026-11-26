@@ -61,9 +61,22 @@ try:
     w1=len(WA); ok('not told without the tick, nor when nothing changed', a.req(P('ada@x.com'),'PUT',{'plus':3})[1]['notified'] is False and a.req(P('ada@x.com'),'PUT',{'plus':3,'notify':True})[1]['notified'] is False and len(WA)==w1)
     st,j,_=a.req(P('derin@x.com'),'PUT',{'plus':1,'notify':True}); ok('a pending guest is not told', j['notified'] is False and 'onaylı' in j['notifyError'] and len(WA)==w1, j)
     st,j,_=a.req(P('cem@x.com'),'PUT',{'plus':2,'notify':True}); ok('no phone: saved, not told', j['rsvp']['guests']==3 and j['notified'] is False and 'telefon' in j['notifyError'], j)
+    # ---------- keeping a guest off the public guest list ----------
+    for n,e in [('Gül Görünen','gul@x.com'),('Hale Gizlenecek','hale@x.com')]: anon.req('/api/public/rsvp','POST',{'t':tok,'name':n,'email':e,'showName':True,'consent':True})
+    anon.req('/api/public/rsvp','POST',{'t':tok,'name':'İpek İstemeyen','email':'ipek@x.com','consent':True})
+    rs2={r['email']:r for r in a.req(L)[1]['rsvps']}
+    for em in ['gul@x.com','hale@x.com','ipek@x.com']: a.req(L+'/'+rs2[em]['id']+'/decision','POST',{'decision':'approved'})
+    GL='/api/public/guests?e='+ev['id']+'&t='+tok; H=lambda em: L+'/'+rs2[em]['id']+'/list-hidden'
+    g0=anon.req(GL)[1]; ok('the public list shows the two who asked to be shown', g0['enabled'] and len(g0['guests'])==2, g0)
+    ok('anon cannot hide anybody', anon.req(H('hale@x.com'),'PUT',{'hidden':True})[0]==401)
+    st,j,_=a.req(H('hale@x.com'),'PUT',{'hidden':True}); g1=anon.req(GL)[1]
+    ok('hidden by the host: off the list, still counted among those going', st==200 and j['rsvp']['listHidden'] is True and len(g1['guests'])==1 and g1['going']==g0['going'], g1)
+    pt2=cur('gul@x.com')['passToken']; names=[x['n'] for x in anon.req(GL+'&p='+pt2)[1]['guests']]; ok('guests with a pass do not see the hidden name either', names==['Gül Görünen'], names)
+    a.req(H('ipek@x.com'),'PUT',{'hidden':False}); ok('“show” never shows a guest who did not ask to be shown', len(anon.req(GL)[1]['guests'])==1)
+    a.req(H('hale@x.com'),'PUT',{'hidden':False}); ok('shown again', len(anon.req(GL)[1]['guests'])==2 and cur('hale@x.com')['listHidden'] is False)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
-    ok('asking and saving are in the record of actions', any('isimlerini WhatsApp' in x for x in log) and any('isimlerini kaydetti' in x for x in log) and any('Misafir sayısını değiştirdi' in x for x in log), log[:8])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the controls and the settings fields', 'Misafir isimlerini sor' in h and 'ap-names-all' in h and 'guestNamesProject' in h and 'gn-in' in h and 'pl-save' in h and 'data-plus' in h and 'pl-tell' in h and 'guestsChangedProject' in h)
+    ok('asking and saving are in the record of actions', any('isimlerini WhatsApp' in x for x in log) and any('isimlerini kaydetti' in x for x in log) and any('Misafir sayısını değiştirdi' in x for x in log) and any('Public listeden gizledi' in x for x in log) and any('yeniden gösterdi' in x for x in log), log[:8])
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the controls and the settings fields', 'Misafir isimlerini sor' in h and 'ap-names-all' in h and 'guestNamesProject' in h and 'gn-in' in h and 'pl-save' in h and 'data-plus' in h and 'pl-tell' in h and 'data-hide' in h and 'Public listeden gizle' in h and 'guestsChangedProject' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

@@ -155,6 +155,7 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `rsvps/<event>/<id>.guestNames` — the names, typed in by the team (`PUT …/guest-names { names }`); shown on the request and in the guest export.
 - `PUT /api/hq/rsvps/<event>/<id>/guests { plus, force }` — the host sets how many people a guest brings (0–50; the form's `plusOnes` limit does not apply). `rsvps/….guests` is the whole party; `guestsWas` and `guestsSetAt` keep the last change. For an approved guest a rise is checked against the event's capacity (`force` overrides); a fall offers the freed places to the waiting list.
 - `settings/whatsapp.guestsChanged` — template that tells an approved guest their party size was changed. Variables: `name` (first name), `event`, `total` (everybody, the guest included). Sent only when the change is saved with `notify: true`; the result is kept in `rsvps/….guestsWa`. The change itself is saved whether or not the message goes out.
+- `rsvps/<event>/<id>.listHidden` — the host keeps this guest off the event's public guest list (`PUT /api/hq/rsvps/<event>/<id>/list-hidden { hidden }`). The list still shows only guests who asked to be shown (`showName`); a hidden guest still counts in `going`.
 
 ## Floor plan and seating (no migration needed; new key groups)
 | Key | Content |
