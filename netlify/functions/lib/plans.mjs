@@ -1,6 +1,6 @@
 // Floor plans that come with HQ. A venue whose name matches gets the plan without any set-up; a plan saved for the venue
 // in HQ (`vplan/<hash of venue key>`) takes its place. Coordinates are points of the venue's own drawing.
-// k: table (can be given to a party) · seat (seating that is drawn but not given out) · fix (walls, bar, sofas) · text.
+// k: table (can be given to a party: the Table, Back, Sedir and Paris spots) · seat (drawn but not given out) · fix (walls, bar, sofas) · text.
 // s: e ellipse · b box · r rounded box. c: colour role of a fixture.
 export const PLANS = [
   { match: /alice/, name: 'Alice Club', source: 'ALİCE CLUB OTURUM PLANI', w: 740, h: 426, shapes: [
@@ -29,20 +29,20 @@ export const PLANS = [
     {"x": 141.7, "y": 275.4, "w": 12.9, "h": 25.7, "s": "e", "k": "fix", "label": "", "c": "bistro"},
     {"x": 549.1, "y": 104.6, "w": 9.8, "h": 19.7, "s": "e", "k": "fix", "label": "", "c": "bistro"},
     {"x": 158.6, "y": 315.0, "w": 12.2, "h": 23.4, "s": "e", "k": "fix", "label": "", "c": "bistro"},
-    {"x": 47.3, "y": 217.4, "w": 47.5, "h": 38.2, "s": "e", "k": "seat", "label": "Back 1", "id": "back-1"},
-    {"x": 47.3, "y": 171.3, "w": 47.5, "h": 38.2, "s": "e", "k": "seat", "label": "Back 2", "id": "back-2"},
-    {"x": 47.3, "y": 125.2, "w": 47.5, "h": 38.2, "s": "e", "k": "seat", "label": "Back 3", "id": "back-3"},
-    {"x": 47.3, "y": 79.1, "w": 47.5, "h": 38.2, "s": "e", "k": "seat", "label": "Back 4", "id": "back-4"},
-    {"x": 47.3, "y": 38.8, "w": 47.5, "h": 38.2, "s": "e", "k": "seat", "label": "Back 5", "id": "back-5"},
-    {"x": 572.1, "y": 46.1, "w": 72.0, "h": 72.0, "s": "e", "k": "seat", "label": "Sedir Son", "id": "sedir-son"},
-    {"x": 588.7, "y": 279.2, "w": 72.0, "h": 72.0, "s": "e", "k": "seat", "label": "Sedir 1", "id": "sedir-1"},
-    {"x": 73.2, "y": 295.1, "w": 47.5, "h": 47.5, "s": "e", "k": "seat", "label": "Paris", "id": "paris"},
+    {"x": 47.3, "y": 217.4, "w": 47.5, "h": 38.2, "s": "e", "k": "table", "label": "Back 1", "id": "back-1"},
+    {"x": 47.3, "y": 171.3, "w": 47.5, "h": 38.2, "s": "e", "k": "table", "label": "Back 2", "id": "back-2"},
+    {"x": 47.3, "y": 125.2, "w": 47.5, "h": 38.2, "s": "e", "k": "table", "label": "Back 3", "id": "back-3"},
+    {"x": 47.3, "y": 79.1, "w": 47.5, "h": 38.2, "s": "e", "k": "table", "label": "Back 4", "id": "back-4"},
+    {"x": 47.3, "y": 38.8, "w": 47.5, "h": 38.2, "s": "e", "k": "table", "label": "Back 5", "id": "back-5"},
+    {"x": 572.1, "y": 46.1, "w": 72.0, "h": 72.0, "s": "e", "k": "table", "label": "Sedir Son", "id": "sedir-son"},
+    {"x": 588.7, "y": 279.2, "w": 72.0, "h": 72.0, "s": "e", "k": "table", "label": "Sedir 1", "id": "sedir-1"},
+    {"x": 73.2, "y": 295.1, "w": 47.5, "h": 47.5, "s": "e", "k": "table", "label": "Paris", "id": "paris"},
     {"x": 203.4, "y": 200.8, "w": 38.2, "h": 38.2, "s": "e", "k": "seat", "label": "Kabin", "id": "kabin"},
-    {"x": 598.8, "y": 131.7, "w": 71.3, "h": 25.6, "s": "b", "k": "seat", "label": "Sedir 6", "id": "sedir-6"},
-    {"x": 598.8, "y": 160.3, "w": 71.3, "h": 25.6, "s": "b", "k": "seat", "label": "Sedir 5", "id": "sedir-5"},
-    {"x": 598.8, "y": 188.8, "w": 71.3, "h": 25.6, "s": "b", "k": "seat", "label": "Sedir 4", "id": "sedir-4"},
-    {"x": 598.8, "y": 217.4, "w": 71.3, "h": 25.6, "s": "b", "k": "seat", "label": "Sedir 3", "id": "sedir-3"},
-    {"x": 598.8, "y": 246.0, "w": 71.3, "h": 25.6, "s": "b", "k": "seat", "label": "Sedir 2", "id": "sedir-2"},
+    {"x": 598.8, "y": 131.7, "w": 71.3, "h": 25.6, "s": "b", "k": "table", "label": "Sedir 6", "id": "sedir-6"},
+    {"x": 598.8, "y": 160.3, "w": 71.3, "h": 25.6, "s": "b", "k": "table", "label": "Sedir 5", "id": "sedir-5"},
+    {"x": 598.8, "y": 188.8, "w": 71.3, "h": 25.6, "s": "b", "k": "table", "label": "Sedir 4", "id": "sedir-4"},
+    {"x": 598.8, "y": 217.4, "w": 71.3, "h": 25.6, "s": "b", "k": "table", "label": "Sedir 3", "id": "sedir-3"},
+    {"x": 598.8, "y": 246.0, "w": 71.3, "h": 25.6, "s": "b", "k": "table", "label": "Sedir 2", "id": "sedir-2"},
     {"x": 248.9, "y": 159.8, "w": 47.5, "h": 47.5, "s": "e", "k": "table", "label": "Table 2", "id": "table-2"},
     {"x": 332.3, "y": 142.4, "w": 41.8, "h": 40.6, "s": "e", "k": "table", "label": "Table 7", "id": "table-7"},
     {"x": 411.5, "y": 165.9, "w": 47.5, "h": 47.5, "s": "e", "k": "table", "label": "Table 3", "id": "table-3"},
