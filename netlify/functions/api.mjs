@@ -534,6 +534,12 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       if (r.status === 'approved' && now2 < was) await offerNext(s, e, url.origin);
       return json({ rsvp: r, was, notified: told === 'sent', notifyError: told && told !== 'sent' ? told : '' });
     }
+    // The host keeps a guest off the event's public guest list (or puts them back). It never shows a guest who did not
+    // ask to be shown; the guest still counts in the number of people going.
+    if (parts[3] === 'list-hidden' && m === 'PUT') {
+      r.listHidden = (await body(req)).hidden === true; await s.set('rsvps/' + e.id + '/' + r.id, r);
+      return json({ rsvp: r });
+    }
     // The names the guest sent back, typed in by the team.
     if (parts[3] === 'guest-names' && m === 'PUT') {
       r.guestNames = str((await body(req)).names, 400); await s.set('rsvps/' + e.id + '/' + r.id, r);
