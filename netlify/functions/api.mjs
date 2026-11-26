@@ -16,7 +16,7 @@ import { migrate } from './lib/migrations.mjs';
 import { admin2 } from './lib/admin2.mjs';
 import { inviteRoute, personalOf, markPersonal, personalOpen, shareToken, shareUrl } from './lib/invites.mjs';
 import { emailStatus, sendPass, sendTable, passMail, notifyEnquiry } from './lib/email.mjs';
-import { waStatus, waSettings, sendPassWa, sendTableWa, sendGuestNamesWa, guestNamesParams, guestNamesText, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
+import { waStatus, waSettings, sendPassWa, sendTableWa, sendGuestNamesWa, guestNamesParams, guestNamesText, sendGuestsChangedWa, guestsChangedParams, guestsChangedText, passParams, invitePreview, passQrPng } from './lib/whatsapp.mjs';
 import { waHook, inboxRoute, unreadThreads } from './lib/inbox.mjs';
 import { APP_HTML, LOGIN_HTML, DOOR_HTML } from './lib/hq-html.mjs';
 import { LEGACY_EVENTS } from './lib/legacy-events.mjs';
@@ -474,7 +474,7 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
     if (!parts[2] && m === 'GET') {
       // the door role gets what a door link gets: approved guests, name and party size only
       if (me.role === 'door') return json({ event: { id: e.id, title: e.title, date: e.date, venue: e.venue, status: e.status, counts: counts(rs) }, rsvps: rs.filter((r) => r.status === 'approved').map((r) => ({ ...doorGuest(r), status: r.status, email: '', phone: '' })), tickets: (await eventTickets(e.id)).map(ticketGuest), email: { connected: false }, whatsapp: { connected: false } });
-      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: { ...waStatus(), table: !!(await waSettings(s)).table.projectId, guestNames: !!(await waSettings(s)).guestNames.projectId, guestNamesText: guestNamesText(guestNamesParams(e, { name: 'Ada Yılmaz', guests: 3 })) } });
+      return json({ event: adminEvent(e, rs), rsvps: rs.sort((a, b) => b.createdAt.localeCompare(a.createdAt)), tickets: (await eventTickets(e.id)).map((x) => ({ ...ticketGuest(x), email: x.email })), email: emailStatus(), whatsapp: { ...waStatus(), table: !!(await waSettings(s)).table.projectId, guestNames: !!(await waSettings(s)).guestNames.projectId, guestNamesText: guestNamesText(guestNamesParams(e, { name: 'Ada Yılmaz', guests: 3 })), guestsChanged: !!(await waSettings(s)).guestsChanged.projectId, guestsChangedText: guestsChangedText(guestsChangedParams(e, { name: 'Ada Yılmaz', guests: 4 })) } });
     }
     let freed = false;
     const decide = async (r, dec) => {
@@ -513,6 +513,26 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       if (!r.phone) return fail(400, 'Bu başvuruda telefon numarası yok.');
       r.namesWa = await sendGuestNamesWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r);
       return r.namesWa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.namesWa.error || ''), { rsvp: r });
+    }
+    // The host changes how many people a guest brings (the form's own limit does not bind the host). For an approved
+    // guest the event's capacity is checked like at approval; places given back go to the waiting list.
+    if (parts[3] === 'guests' && m === 'PUT') {
+      const b = await body(req), plus = parseInt(b.plus, 10);
+      if (!(plus >= 0 && plus <= 50)) return fail(400, 'Misafir sayısı 0 ile 50 arasında olmalı.');
+      const was = r.guests || 1, now2 = plus + 1;
+      if (r.status === 'approved' && now2 > was && e.capacity && guestsOf(rs, 'approved') - was + now2 > e.capacity && !b.force) return fail(409, 'Kapasite aşılıyor (' + (guestsOf(rs, 'approved') - was + now2) + ' / ' + e.capacity + ').', { overCapacity: true });
+      r.guests = now2; r.guestsSetAt = now(); r.guestsWas = was; await s.set('rsvps/' + e.id + '/' + r.id, r);
+      // On request, the guest is told by WhatsApp (its own approved template). Only an approved guest has a pass to speak of.
+      let told = '';
+      if (b.notify && now2 !== was) {
+        if (r.status !== 'approved') told = 'Yalnızca onaylı misafire bildirilir.';
+        else if (!waStatus().connected) told = 'WhatsApp bağlı değil.';
+        else if (!(await waSettings(s)).guestsChanged.projectId) told = 'Misafir sayısı şablonu Ayarlar’da tanımlı değil.';
+        else if (!r.phone) told = 'Bu başvuruda telefon numarası yok.';
+        else { r.guestsWa = await sendGuestsChangedWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r); told = r.guestsWa.status === 'sent' ? 'sent' : 'WhatsApp gönderilemedi: ' + (r.guestsWa.error || ''); }
+      }
+      if (r.status === 'approved' && now2 < was) await offerNext(s, e, url.origin);
+      return json({ rsvp: r, was, notified: told === 'sent', notifyError: told && told !== 'sent' ? told : '' });
     }
     // The names the guest sent back, typed in by the team.
     if (parts[3] === 'guest-names' && m === 'PUT') {

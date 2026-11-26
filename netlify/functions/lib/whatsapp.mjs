@@ -5,8 +5,8 @@ import { hash, id } from './auth.mjs';
 const API = () => (process.env.BIRD_API_URL || 'https://api.bird.com').replace(/\/$/, '');
 const WS = () => process.env.BIRD_WORKSPACE_ID;
 export const waStatus = () => ({ connected: !!(process.env.BIRD_ACCESS_KEY && WS()), missing: ['BIRD_ACCESS_KEY', 'BIRD_WORKSPACE_ID'].filter((k) => !process.env[k]) });
-const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' }, table: { projectId: '', version: '', locale: 'en' }, tableOk: { projectId: '', version: '', locale: 'en' }, guestNames: { projectId: '', version: '', locale: 'en' } };
-export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) }, table: { ...DEFAULTS.table, ...(v.table || {}) }, tableOk: { ...DEFAULTS.tableOk, ...(v.tableOk || {}) }, guestNames: { ...DEFAULTS.guestNames, ...(v.guestNames || {}) } }; };
+const DEFAULTS = { channelId: '', pass: { projectId: '', version: '', locale: 'en', qr: false }, invite: { projectId: '', version: '', locale: 'en' }, table: { projectId: '', version: '', locale: 'en' }, tableOk: { projectId: '', version: '', locale: 'en' }, guestNames: { projectId: '', version: '', locale: 'en' }, guestsChanged: { projectId: '', version: '', locale: 'en' } };
+export const waSettings = async (s) => { const v = (await s.get('settings/whatsapp')) || {}; return { ...DEFAULTS, ...v, pass: { ...DEFAULTS.pass, ...(v.pass || {}) }, invite: { ...DEFAULTS.invite, ...(v.invite || {}) }, table: { ...DEFAULTS.table, ...(v.table || {}) }, tableOk: { ...DEFAULTS.tableOk, ...(v.tableOk || {}) }, guestNames: { ...DEFAULTS.guestNames, ...(v.guestNames || {}) }, guestsChanged: { ...DEFAULTS.guestsChanged, ...(v.guestsChanged || {}) } }; };
 
 export async function waCall(path, method, body) {
   const r = await fetch(API() + '/workspaces/' + WS() + path, { method, headers: { authorization: 'AccessKey ' + process.env.BIRD_ACCESS_KEY, 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
@@ -46,6 +46,11 @@ export const tableParams = (e, r) => ({ name: r.name.split(' ')[0], event: e.tit
 export const guestNamesParams = (e, r) => ({ name: r.name.trim().split(/\s+/)[0], event: e.title, guests: String(Math.max(1, (r.guests || 1) - 1)) });
 export const guestNamesText = (p) => 'Hi ' + p.name + ', you are confirmed for ' + p.event + ' with ' + p.guests + (p.guests === '1' ? ' guest' : ' guests') + '.\n\nCould you send us the full name of ' + (p.guests === '1' ? 'your guest' : 'each guest') + '? Just reply to this message.';
 export const sendGuestNamesWa = async (s, e, r) => waSend(s, r.phone, (await waSettings(s)).guestNames, guestNamesParams(e, r));
+// Tells an approved guest that the size of their party was changed by the host. Template variables: name, event, total
+// (everybody, the guest included).
+export const guestsChangedParams = (e, r) => ({ name: r.name.trim().split(/\s+/)[0], event: e.title, total: String(r.guests || 1) });
+export const guestsChangedText = (p) => 'Hi ' + p.name + ', an update for ' + p.event + ': your entry is now confirmed for a party of ' + p.total + ', including you.\n\nYour QR code stays the same and covers everyone with you.';
+export const sendGuestsChangedWa = async (s, e, r) => waSend(s, r.phone, (await waSettings(s)).guestsChanged, guestsChangedParams(e, r));
 export const sendTableWa = async (s, e, r) => waSend(s, r.phone, (await waSettings(s)).table, tableParams(e, r));
 // The same code the pass page draws: scanning it at the door opens /pass?t=… and checks the guest in.
 export async function passQrPng(origin, token) { const { default: QR } = await import('qrcode'); return QR.toBuffer(origin + '/pass?t=' + token, { type: 'png', width: 720, margin: 4, errorCorrectionLevel: 'M' }); }
@@ -65,7 +70,7 @@ export const confirmText = (p) => 'Hi ' + p.name + ', your table is confirmed.\n
 
 // What a sent template says, in one line, for the conversation in HQ → Mesajlar. The full wording lives in Bird / Meta.
 export function tplText(set, tpl, params) {
-  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : is(set.table) ? 'Masa linki' : is(set.tableOk) ? 'Masa onayı' : is(set.guestNames) ? 'Misafir isimleri soruldu' : 'Şablon mesajı';
+  const p = params || {}, is = (x) => !!(x && x.projectId && tpl && x.projectId === tpl.projectId), label = is(set.invite) ? 'Davet' : is(set.pass) ? 'Giriş kartı' : is(set.table) ? 'Masa linki' : is(set.tableOk) ? 'Masa onayı' : is(set.guestNames) ? 'Misafir isimleri soruldu' : is(set.guestsChanged) ? 'Misafir sayısı değişikliği bildirildi' : 'Şablon mesajı';
   const main = [p.title || p.event, p.line || p.date, p.venue, p.table].filter(Boolean);
   const rest = main.length ? main : Object.entries(p).filter(([k, v]) => !['token', 'image', 'name', 'eventId'].includes(k) && v && !/^https?:/.test(String(v))).map(([, v]) => String(v));
   return (label + (rest.length ? ': ' + rest.join(' · ') : '')).slice(0, 600);
