@@ -14,10 +14,10 @@ try:
     st,j,_=a.req(P+'?event='+other['id']); ok('a venue without a plan has none', st==200 and j['plan'] is None, j)
     st,j,_=a.req(P+'?event='+e1['id']); ts=[s for s in j['plan']['shapes'] if s['k']=='table']
     ok('Alice has its plan whatever the spelling of the venue', st==200 and j['plan']['name']=='Alice Club' and a.req(P+'?event='+e2['id'])[1]['plan']['name']=='Alice Club')
-    ok('the ten tables of the drawing (its “Launch” shapes) are named Table', sorted(s['label'] for s in ts)==sorted(['Table 1','Table 2','Table 3','Table 4','Table 5','Table 6','Table 7','Table 8','Table Sol','Table Sağ']) and len({s['id'] for s in ts})==10, [s['label'] for s in ts])
-    ok('the other seating is drawn but is not a table; the bar and the DJ booth are scenery', {s['label'] for s in j['plan']['shapes'] if s['k']=='seat'}>={'Back 1','Back 5','Sedir 1','Sedir Son','Paris','Kabin'} and {s['label'] for s in j['plan']['shapes'] if s['k']=='fix' and s['label']}>={'BAR','DJ','Konsol'})
+    ok('the tables: Table 1–8, Sol, Sağ, Back 1–5, Sedir 1–6 and Son, Paris', sorted(s['label'] for s in ts)==sorted(['Table 1','Table 2','Table 3','Table 4','Table 5','Table 6','Table 7','Table 8','Table Sol','Table Sağ','Back 1','Back 2','Back 3','Back 4','Back 5','Sedir 1','Sedir 2','Sedir 3','Sedir 4','Sedir 5','Sedir 6','Sedir Son','Paris']) and len({s['id'] for s in ts})==23, [s['label'] for s in ts])
+    ok('Kabin is drawn but is not a table; the bar and the DJ booth are scenery', {s['label'] for s in j['plan']['shapes'] if s['k']=='seat'}=={'Kabin'} and {s['label'] for s in j['plan']['shapes'] if s['k']=='fix' and s['label']}>={'BAR','DJ','Konsol'})
     ok('every shape lies inside the drawing', all(0<=s['x'] and 0<=s['y'] and s['x']+s['w']<=j['plan']['w']+1 and s['y']+s['h']<=j['plan']['h']+1 for s in j['plan']['shapes']))
-    ok('nobody is seated, nobody to seat yet', all(v==[] for v in j['assign'].values()) and len(j['assign'])==10 and j['options']==[])
+    ok('nobody is seated, nobody to seat yet', all(v==[] for v in j['assign'].values()) and len(j['assign'])==23 and j['options']==[])
 
     for n,em,pl in [('Ada Yılmaz','ada@x.com',2),('Bora Kaya','bora@x.com',0),('Cem Bekleyen','cem@x.com',1)]: anon.req('/api/public/rsvp','POST',{'slug':e1['slug'],'name':n,'email':em,'plus':pl,'consent':True})
     rs={r['email']:r for r in a.req('/api/hq/rsvps/'+e1['id'])[1]['rsvps']}
@@ -25,7 +25,7 @@ try:
     mk=a.req('/api/hq/venue-links/notes','POST',{'event':e1['id'],'name':'Kerem Öztürk','people':6,'label':'B4','note':'Doğum günü'})[1]['table']['key']
     j=a.req(P+'?event='+e1['id'])[1]; ok('approved guests and the event’s tables can be seated; pending ones cannot', [(o['type'],o['name'],o['people']) for o in j['options']]==[('rsvp','Ada Yılmaz',3),('rsvp','Bora Kaya',1),('table','Kerem Öztürk',6)], j['options'])
     put=lambda **b: a.req(P,'PUT',dict({'event':e1['id']},**b))
-    ok('must be a table of the plan, and somebody of this event', put(table='back-1',add={'type':'rsvp','id':rs['ada@x.com']['id']})[0]==404 and put(table='table-1',add={'type':'rsvp','id':'nope'})[0]==404 and put(table='table-1',add={'type':'rsvp','id':rs['cem@x.com']['id']})[0]==404 and put(table='table-1',add={'type':'table','id':'m-nope'})[0]==404 and put(table='table-1')[0]==400)
+    ok('must be a table of the plan, and somebody of this event', put(table='kabin',add={'type':'rsvp','id':rs['ada@x.com']['id']})[0]==404 and put(table='table-1',add={'type':'rsvp','id':'nope'})[0]==404 and put(table='table-1',add={'type':'rsvp','id':rs['cem@x.com']['id']})[0]==404 and put(table='table-1',add={'type':'table','id':'m-nope'})[0]==404 and put(table='table-1')[0]==400)
     st,j,_=put(table='table-3',add={'type':'rsvp','id':rs['ada@x.com']['id']}); ok('a guest is seated', st==200 and [(o['name'],o['people']) for o in j['assign']['table-3']]==[('Ada Yılmaz',3)], j['assign'])
     put(table='table-3',add={'type':'rsvp','id':rs['bora@x.com']['id']}); st,j,_=put(table='table-5',add={'type':'table','id':mk})
     ok('two parties can share a table; a table entry can be seated too', len(j['assign']['table-3'])==2 and [o['name'] for o in j['assign']['table-5']]==['Kerem Öztürk'])
@@ -36,8 +36,10 @@ try:
     tb=a.req('/api/hq/venue-links/notes?event='+e1['id'])[1]['tables'][0]; ok('the table list carries the plan table instead of the hand-typed number', tb['label']=='Table 5' and tb['placed'] is True and tb['note']=='Doğum günü', tb)
     key2=a.req('/api/hq/venue-links','POST',{'venue':'ALICE Club'})[1]['link']['url'].split('k=')[1]; pj=anon.req('/api/public/venue?k='+key2)[1]
     ok('the venue sees the table name on the table and on the seated guests', [t['label'] for t in pj['event']['tables']]==['Table 5'] and {g['name']:g.get('table') for g in pj['event']['guests']}=={'Ada Yılmaz':'Table 1','Bora Kaya':'Table 3'}, pj['event'])
-    ov={v['venue']:v for v in a.req('/api/hq/venue-links/overview')[1]['venues']}; ok('Mekânlar shows which venues have a plan', ov['ALICE Club']['plan']=={'name':'Alice Club','tables':10} and ov['Some Rooftop']['plan'] is None, ov['ALICE Club'].get('plan'))
+    ov={v['venue']:v for v in a.req('/api/hq/venue-links/overview')[1]['venues']}; ok('Mekânlar shows which venues have a plan', ov['ALICE Club']['plan']=={'name':'Alice Club','tables':23} and ov['Some Rooftop']['plan'] is None, ov['ALICE Club'].get('plan'))
 
+    st,j,_=put(table='sedir-3',add={'type':'rsvp','id':rs['bora@x.com']['id']}); ok('a sofa table and a back table take a party like any other', [o['name'] for o in j['assign']['sedir-3']]==['Bora Kaya'] and put(table='back-2',add={'type':'rsvp','id':rs['bora@x.com']['id']})[1]['assign']['back-2'][0]['name']=='Bora Kaya')
+    put(table='table-3',add={'type':'rsvp','id':rs['bora@x.com']['id']})
     # ---------- removing ----------
     st,j,_=put(remove={'type':'rsvp','id':rs['bora@x.com']['id']}); ok('removed from the table', st==200 and j['assign']['table-3']==[])
     st,j,_=put(table='table-1',clear=True); ok('a table can be emptied', j['assign']['table-1']==[])
