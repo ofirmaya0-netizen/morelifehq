@@ -77,7 +77,7 @@
   var AREA = { backstage: 'Backstage', standard: S('Table', 'Masa') };
 
   function rows() {
-    var ev = data.event, f = fold(q), hit = function (x) { return !f || fold(x.name + ' ' + (x.label || '') + ' ' + (x.area || '') + ' ' + (x.type || '') + ' ' + (x.note || '')).indexOf(f) > -1; };
+    var ev = data.event, f = fold(q), hit = function (x) { return !f || fold(x.name + ' ' + (x.label || '') + ' ' + (x.area || '') + ' ' + (x.type || '') + ' ' + (x.note || '') + ' ' + (x.table || '')).indexOf(f) > -1; };
     var ts = ev.tables.filter(hit), gs = ev.guests.filter(hit);
     var tHtml = ts.length ? ts.map(function (t) {
       var area = AREA[t.area] || t.area, full = t.in != null && t.in >= t.people;
@@ -85,7 +85,7 @@
         '<div class="vp-side"><b>' + ppl(t.people) + '</b>' + (t.in == null ? '' : '<span class="vp-tag' + (t.in ? ' in' : '') + '">' + (full ? S('All in', 'Hepsi içeride') : t.in + ' / ' + t.people + ' ' + S('in', 'içeride')) + '</span>') + (t.due ? '<span class="vp-due">' + money(t.due, t.currency) + ' ' + S('due at venue', 'mekânda ödenecek') + '</span>' : '') + '</div></div>';
     }).join('') : '<p class="vp-empty">' + (f ? S('No table matches.', 'Eşleşen masa yok.') : S('No tables yet.', 'Henüz masa yok.')) + '</p>';
     var gHtml = gs.length ? gs.map(function (g) {
-      return '<div class="vp-row"><div class="vp-main"><b>' + esc(g.name) + '</b><span>' + (g.list ? S('Guest list', 'Misafir listesi') + (g.people > 1 ? ' · +' + (g.people - 1) : '') + (g.yours ? ' · ' + S('your invite', 'sizin davetiniz') : '') : esc(g.type || S('Ticket', 'Bilet'))) + '</span></div>' +
+      return '<div class="vp-row"><div class="vp-main"><b>' + esc(g.name) + '</b><span>' + (g.list ? S('Guest list', 'Misafir listesi') + (g.people > 1 ? ' · +' + (g.people - 1) : '') + (g.yours ? ' · ' + S('your invite', 'sizin davetiniz') : '') + (g.table ? ' · ' + S('table ', 'masa ') + esc(g.table) : '') : esc(g.type || S('Ticket', 'Bilet'))) + '</span></div>' +
         '<div class="vp-side">' + (g.people > 1 ? '<b>' + ppl(g.people) + '</b>' : '') + (g.in ? '<span class="vp-tag in">' + (g.in >= g.people ? S('In', 'İçeride') : g.in + ' / ' + g.people + ' ' + S('in', 'içeride')) + '</span>' : '') + '</div></div>';
     }).join('') : '<p class="vp-empty">' + (f ? S('No guest matches.', 'Eşleşen misafir yok.') : S('Nobody on the list yet.', 'Listede henüz kimse yok.')) + '</p>';
     document.getElementById('vp-t').innerHTML = tHtml; document.getElementById('vp-g').innerHTML = gHtml;
