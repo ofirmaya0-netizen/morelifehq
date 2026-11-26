@@ -34,13 +34,7 @@
     return s.s === 'e' ? '<ellipse cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + s.w / 2 + '" ry="' + s.h / 2 + '"' + attrs + '/>'
       : '<rect x="' + s.x + '" y="' + s.y + '" width="' + s.w + '" height="' + s.h + '" rx="' + (rx != null ? rx : s.s === 'r' ? 12 : 4) + '"' + attrs + '/>';
   }
-  // chairs round a table, cushions on a sofa, stools at the bar: what makes a drawing read as a room
-  function chairs(s, on) {
-    if (s.s !== 'e') return ''; // a sofa table has no chairs round it
-    var cx = s.x + s.w / 2, cy = s.y + s.h / 2, n = s.w >= 60 ? 8 : s.w >= 46 ? 6 : 5, out = '';
-    for (var i = 0; i < n; i++) { var a = (i / n) * Math.PI * 2 - Math.PI / 2 + (n === 6 ? Math.PI / 6 : 0); out += '<circle class="fp-chair' + (on ? ' on' : '') + '" cx="' + (cx + Math.cos(a) * (s.w / 2 + 6.5)).toFixed(1) + '" cy="' + (cy + Math.sin(a) * (s.h / 2 + 6.5)).toFixed(1) + '" r="3.4"/>'; }
-    return out;
-  }
+  // cushions on a sofa, stools at the bar: what makes a drawing read as a room
   function cushions(s) {
     var out = '', horiz = s.w > s.h, len = horiz ? s.w : s.h, n = Math.max(2, Math.round(len / 26));
     for (var i = 1; i < n; i++) { var t = (len / n) * i; out += horiz ? '<line x1="' + (s.x + t) + '" y1="' + (s.y + 2) + '" x2="' + (s.x + t) + '" y2="' + (s.y + s.h - 2) + '" class="fp-seam"/>' : '<line x1="' + (s.x + 2) + '" y1="' + (s.y + t) + '" x2="' + (s.x + s.w - 2) + '" y2="' + (s.y + t) + '" class="fp-seam"/>'; }
@@ -74,7 +68,7 @@
         if (s.k === 'seat') return shape2(s, ' class="fp-seat" fill="url(#fpSeat)"', 7) + text(s, words(s, 60), 'fp-seat-t');
         var it = d.assign[s.id] || [], n = people(it), on = it.length > 0, tip = s.label + (on ? ': ' + it.map(function (x) { return x.name + ' (' + x.people + ')'; }).join(', ') : ': boş');
         return '<g class="fp-table' + (on ? ' on' : '') + '" data-t="' + e(s.id) + '" tabindex="0" role="button" aria-label="' + e(tip) + '"><title>' + e(tip) + '</title>' +
-          '<ellipse class="fp-ring" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + (s.w / 2 + 12) + '" ry="' + (s.h / 2 + 12) + '"/>' + chairs(s, on) + shape2(s, ' class="fp-top" fill="url(#' + (on ? 'fpOn' : 'fpFree') + ')" filter="url(#' + (on ? 'fpGlow' : 'fpShadow') + ')"') +
+          '<ellipse class="fp-ring" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + (s.w / 2 + 6) + '" ry="' + (s.h / 2 + 6) + '"/>' + shape2(s, ' class="fp-top" fill="url(#' + (on ? 'fpOn' : 'fpFree') + ')" filter="url(#' + (on ? 'fpGlow' : 'fpShadow') + ')"') +
           text(s, on ? (s.h < 30 ? [[s.label + ' · ' + short(it[0].name, 8) + (it.length > 1 ? ' +' + (it.length - 1) : '') + ' · ' + n, 'fp-b']] : [[s.label, 'fp-sm'], [it.length > 1 ? short(it[0].name, 7) + ' +' + (it.length - 1) : short(it[0].name, 9), 'fp-b'], [n + ' kişi', 'fp-sm']]) : s.h < 30 ? [[s.label]] : (function () { var w = s.label.split(' '); return w.length > 1 ? [[w[0].toLocaleUpperCase('tr'), 'fp-cap'], [w.slice(1).join(' '), 'fp-num']] : [[s.label]]; })(), 'fp-t') + '</g>';
       }).join('') + (room ? '<rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpVig)" pointer-events="none"/>' : '') + '</svg>';
   };
