@@ -1,4 +1,4 @@
-/* Masa planı: mekânın kat planı üzerinde, etkinlik için kim hangi masada. Masaya tıkla → oturt, taşı, kaldır. */
+/* Masa planı: mekânın kat planı üzerinde, etkinliğin masa rezervasyonları hangi masada. Sürükle-bırak ya da masaya tıkla. */
 (function () {
   var H = HQ, e = H.esc;
     function shape(s, attrs) {
@@ -34,13 +34,7 @@
     return s.s === 'e' ? '<ellipse cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + s.w / 2 + '" ry="' + s.h / 2 + '"' + attrs + '/>'
       : '<rect x="' + s.x + '" y="' + s.y + '" width="' + s.w + '" height="' + s.h + '" rx="' + (rx != null ? rx : s.s === 'r' ? 12 : 4) + '"' + attrs + '/>';
   }
-  // chairs round a table, cushions on a sofa, stools at the bar: what makes a drawing read as a room
-  function chairs(s, on) {
-    if (s.s !== 'e') return ''; // a sofa table has no chairs round it
-    var cx = s.x + s.w / 2, cy = s.y + s.h / 2, n = s.w >= 60 ? 8 : s.w >= 46 ? 6 : 5, out = '';
-    for (var i = 0; i < n; i++) { var a = (i / n) * Math.PI * 2 - Math.PI / 2 + (n === 6 ? Math.PI / 6 : 0); out += '<circle class="fp-chair' + (on ? ' on' : '') + '" cx="' + (cx + Math.cos(a) * (s.w / 2 + 6.5)).toFixed(1) + '" cy="' + (cy + Math.sin(a) * (s.h / 2 + 6.5)).toFixed(1) + '" r="3.4"/>'; }
-    return out;
-  }
+  // cushions on a sofa, stools at the bar: what makes a drawing read as a room
   function cushions(s) {
     var out = '', horiz = s.w > s.h, len = horiz ? s.w : s.h, n = Math.max(2, Math.round(len / 26));
     for (var i = 1; i < n; i++) { var t = (len / n) * i; out += horiz ? '<line x1="' + (s.x + t) + '" y1="' + (s.y + 2) + '" x2="' + (s.x + t) + '" y2="' + (s.y + s.h - 2) + '" class="fp-seam"/>' : '<line x1="' + (s.x + 2) + '" y1="' + (s.y + t) + '" x2="' + (s.x + s.w - 2) + '" y2="' + (s.y + t) + '" class="fp-seam"/>'; }
@@ -74,7 +68,7 @@
         if (s.k === 'seat') return shape2(s, ' class="fp-seat" fill="url(#fpSeat)"', 7) + text(s, words(s, 60), 'fp-seat-t');
         var it = d.assign[s.id] || [], n = people(it), on = it.length > 0, tip = s.label + (on ? ': ' + it.map(function (x) { return x.name + ' (' + x.people + ')'; }).join(', ') : ': boş');
         return '<g class="fp-table' + (on ? ' on' : '') + '" data-t="' + e(s.id) + '" tabindex="0" role="button" aria-label="' + e(tip) + '"><title>' + e(tip) + '</title>' +
-          '<ellipse class="fp-ring" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + (s.w / 2 + 12) + '" ry="' + (s.h / 2 + 12) + '"/>' + chairs(s, on) + shape2(s, ' class="fp-top" fill="url(#' + (on ? 'fpOn' : 'fpFree') + ')" filter="url(#' + (on ? 'fpGlow' : 'fpShadow') + ')"') +
+          '<ellipse class="fp-ring" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + (s.w / 2 + 6) + '" ry="' + (s.h / 2 + 6) + '"/>' + shape2(s, ' class="fp-top" fill="url(#' + (on ? 'fpOn' : 'fpFree') + ')" filter="url(#' + (on ? 'fpGlow' : 'fpShadow') + ')"') +
           text(s, on ? (s.h < 30 ? [[s.label + ' · ' + short(it[0].name, 8) + (it.length > 1 ? ' +' + (it.length - 1) : '') + ' · ' + n, 'fp-b']] : [[s.label, 'fp-sm'], [it.length > 1 ? short(it[0].name, 7) + ' +' + (it.length - 1) : short(it[0].name, 9), 'fp-b'], [n + ' kişi', 'fp-sm']]) : s.h < 30 ? [[s.label]] : (function () { var w = s.label.split(' '); return w.length > 1 ? [[w[0].toLocaleUpperCase('tr'), 'fp-cap'], [w.slice(1).join(' '), 'fp-num']] : [[s.label]]; })(), 'fp-t') + '</g>';
       }).join('') + (room ? '<rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpVig)" pointer-events="none"/>' : '') + '</svg>';
   };
@@ -89,7 +83,7 @@
     function chip(o, tid) {
       var k = keyOf(o);
       return '<div class="fp-chip' + (picked === k ? ' picked' : '') + (tid ? ' seated' : '') + '" data-k="' + e(k) + '"' + (can ? ' role="button" tabindex="0" aria-pressed="' + (picked === k) + '"' : '') + '>' + (can ? '<span class="fp-grip" aria-hidden="true">⠿</span>' : '') +
-        '<span class="fp-chip-main"><b>' + e(o.name) + '</b><span class="small mute">' + o.people + ' kişi · ' + e(o.src) + '</span></span>' + (tid ? '<span class="pill plain">' + e(label[tid]) + '</span>' : '') + '</div>';
+        '<span class="fp-chip-main"><b>' + e(o.name) + '</b><span class="small mute">' + o.people + ' kişi · ' + e(o.src) + (o.note ? ' · ' + e(o.note) : '') + '</span></span>' + (tid ? '<span class="pill plain">' + e(label[tid]) + '</span>' : '') + '</div>';
     }
     function draw() {
       var ts = d.plan.shapes.filter(function (s) { return s.k === 'table'; }), used = ts.filter(function (s) { return (d.assign[s.id] || []).length; }), seated = used.reduce(function (n, s) { return n + people(d.assign[s.id]); }, 0), where = whereMap();
@@ -97,12 +91,12 @@
       var free = d.options.filter(function (o) { return !where[keyOf(o)]; }), sat = d.options.filter(function (o) { return where[keyOf(o)]; });
       var sideScroll = root.querySelector('.fp-side-list'), top = sideScroll ? sideScroll.scrollTop : 0, hadFocus = document.activeElement && document.activeElement.id === 'fp-sq';
       root.innerHTML = '<div class="card" style="margin-bottom:16px"><div class="row between" style="margin-bottom:4px"><h2 class="h2">Masa planı · ' + e(d.plan.name) + '</h2><span class="small mute"><b style="color:var(--ink)">' + used.length + '</b> / ' + ts.length + ' masa dolu · <b style="color:var(--ink)">' + seated + '</b> kişi oturtuldu</span></div>' +
-        '<p class="small mute" style="margin-bottom:12px">' + (can ? 'İsmi sürükleyip masanın üzerine bırakın. Sürüklemek yerine ismi seçip masaya da tıklayabilirsiniz; masaya tıklayınca o masadakiler açılır.' : 'Kim hangi masada.') + '</p>' +
+        '<p class="small mute" style="margin-bottom:12px">' + (can ? 'Masa rezervasyonunu sürükleyip planda bir masanın üzerine bırakın. Sürüklemek yerine rezervasyonu seçip masaya da tıklayabilirsiniz. Tek tek misafirler plana oturtulmaz.' : 'Hangi rezervasyon hangi masada.') + '</p>' +
         '<div class="fp-layout"><div><div class="fplan-wrap">' + H.planSvg(d) + '</div><div class="row" style="gap:14px;margin-top:10px"><span class="small mute"><i class="fp-key"></i>Boş masa</span><span class="small mute"><i class="fp-key on"></i>Dolu masa</span><span class="small mute"><i class="fp-key seat"></i>Oturma alanı (atanmaz)</span></div></div>' +
-        '<aside class="fp-side" id="fp-side"><label class="search" style="max-width:none"><span class="sr">İsim ara</span>' + H.ico('search') + '<input type="search" id="fp-sq" placeholder="İsim ara" value="' + e(q) + '"></label>' +
-        '<div class="fp-side-list"><p class="fp-h">Oturtulmadı <span>' + free.length + '</span></p>' + (free.filter(hit).map(function (o) { return chip(o, ''); }).join('') || '<p class="small dim" style="padding:4px 2px">' + (free.length ? 'Eşleşen yok.' : d.options.length ? 'Herkes oturtuldu.' : 'Onaylı misafir ya da masa yok.') + '</p>') +
+        '<aside class="fp-side" id="fp-side"><label class="search" style="max-width:none"><span class="sr">Rezervasyon ara</span>' + H.ico('search') + '<input type="search" id="fp-sq" placeholder="Rezervasyon ara" value="' + e(q) + '"></label>' +
+        '<div class="fp-side-list"><p class="fp-h">Oturtulmamış rezervasyon <span>' + free.length + '</span></p>' + (free.filter(hit).map(function (o) { return chip(o, ''); }).join('') || '<p class="small dim" style="padding:4px 2px">' + (free.length ? 'Eşleşen yok.' : d.options.length ? 'Tüm rezervasyonlar oturtuldu.' : 'Henüz masa rezervasyonu yok. Aşağıdan ekleyebilirsiniz.') + '</p>') +
         (sat.length ? '<p class="fp-h" style="margin-top:14px">Oturtuldu <span>' + sat.length + '</span></p>' + sat.filter(hit).sort(function (a, b) { return label[where[keyOf(a)]].localeCompare(label[where[keyOf(b)]], 'tr', { numeric: true }); }).map(function (o) { return chip(o, where[keyOf(o)]); }).join('') : '') + '</div>' +
-        (can ? '<p class="fp-drop small" id="fp-unseat">Masadan kaldırmak için ismi buraya bırakın</p><form id="fp-add" class="fp-add"><input name="name" placeholder="Listede olmayan biri" maxlength="120" required aria-label="Kimin adına"><input name="people" type="number" min="1" max="200" value="4" inputmode="numeric" aria-label="Kişi sayısı"><button class="btn sm" type="submit">Ekle</button></form>' : '') + '</aside></div></div>';
+        (can ? '<p class="fp-drop small" id="fp-unseat">Masadan kaldırmak için rezervasyonu buraya bırakın</p><form id="fp-add" class="fp-add"><input name="name" placeholder="Yeni rezervasyon: kimin adına" maxlength="120" required aria-label="Kimin adına"><input name="people" type="number" min="1" max="200" value="4" inputmode="numeric" aria-label="Kişi sayısı"><button class="btn sm" type="submit">Ekle</button></form>' : '') + '</aside></div></div>';
       var ns = root.querySelector('.fp-side-list'); if (ns) ns.scrollTop = top;
       var sq = root.querySelector('#fp-sq'); sq.oninput = function () { q = this.value; draw(); }; if (hadFocus) { sq.focus(); sq.setSelectionRange(q.length, q.length); }
       root.querySelectorAll('.fp-table').forEach(function (g) { var go = function () { var t = g.getAttribute('data-t'); if (picked && can) { var k = picked; picked = ''; seat(k, t); } else open(t); }; g.onclick = go; g.onkeydown = function (x) { if (x.key === 'Enter' || x.key === ' ') { x.preventDefault(); go(); } }; });
@@ -113,7 +107,7 @@
         c.onpointerdown = function (ev) { drag(ev, c, k); };
       });
       var add = root.querySelector('#fp-add');
-      add.onsubmit = async function (x) { x.preventDefault(); var btn = add.querySelector('button'); H.busy(btn, 1); try { var o = await H.api('venue-links/notes', 'POST', Object.assign({ event: eventId }, H.vals(add))); d = await H.api('venue-links/plan?event=' + eventId); picked = 'table:' + o.table.key; H.toast(o.table.name + ' eklendi; şimdi bir masaya bırakın ya da masaya tıklayın', 'ok'); draw(); if (changed) changed(); } catch (err) { H.toast(err.message, 'bad'); H.busy(btn, 0); } };
+      add.onsubmit = async function (x) { x.preventDefault(); var btn = add.querySelector('button'); H.busy(btn, 1); try { var o = await H.api('venue-links/notes', 'POST', Object.assign({ event: eventId }, H.vals(add))); d = await H.api('venue-links/plan?event=' + eventId); picked = 'table:' + o.table.key; H.toast(o.table.name + ' rezervasyonu eklendi; şimdi bir masaya bırakın ya da masaya tıklayın', 'ok'); draw(); if (changed) changed(); } catch (err) { H.toast(err.message, 'bad'); H.busy(btn, 0); } };
     }
     async function seat(k, tid) { var o = d.options.filter(function (x) { return keyOf(x) === k; })[0]; if (await put({ table: tid, add: split(k) })) { H.toast((o ? o.name : '') + ' → ' + label[tid], 'ok'); if (changed) changed(); } }
     async function unseat(k) { var o = d.options.filter(function (x) { return keyOf(x) === k; })[0]; if (await put({ remove: split(k) })) { H.toast((o ? o.name : '') + ' masadan kaldırıldı', 'ok'); if (changed) changed(); } }
@@ -144,8 +138,8 @@
       var dr = H.drawer({ title: s.label, body:
         '<h3 class="h2" style="margin-bottom:8px">Bu masada' + (it.length ? ' · ' + people(it) + ' kişi' : '') + '</h3>' +
         (it.length ? '<div class="stack" style="gap:6px;margin-bottom:8px">' + it.map(function (o) { return '<div class="row between" style="padding:10px 12px;border:1px solid var(--line);border-radius:12px"><span><b>' + e(o.name) + '</b> <span class="mute small">· ' + o.people + ' kişi · ' + e(o.src) + '</span></span>' + (can ? '<button class="btn sm ghost" type="button" data-rm="' + e(o.type + ':' + o.id) + '">Kaldır</button>' : '') + '</div>'; }).join('') + '</div>' : '<p class="small mute" style="margin-bottom:8px">Masa boş.</p>') +
-        (can ? '<h3 class="h2" style="margin:18px 0 8px">Oturt</h3><label class="search" style="max-width:none"><span class="sr">Ara</span>' + H.ico('search') + '<input type="search" id="fp-q" placeholder="Misafir ya da masa ara"></label><div id="fp-opts" class="stack" style="gap:4px;margin-top:8px;max-height:300px;overflow-y:auto"></div>' +
-          '<form id="fp-new" class="card" style="margin-top:18px"><h3 class="h2" style="margin-bottom:4px">Listede olmayan biri</h3><p class="small mute" style="margin-bottom:10px">Elle masa olarak eklenir ve bu masaya oturtulur.</p><div class="form">' + H.field({ name: 'name', label: 'Kimin adına', required: 1, max: 120 }) + H.field({ name: 'people', label: 'Kişi sayısı', type: 'number', value: 4, attrs: ' min="1" max="200" inputmode="numeric"' }) + '</div><div class="row between" style="margin-top:10px"><p class="msg bad" role="alert"></p><button class="btn pri" type="submit">Ekle ve oturt</button></div></form>' : '') });
+        (can ? '<h3 class="h2" style="margin:18px 0 8px">Oturt</h3><label class="search" style="max-width:none"><span class="sr">Ara</span>' + H.ico('search') + '<input type="search" id="fp-q" placeholder="Masa rezervasyonu ara"></label><div id="fp-opts" class="stack" style="gap:4px;margin-top:8px;max-height:300px;overflow-y:auto"></div>' +
+          '<form id="fp-new" class="card" style="margin-top:18px"><h3 class="h2" style="margin-bottom:4px">Yeni rezervasyon</h3><p class="small mute" style="margin-bottom:10px">Elle masa rezervasyonu olarak eklenir ve bu masaya oturtulur.</p><div class="form">' + H.field({ name: 'name', label: 'Kimin adına', required: 1, max: 120 }) + H.field({ name: 'people', label: 'Kişi sayısı', type: 'number', value: 4, attrs: ' min="1" max="200" inputmode="numeric"' }) + '</div><div class="row between" style="margin-top:10px"><p class="msg bad" role="alert"></p><button class="btn pri" type="submit">Ekle ve oturt</button></div></form>' : '') });
       var done = function () { dr.querySelector('[data-x]').click(); if (changed) changed(); };
       dr.querySelectorAll('[data-rm]').forEach(function (b) { b.onclick = async function () { var k = b.getAttribute('data-rm').split(':'); if (await put({ remove: { type: k[0], id: k.slice(1).join(':') } })) { if (changed) changed(); open(tid); } }; });
       if (!can) return;
@@ -153,7 +147,7 @@
       function list() {
         var f = q.trim().toLocaleLowerCase('tr'), mine = {}; it.forEach(function (o) { mine[o.type + ':' + o.id] = 1; });
         var rows = d.options.filter(function (o) { return !mine[o.type + ':' + o.id] && (!f || o.name.toLocaleLowerCase('tr').indexOf(f) > -1); }).sort(function (a, b) { return (where[a.type + ':' + a.id] ? 1 : 0) - (where[b.type + ':' + b.id] ? 1 : 0) || a.name.localeCompare(b.name, 'tr'); }).slice(0, 60);
-        box.innerHTML = rows.length ? rows.map(function (o) { var w = where[o.type + ':' + o.id]; return '<button type="button" class="fp-opt" data-add="' + e(o.type + ':' + o.id) + '"><span><b>' + e(o.name) + '</b> <span class="mute small">· ' + o.people + ' kişi · ' + e(o.src) + '</span></span><span class="small ' + (w ? 'dim' : 'mute') + '">' + (w ? 'şu an ' + e(w) + ' → taşı' : 'Oturt') + '</span></button>'; }).join('') : '<p class="small mute">' + (f ? 'Eşleşen yok.' : 'Oturtulacak onaylı misafir ya da masa yok.') + '</p>';
+        box.innerHTML = rows.length ? rows.map(function (o) { var w = where[o.type + ':' + o.id]; return '<button type="button" class="fp-opt" data-add="' + e(o.type + ':' + o.id) + '"><span><b>' + e(o.name) + '</b> <span class="mute small">· ' + o.people + ' kişi · ' + e(o.src) + '</span></span><span class="small ' + (w ? 'dim' : 'mute') + '">' + (w ? 'şu an ' + e(w) + ' → taşı' : 'Oturt') + '</span></button>'; }).join('') : '<p class="small mute">' + (f ? 'Eşleşen yok.' : 'Oturtulacak masa rezervasyonu yok.') + '</p>';
         box.querySelectorAll('[data-add]').forEach(function (b) { b.onclick = async function () { var k = b.getAttribute('data-add').split(':'); if (await put({ table: tid, add: { type: k[0], id: k.slice(1).join(':') } })) { if (changed) changed(); open(tid); } }; });
       }
       dr.querySelector('#fp-q').oninput = function () { q = this.value; list(); };

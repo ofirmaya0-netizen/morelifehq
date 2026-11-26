@@ -161,7 +161,7 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 | Key | Content |
 |---|---|
 | `vplan/<hash of venue key>` | A floor plan saved for a venue: `name`, `w`, `h`, `shapes`. None is written yet: plans that come with HQ live in `netlify/functions/lib/plans.mjs` and are picked by venue name (Alice Club: any venue whose name contains "alice") |
-| `vassign/<eventId>` | Who sits where at one event: `{ tables: { <plan table id>: [{ type: 'rsvp' \| 'table', id }] }, updatedAt, by }` |
+| `vassign/<eventId>` | Which table reservation is at which plan table: `{ tables: { <plan table id>: [{ type: 'table', id }] }, updatedAt, by }`. Only table reservations are seated (bought tables, confirmed table requests, hand-added tables); `rsvp` entries from the first version are ignored and dropped on the next change |
 
 - A shape is `{ k, s, x, y, w, h, label, id?, c? }`: `k` = `table` (can be given to a party), `seat` (seating drawn but not given out), `fix` (walls, bar, sofas) or `text`. In the Alice Club plan the tables are the drawing's "Launch" shapes (named "Table 1" … "Table 8", "Table Sol", "Table Sağ") and its Back 1–5, Sedir 1–6, Sedir Son and Paris spots: 23 in all. Kabin stays seating that is not given out.
 - `GET /api/hq/venue-links/plan?event=<id>` returns the plan of the event's venue, the seating and who can be seated (approved guests and the event's tables). `PUT … { event, table, add | remove | clear }`; seating somebody again moves them. HQ → event → Masalar.

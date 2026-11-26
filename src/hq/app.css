@@ -304,7 +304,6 @@ details.more[open]{flex-basis:100%;order:9}details.more[open]>summary{background
 .fplan .fp-fix{font-weight:600;letter-spacing:.2em;font-size:7.6px;fill:rgba(243,238,230,.78)}
 .fplan .fp-note{font-size:6.5px;fill:rgba(243,238,230,.5);letter-spacing:.04em}
 .fplan .fp-seat{stroke:rgba(243,238,230,.2);stroke-width:.8}
-.fplan .fp-chair{fill:#3b302c;stroke:rgba(243,238,230,.28);stroke-width:.7;transition:fill .2s}.fplan .fp-chair.on{fill:#8E2C28;stroke:rgba(243,154,139,.8)}
 .fplan .fp-seam{stroke:rgba(0,0,0,.4);stroke-width:1}
 .fplan .fp-stool{fill:#3a2f2c;stroke:rgba(243,238,230,.3);stroke-width:.7}
 .fplan .fp-beam{mix-blend-mode:screen;animation:fpBeam 7s ease-in-out infinite alternate}.fplan .fp-beam:nth-of-type(2){animation-delay:-2.5s}.fplan .fp-beam:nth-of-type(3){animation-delay:-5s}
