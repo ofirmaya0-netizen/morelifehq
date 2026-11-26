@@ -2,7 +2,8 @@
 // passed, who is coming and who has a table: names, party size, table and whether they are in. No e-mail, phone, notes,
 // prices paid or anything from another venue. Unless HQ switches it off, the venue's door staff can also open the QR
 // reader of those events and check guests in. The link is made, renewed and closed in HQ.
-import { all } from './store.mjs';
+import { all, store } from './store.mjs';
+import { PLANS } from './plans.mjs';
 import { token, hash, id } from './auth.mjs';
 import { json, fail, now, str, int, body, istToday, slugify } from './util.mjs';
 import { live } from './model.mjs';
@@ -33,7 +34,22 @@ const eventsAt = async (key) => (await all('events/')).filter((e) => e.status ==
 // Notes are what More Life writes for the venue about one table (birthday, bottles ordered ahead, VIP). They live in
 // `vnotes/<event>/<table key>`; what a guest wrote in a form is never passed on.
 const CAP_NEAR = 0.9; // the portal and HQ warn from 90 % of the event's capacity
+/* ---------- floor plan and seating ---------- */
+// A venue's floor plan: the one saved for it (`vplan/<hash of venue key>`), else a plan that comes with HQ for that venue.
+export async function planFor(s, venue) {
+  const key = venueKey(venue); if (!key) return null;
+  const own = await s.get('vplan/' + hash(key)); if (own && own.shapes) return own;
+  const p = PLANS.find((x) => x.match.test(key)); return p ? { name: p.name, w: p.w, h: p.h, shapes: p.shapes, builtin: true } : null;
+}
+// Who sits where at one event: `vassign/<eventId>` = { tables: { <plan table id>: [{ type: 'rsvp' | 'table', id }] } }.
+// `at` answers "which plan table is this guest / this table entry at?" with the table's name on the plan.
+async function seatingOf(s, e0) {
+  const plan = await planFor(s, (e0.live || e0).venue), rec = (await s.get('vassign/' + e0.id)) || { tables: {} }, at = new Map();
+  if (plan) { const lab = new Map(plan.shapes.filter((x) => x.k === 'table').map((x) => [x.id, x.label])); for (const [tid, items] of Object.entries(rec.tables || {})) if (lab.has(tid)) for (const it of items || []) at.set(it.type + ':' + it.id, lab.get(tid)); }
+  return { plan, rec, at };
+}
 async function detail(e0, enquiries, hq) {
+  const seat = await seatingOf(await store(), e0);
   const rsAll = await all('rsvps/' + e0.id + '/'), rs = rsAll.filter((r) => r.status === 'approved'), ts = await eventTickets(e0.id);
   // A bought table is one unit of stock: its tickets share an order and a slot. A unit that admits several people
   // (a table sold by number, without a plan) is a table too; everything else is one person with one ticket.
@@ -55,12 +71,12 @@ async function detail(e0, enquiries, hq) {
   // tickets of one order in the same name and type are one row ("Deniz Arslan · General · 2 people")
   const rows = new Map();
   for (const t of single) { const k = t.orderId + '|' + t.typeId + '|' + t.name, r = rows.get(k) || { name: t.name, people: 0, in: 0, type: t.typeName }; r.people += 1; r.in += t.checkedInAt ? 1 : 0; rows.set(k, r); }
-  const guests = rs.map((r) => ({ name: r.name, people: r.guests || 1, in: r.checkedInAt ? r.guests || 1 : 0, list: true, ...(r.via === 'venue' ? { yours: true } : {}) })).concat([...rows.values()])
+  const guests = rs.map((r) => ({ name: r.name, people: r.guests || 1, in: r.checkedInAt ? r.guests || 1 : 0, list: true, ...(r.via === 'venue' ? { yours: true } : {}), ...(seat.at.get('rsvp:' + r.id) ? { table: seat.at.get('rsvp:' + r.id) } : {}) })).concat([...rows.values()])
     .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
   // a table More Life adds by hand in HQ (sold by phone, a friend of the house): `vtables/<event>/<id>`, held under a name
   const manual = (await all('vtables/' + e0.id + '/')).map((t) => ({ key: 'm-' + t.id, label: t.label || '', area: t.area === 'backstage' ? 'backstage' : 'standard', name: t.name, people: t.people || 1, in: null, manual: true }))
     .sort((a, b) => byLabel(a, b) || a.name.localeCompare(b.name, 'tr'));
-  const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held, manual).map(({ key, ...x }) => ({ ...(hq ? { key } : {}), ...x, ...(notes.get(key) ? { note: notes.get(key) } : hq ? { note: '' } : {}) }));
+  const sum = (xs, f) => xs.reduce((n, x) => n + f(x), 0), all2 = tables.concat(held, manual).map(({ key, ...x }) => ({ ...(hq ? { key } : {}), ...x, ...(seat.at.get('table:' + key) ? { label: seat.at.get('table:' + key), placed: true } : {}), ...(notes.get(key) ? { note: notes.get(key) } : hq ? { note: '' } : {}) }));
   const counts = {
     tables: all2.length, tablePeople: sum(all2, (x) => x.people),
     list: sum(guests.filter((g) => g.list), (g) => g.people), tickets: sum(guests.filter((g) => !g.list), (g) => g.people),
@@ -113,6 +129,39 @@ export async function venuePublic(req, s, url, limitedNow) {
 export async function venueAdmin(req, s, url, me, sub) {
   const m = req.method;
   // Tables for the venue: GET notes?event=<id> → the event's tables with their notes · PUT notes { event, key, note }
+  // The floor plan of the event's venue and who sits where: GET plan?event=<id> · PUT plan { event, table, add | remove | clear }
+  if (sub === 'plan') {
+    const b = m === 'GET' ? null : await body(req), e0 = await s.get('events/' + str(b ? b.event : url.searchParams.get('event'), 40).replace(/[^A-Za-z0-9_-]/g, ''));
+    if (!e0) return fail(404, 'Etkinlik bulunamadı.');
+    const view = async (extra) => {
+      const { plan, rec } = await seatingOf(s, e0); if (!plan) return json({ plan: null, venue: (e0.live || e0).venue || '' });
+      const d = await detail(e0, await all('enquiries/'), true), rs = (await all('rsvps/' + e0.id + '/')).filter((r) => r.status === 'approved');
+      const opts = rs.map((r) => ({ type: 'rsvp', id: r.id, name: r.name, people: r.guests || 1, src: 'Misafir listesi' })).concat(d.tables.map((t) => ({ type: 'table', id: t.key, name: t.name, people: t.people, src: t.manual ? 'Elle eklenen masa' : t.request ? 'Onaylı masa talebi' : 'Satın alınan masa' })));
+      const byKey = new Map(opts.map((o) => [o.type + ':' + o.id, o])), assign = {};
+      for (const sh of plan.shapes.filter((x) => x.k === 'table')) assign[sh.id] = (rec.tables[sh.id] || []).map((it) => byKey.get(it.type + ':' + it.id)).filter(Boolean);
+      return json({ plan: { name: plan.name, w: plan.w, h: plan.h, shapes: plan.shapes }, venue: (e0.live || e0).venue || '', assign, options: opts.sort((x, y) => x.name.localeCompare(y.name, 'tr')), ...(extra || {}) });
+    };
+    if (m === 'GET') return view();
+    if (m !== 'PUT') return fail(405, 'Method not allowed');
+    const { plan, rec } = await seatingOf(s, e0); if (!plan) return fail(409, 'Bu etkinliğin mekânı için masa planı yok.');
+    const tbl = plan.shapes.find((x) => x.k === 'table' && x.id === str(b.table, 60)), it = b.add || b.remove, item = it ? { type: it.type === 'table' ? 'table' : 'rsvp', id: str(it.id, 80) } : null;
+    if ((b.add || b.clear) && !tbl) return fail(404, 'Planda böyle bir masa yok.');
+    rec.tables = rec.tables || {};
+    let who = '';
+    if (item) {
+      if (b.add) { // must be an approved guest or one of the event's tables
+        const ok = item.type === 'rsvp' ? ((await s.get('rsvps/' + e0.id + '/' + item.id)) || {}) : ((await detail(e0, await all('enquiries/'), true)).tables.find((t) => t.key === item.id) || null);
+        if (!ok || (item.type === 'rsvp' && ok.status !== 'approved')) return fail(404, 'Bu kişi ya da masa bu etkinlikte yok (yalnızca onaylı misafirler ve etkinliğin masaları oturtulur).');
+        who = ok.name || '';
+      }
+      for (const k of Object.keys(rec.tables)) rec.tables[k] = (rec.tables[k] || []).filter((x) => !(x.type === item.type && x.id === item.id)); // one place at a time
+      if (b.add) (rec.tables[tbl.id] = rec.tables[tbl.id] || []).push(item);
+    } else if (b.clear) rec.tables[tbl.id] = [];
+    else return fail(400, 'Ne yapılacağı belirtilmedi.');
+    for (const k of Object.keys(rec.tables)) if (!rec.tables[k].length) delete rec.tables[k];
+    rec.updatedAt = now(); rec.by = (me && me.name) || ''; await s.set('vassign/' + e0.id, rec);
+    return view({ eventTitle: e0.title, did: b.add ? 'add' : b.clear ? 'clear' : 'remove', tableLabel: tbl ? tbl.label : '', who });
+  }
   if (sub === 'notes') {
     const b = m === 'GET' ? null : await body(req), e0 = await s.get('events/' + str(b ? b.event : url.searchParams.get('event'), 40).replace(/[^A-Za-z0-9_-]/g, ''));
     if (!e0) return fail(404, 'Etkinlik bulunamadı.');
@@ -154,7 +203,7 @@ export async function venueAdmin(req, s, url, me, sub) {
   if (sub === 'overview' && m === 'GET') {
     const evs = (await all('events/')).filter((e) => e.status === 'published' && e.live && venueKey(e.live.venue) && current(e.live)).sort((a, b) => (a.live.date || '9').localeCompare(b.live.date || '9'));
     const enquiries = evs.length ? await all('enquiries/') : [], by = new Map();
-    for (const e0 of evs) { const k = venueKey(e0.live.venue); if (!by.has(k)) by.set(k, { key: k, venue: str(e0.live.venue, 160), city: e0.live.city || '', link: null, events: [] }); by.get(k).events.push({ ...head(e0), counts: (await detail(e0, enquiries, true)).counts }); }
+    for (const e0 of evs) { const k = venueKey(e0.live.venue); if (!by.has(k)) by.set(k, { key: k, venue: str(e0.live.venue, 160), city: e0.live.city || '', link: null, events: [], plan: await (async () => { const p = await planFor(s, e0.live.venue); return p ? { name: p.name, tables: p.shapes.filter((x) => x.k === 'table').length } : null; })() }); by.get(k).events.push({ ...head(e0), counts: (await detail(e0, enquiries, true)).counts }); }
     for (const l of await all('vlinks/')) { if (!by.has(l.key)) by.set(l.key, { key: l.key, venue: l.venue, city: '', link: null, events: [] }); by.get(l.key).link = { url: '/venue?k=' + l.token, scan: l.scan !== false, invite: l.invite !== false, createdAt: l.createdAt, by: l.by || '' }; }
     return json({ venues: [...by.values()].sort((a, b) => (b.events.length ? 1 : 0) - (a.events.length ? 1 : 0) || a.venue.localeCompare(b.venue, 'tr')) });
   }

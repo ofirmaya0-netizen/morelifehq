@@ -155,3 +155,13 @@ her birinin açıklaması `db/migrations/` altındadır. Migration'lar ilk istek
 - `rsvps/<event>/<id>.guestNames` — the names, typed in by the team (`PUT …/guest-names { names }`); shown on the request and in the guest export.
 - `PUT /api/hq/rsvps/<event>/<id>/guests { plus, force }` — the host sets how many people a guest brings (0–50; the form's `plusOnes` limit does not apply). `rsvps/….guests` is the whole party; `guestsWas` and `guestsSetAt` keep the last change. For an approved guest a rise is checked against the event's capacity (`force` overrides); a fall offers the freed places to the waiting list.
 - `settings/whatsapp.guestsChanged` — template that tells an approved guest their party size was changed. Variables: `name` (first name), `event`, `total` (everybody, the guest included). Sent only when the change is saved with `notify: true`; the result is kept in `rsvps/….guestsWa`. The change itself is saved whether or not the message goes out.
+
+## Floor plan and seating (no migration needed; new key groups)
+| Key | Content |
+|---|---|
+| `vplan/<hash of venue key>` | A floor plan saved for a venue: `name`, `w`, `h`, `shapes`. None is written yet: plans that come with HQ live in `netlify/functions/lib/plans.mjs` and are picked by venue name (Alice Club: any venue whose name contains "alice") |
+| `vassign/<eventId>` | Who sits where at one event: `{ tables: { <plan table id>: [{ type: 'rsvp' \| 'table', id }] }, updatedAt, by }` |
+
+- A shape is `{ k, s, x, y, w, h, label, id?, c? }`: `k` = `table` (can be given to a party), `seat` (seating drawn but not given out), `fix` (walls, bar, sofas) or `text`. In the Alice Club plan the ten "Launch" shapes of the venue's own drawing are the tables; they are named "Table 1" … "Table 8", "Table Sol", "Table Sağ".
+- `GET /api/hq/venue-links/plan?event=<id>` returns the plan of the event's venue, the seating and who can be seated (approved guests and the event's tables). `PUT … { event, table, add | remove | clear }`; seating somebody again moves them. HQ → event → Masalar.
+- A seated table entry shows the plan table as its `label` (`placed: true`); a seated guest gets `table` in the venue portal. Guests who are no longer approved and deleted tables drop out of the seating when it is read.
