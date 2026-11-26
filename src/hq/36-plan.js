@@ -20,6 +20,10 @@
     '<linearGradient id="fpWood" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b7146"/><stop offset="1" stop-color="#5b4a2e"/></linearGradient>' +
     '<radialGradient id="fpFree" cx="38%" cy="30%" r="80%"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#d9d0c3"/></radialGradient>' +
     '<radialGradient id="fpOn" cx="38%" cy="30%" r="85%"><stop offset="0" stop-color="#f39a8b"/><stop offset="1" stop-color="#b9463a"/></radialGradient>' +
+    '<radialGradient id="fpVig" cx="50%" cy="50%" r="72%"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/></radialGradient>' +
+    '<radialGradient id="fpSeat" cx="40%" cy="32%" r="80%"><stop offset="0" stop-color="#4a3d39"/><stop offset="1" stop-color="#2b2321"/></radialGradient>' +
+    '<radialGradient id="fpCol" cx="35%" cy="30%" r="80%"><stop offset="0" stop-color="#5a504c"/><stop offset="1" stop-color="#231d1b"/></radialGradient>' +
+    '<linearGradient id="fpBeam" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F3EEE6" stop-opacity=".10"/><stop offset="1" stop-color="#F3EEE6" stop-opacity="0"/></linearGradient>' +
     '<pattern id="fpGrid" width="14" height="14" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".6" fill="rgba(243,238,230,.09)"/></pattern>' +
     '<pattern id="fpRug" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="rgba(243,238,230,.04)"/><line x1="0" y1="0" x2="0" y2="6" stroke="rgba(243,238,230,.05)" stroke-width="1.2"/></pattern>' +
     '<filter id="fpShadow" x="-40%" y="-40%" width="180%" height="190%"><feDropShadow dx="0" dy="2.5" stdDeviation="2.5" flood-color="#000" flood-opacity=".55"/></filter>' +
@@ -30,6 +34,19 @@
     return s.s === 'e' ? '<ellipse cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + s.w / 2 + '" ry="' + s.h / 2 + '"' + attrs + '/>'
       : '<rect x="' + s.x + '" y="' + s.y + '" width="' + s.w + '" height="' + s.h + '" rx="' + (rx != null ? rx : s.s === 'r' ? 12 : 4) + '"' + attrs + '/>';
   }
+  // chairs round a table, cushions on a sofa, stools at the bar: what makes a drawing read as a room
+  function chairs(s, on) {
+    var cx = s.x + s.w / 2, cy = s.y + s.h / 2, n = s.w >= 46 ? 6 : 5, out = '';
+    for (var i = 0; i < n; i++) { var a = (i / n) * Math.PI * 2 - Math.PI / 2 + (n === 6 ? Math.PI / 6 : 0); out += '<circle class="fp-chair' + (on ? ' on' : '') + '" cx="' + (cx + Math.cos(a) * (s.w / 2 + 6.5)).toFixed(1) + '" cy="' + (cy + Math.sin(a) * (s.h / 2 + 6.5)).toFixed(1) + '" r="3.4"/>'; }
+    return out;
+  }
+  function cushions(s) {
+    var out = '', horiz = s.w > s.h, len = horiz ? s.w : s.h, n = Math.max(2, Math.round(len / 26));
+    for (var i = 1; i < n; i++) { var t = (len / n) * i; out += horiz ? '<line x1="' + (s.x + t) + '" y1="' + (s.y + 2) + '" x2="' + (s.x + t) + '" y2="' + (s.y + s.h - 2) + '" class="fp-seam"/>' : '<line x1="' + (s.x + 2) + '" y1="' + (s.y + t) + '" x2="' + (s.x + s.w - 2) + '" y2="' + (s.y + t) + '" class="fp-seam"/>'; }
+    return out;
+  }
+  function stools(s) { var out = '', n = Math.floor(s.w / 30); for (var i = 0; i < n; i++) out += '<circle class="fp-stool" cx="' + (s.x + 22 + i * ((s.w - 44) / (n - 1))).toFixed(1) + '" cy="' + (s.y + s.h + 9) + '" r="4.2"/>'; return out; }
+  function shelf(s) { var out = '', n = Math.floor(s.w / 16); for (var i = 0; i < n; i++) out += '<circle cx="' + (s.x + 10 + i * ((s.w - 20) / (n - 1))).toFixed(1) + '" cy="' + (s.y + s.h / 2) + '" r="1.5" fill="' + (i % 3 === 0 ? '#E0705F' : i % 3 === 1 ? '#F2C46B' : '#F3EEE6') + '" opacity=".75"/>'; return out; }
   var words = function (s, max) { return s.label.split(' ').length > 1 && s.w < max ? s.label.split(' ').map(function (w) { return [w]; }) : [[s.label]]; };
 
   // d: { plan, assign }. Tables are buttons and drop targets; everything else is scenery.
@@ -38,23 +55,27 @@
     // the dance floor glow sits under the tables: the middle of where they stand
     var cx = ts.reduce(function (n, s) { return n + s.x + s.w / 2; }, 0) / (ts.length || 1), cy = ts.reduce(function (n, s) { return n + s.y + s.h / 2; }, 0) / (ts.length || 1);
     return '<svg class="fplan" viewBox="0 0 ' + p.w + ' ' + p.h + '" role="group" aria-label="' + e(p.name) + ' masa planı">' + DEFS +
-      (room ? '<rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpRoom)" stroke="rgba(243,238,230,.28)" stroke-width="1.2"/><rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpGrid)"/>' : '') +
-      (ts.length ? '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + p.w * 0.27 + '" ry="' + p.h * 0.34 + '" fill="url(#fpFloor)"/>' : '') +
+      (room ? '<rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpRoom)" stroke="rgba(243,238,230,.34)" stroke-width="1.4"/><rect x="' + (room.x + 3.5) + '" y="' + (room.y + 3.5) + '" width="' + (room.w - 7) + '" height="' + (room.h - 7) + '" rx="11" fill="none" stroke="rgba(243,238,230,.1)" stroke-width=".8"/><rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpGrid)"/>' : '') +
+      (ts.length ? '<ellipse cx="' + cx + '" cy="' + cy + '" rx="' + p.w * 0.29 + '" ry="' + p.h * 0.36 + '" fill="url(#fpFloor)"/>' + [-0.16, 0, 0.16].map(function (o) { var x = cx + o * p.w; return '<polygon class="fp-beam" points="' + (x - 8) + ',' + (cy - p.h * 0.3) + ' ' + (x + 8) + ',' + (cy - p.h * 0.3) + ' ' + (x + 46 + o * 120) + ',' + (cy + p.h * 0.34) + ' ' + (x - 46 + o * 120) + ',' + (cy + p.h * 0.34) + '" fill="url(#fpBeam)"/>'; }).join('') : '') +
       p.shapes.map(function (s) {
         if (s.c === 'room') return '';
         if (s.k === 'fix') {
           var dj = s.label === 'DJ', out = shape2(s, ' fill="' + (FIX[s.c] || FIX.dark) + '"' + (s.c === 'carpet' ? ' stroke="rgba(243,238,230,.07)"' : s.c === 'bar' ? ' filter="url(#fpShadow)" stroke="rgba(255,255,255,.12)"' : s.c === 'sofa' ? ' stroke="rgba(0,0,0,.35)"' : ''), s.c === 'carpet' ? 10 : s.c === 'sofa' ? 6 : null);
+          if (s.c === 'sofa') out += cushions(s);
+          if (s.c === 'dark' && s.s === 'e') out = shape2(s, ' fill="url(#fpCol)" stroke="rgba(243,238,230,.25)" stroke-width=".8" filter="url(#fpShadow)"');
+          if (s.c === 'dark' && s.s !== 'e' && !s.label && s.w > 200) out += shelf(s);
+          if (s.c === 'bar' && s.w > 200) out += stools(s);
           if (s.c === 'bar' && s.w > 200) out += '<rect x="' + (s.x + 10) + '" y="' + (s.y + 5) + '" width="' + (s.w - 20) + '" height="2" rx="1" fill="rgba(255,255,255,.22)"/>';
           if (dj) out += [0, 1, 2].map(function (i) { return '<circle class="fp-pulse" style="animation-delay:' + (i * 0.9) + 's" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" r="10" fill="none" stroke="#E0705F" stroke-width="1"/>'; }).join('') + '<circle cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2 - 22) + '" r="9" fill="#17110f" stroke="rgba(243,238,230,.35)"/><circle cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2 + 22) + '" r="9" fill="#17110f" stroke="rgba(243,238,230,.35)"/><circle cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2 - 22) + '" r="2" fill="#E0705F"/><circle cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2 + 22) + '" r="2" fill="#E0705F"/>';
           return out + (s.label ? text(s, words(s, 70), 'fp-fix') : '');
         }
         if (s.k === 'text') return text(s, [[s.label]], 'fp-note');
-        if (s.k === 'seat') return shape2(s, ' class="fp-seat"', 6) + text(s, words(s, 60), 'fp-seat-t');
+        if (s.k === 'seat') return shape2(s, ' class="fp-seat" fill="url(#fpSeat)"', 7) + text(s, words(s, 60), 'fp-seat-t');
         var it = d.assign[s.id] || [], n = people(it), on = it.length > 0, tip = s.label + (on ? ': ' + it.map(function (x) { return x.name + ' (' + x.people + ')'; }).join(', ') : ': boş');
         return '<g class="fp-table' + (on ? ' on' : '') + '" data-t="' + e(s.id) + '" tabindex="0" role="button" aria-label="' + e(tip) + '"><title>' + e(tip) + '</title>' +
-          '<ellipse class="fp-ring" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + (s.w / 2 + 5) + '" ry="' + (s.h / 2 + 5) + '"/>' + shape2(s, ' class="fp-top" fill="url(#' + (on ? 'fpOn' : 'fpFree') + ')" filter="url(#' + (on ? 'fpGlow' : 'fpShadow') + ')"') +
-          text(s, on ? [[s.label, 'fp-sm'], [it.length > 1 ? short(it[0].name, 7) + ' +' + (it.length - 1) : short(it[0].name, 9), 'fp-b'], [n + ' kişi', 'fp-sm']] : s.label.split(' ').map(function (w) { return [w]; }), 'fp-t') + '</g>';
-      }).join('') + '</svg>';
+          '<ellipse class="fp-ring" cx="' + (s.x + s.w / 2) + '" cy="' + (s.y + s.h / 2) + '" rx="' + (s.w / 2 + 12) + '" ry="' + (s.h / 2 + 12) + '"/>' + chairs(s, on) + shape2(s, ' class="fp-top" fill="url(#' + (on ? 'fpOn' : 'fpFree') + ')" filter="url(#' + (on ? 'fpGlow' : 'fpShadow') + ')"') +
+          text(s, on ? [[s.label, 'fp-sm'], [it.length > 1 ? short(it[0].name, 7) + ' +' + (it.length - 1) : short(it[0].name, 9), 'fp-b'], [n + ' kişi', 'fp-sm']] : (function () { var w = s.label.split(' '); return w.length > 1 ? [[w[0].toLocaleUpperCase('tr'), 'fp-cap'], [w.slice(1).join(' '), 'fp-num']] : [[s.label]]; })(), 'fp-t') + '</g>';
+      }).join('') + (room ? '<rect x="' + room.x + '" y="' + room.y + '" width="' + room.w + '" height="' + room.h + '" rx="14" fill="url(#fpVig)" pointer-events="none"/>' : '') + '</svg>';
   };
 
   H.parts.floorPlan = async function (root, eventId, title, changed) {
