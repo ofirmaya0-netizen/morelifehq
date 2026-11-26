@@ -51,9 +51,19 @@ try:
     ok('a pending guest is not held to capacity until approved', a.req(P('derin@x.com'),'PUT',{'plus':9})[0]==200)
     pt=cur('ada@x.com')['passToken']; ok('the entry pass shows the new party size', anon.req('/api/public/pass?t='+pt)[1]['pass']['guests']==4)
     a.req('/api/hq/events/'+ev['id'],'PUT',{'capacity':0})
+    # ---------- telling the guest about the change ----------
+    w0=len(WA); st,j,_=a.req(P('ada@x.com'),'PUT',{'plus':2,'notify':True}); ok('no template yet: the change is saved, the guest is not told, HQ is told why', st==200 and j['rsvp']['guests']==3 and j['notified'] is False and 'şablon' in j['notifyError'] and len(WA)==w0, j)
+    ok('list shows the wording and that the template is missing', a.req(L)[1]['whatsapp']['guestsChanged'] is False and 'party of 4, including you' in a.req(L)[1]['whatsapp']['guestsChangedText'])
+    a.req('/api/hq/whatsapp/settings','PUT',{'guestsChanged':{'projectId':'eeee5555-2222-3333-4444-555555555555','version':'ffff6666-7777-8888-9999-000000000000'}})
+    ok('template saved without touching the others', a.req(L)[1]['whatsapp']['guestsChanged'] is True and a.req(L)[1]['whatsapp']['guestNames'] is True)
+    st,j,_=a.req(P('ada@x.com'),'PUT',{'plus':4,'notify':True}); prm={x['key']:x['value'] for x in WA[-1]['template']['parameters']}
+    ok('told by WhatsApp: its own template, first name / event / whole party', st==200 and j['notified'] is True and j['rsvp']['guestsWa']['status']=='sent' and WA[-1]['template']['projectId'].startswith('eeee') and prm=={'name':'Ada','event':'Santa','total':'5'} and len(WA)==w0+1, (j.get('notified'),prm))
+    w1=len(WA); ok('not told without the tick, nor when nothing changed', a.req(P('ada@x.com'),'PUT',{'plus':3})[1]['notified'] is False and a.req(P('ada@x.com'),'PUT',{'plus':3,'notify':True})[1]['notified'] is False and len(WA)==w1)
+    st,j,_=a.req(P('derin@x.com'),'PUT',{'plus':1,'notify':True}); ok('a pending guest is not told', j['notified'] is False and 'onaylı' in j['notifyError'] and len(WA)==w1, j)
+    st,j,_=a.req(P('cem@x.com'),'PUT',{'plus':2,'notify':True}); ok('no phone: saved, not told', j['rsvp']['guests']==3 and j['notified'] is False and 'telefon' in j['notifyError'], j)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
     ok('asking and saving are in the record of actions', any('isimlerini WhatsApp' in x for x in log) and any('isimlerini kaydetti' in x for x in log) and any('Misafir sayısını değiştirdi' in x for x in log), log[:8])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the controls and the settings fields', 'Misafir isimlerini sor' in h and 'ap-names-all' in h and 'guestNamesProject' in h and 'gn-in' in h and 'pl-save' in h and 'data-plus' in h)
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the controls and the settings fields', 'Misafir isimlerini sor' in h and 'ap-names-all' in h and 'guestNamesProject' in h and 'gn-in' in h and 'pl-save' in h and 'data-plus' in h and 'pl-tell' in h and 'guestsChangedProject' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

@@ -90,7 +90,7 @@ export async function describe(s, parts, m, b, j) {
     if (p3 === 'send-table') return ['Masa linkini gönderdi', who, t];
     if (p3 === 'send-guest-names') return ['Misafir isimlerini WhatsApp’tan sordu', who, t];
     if (p3 === 'guest-names') return ['Misafir isimlerini kaydetti', who, t];
-    if (p3 === 'guests') return ['Misafir sayısını değiştirdi', who, t + (j.rsvp ? ' · +' + ((j.was || 1) - 1) + ' → +' + ((j.rsvp.guests || 1) - 1) : '')];
+    if (p3 === 'guests') return ['Misafir sayısını değiştirdi', who, t + (j.rsvp ? ' · +' + ((j.was || 1) - 1) + ' → +' + ((j.rsvp.guests || 1) - 1) + (j.notified ? ' · misafire bildirildi' : '') : '')];
     if (p3 === 'send-pass') return ['Giriş kartını e-postayla gönderdi', who, t];
     if (p3 === 'send-pass-wa') return ['Giriş kartını WhatsApp’tan gönderdi', who, t];
     return null;
