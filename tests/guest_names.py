@@ -37,9 +37,23 @@ try:
     st,j,_=a.req(G,'PUT',{'names':'  Zeynep Ak, Mert Aydın '}); ok('names kept on the guest', st==200 and j['rsvp']['guestNames']=='Zeynep Ak, Mert Aydın' and {r['email']:r for r in a.req(L)[1]['rsvps']}['ada@x.com']['guestNames']=='Zeynep Ak, Mert Aydın', j)
     c=a.req('/api/hq/rsvps.csv?event='+ev['id'],raw=True)[1]; ok('guest export has the names', 'Misafir isimleri' in c and 'Zeynep Ak, Mert Aydın' in c)
     a.req(G,'PUT',{'names':''}); ok('names can be cleared', {r['email']:r for r in a.req(L)[1]['rsvps']}['ada@x.com']['guestNames']=='')
+    # ---------- the host changes how many people a guest brings ----------
+    P=lambda em: L+'/'+rs[em]['id']+'/guests'; cur=lambda em: {r['email']:r for r in a.req(L)[1]['rsvps']}[em]
+    ok('anon cannot change it', anon.req(P('ada@x.com'),'PUT',{'plus':1})[0]==401)
+    ok('must be a number from 0 to 50', a.req(P('ada@x.com'),'PUT',{'plus':-1})[0]==400 and a.req(P('ada@x.com'),'PUT',{'plus':51})[0]==400 and a.req(P('ada@x.com'),'PUT',{'plus':'x'})[0]==400 and cur('ada@x.com')['guests']==3)
+    st,j,_=a.req(P('ada@x.com'),'PUT',{'plus':5}); ok('raised past the form’s own limit (3): the host is not bound by it', st==200 and j['rsvp']['guests']==6 and j['was']==3 and cur('ada@x.com')['guests']==6, j)
+    ok('lowered to nobody', a.req(P('ada@x.com'),'PUT',{'plus':0})[1]['rsvp']['guests']==1 and a.req(S('ada@x.com'),'POST',{})[0]==400)
+    ok('a pending guest can be changed too', a.req(P('derin@x.com'),'PUT',{'plus':4})[1]['rsvp']['guests']==5 and cur('derin@x.com')['status']=='pending')
+    used=sum(r['guests'] for r in a.req(L)[1]['rsvps'] if r['status']=='approved'); a.req('/api/hq/events/'+ev['id'],'PUT',{'capacity':used+1})
+    st,j,_=a.req(P('ada@x.com'),'PUT',{'plus':1}); ok('within capacity: saved', st==200 and j['rsvp']['guests']==2, j)
+    st,j,_=a.req(P('ada@x.com'),'PUT',{'plus':3}); ok('over capacity for an approved guest: refused with the numbers', st==409 and j.get('overCapacity') and cur('ada@x.com')['guests']==2, j)
+    ok('…unless the host insists', a.req(P('ada@x.com'),'PUT',{'plus':3,'force':True})[1]['rsvp']['guests']==4)
+    ok('a pending guest is not held to capacity until approved', a.req(P('derin@x.com'),'PUT',{'plus':9})[0]==200)
+    pt=cur('ada@x.com')['passToken']; ok('the entry pass shows the new party size', anon.req('/api/public/pass?t='+pt)[1]['pass']['guests']==4)
+    a.req('/api/hq/events/'+ev['id'],'PUT',{'capacity':0})
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
-    ok('asking and saving are in the record of actions', any('isimlerini WhatsApp' in x for x in log) and any('isimlerini kaydetti' in x for x in log), log[:8])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the controls and the settings fields', 'Misafir isimlerini sor' in h and 'ap-names-all' in h and 'guestNamesProject' in h and 'gn-in' in h)
+    ok('asking and saving are in the record of actions', any('isimlerini WhatsApp' in x for x in log) and any('isimlerini kaydetti' in x for x in log) and any('Misafir sayısını değiştirdi' in x for x in log), log[:8])
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the controls and the settings fields', 'Misafir isimlerini sor' in h and 'ap-names-all' in h and 'guestNamesProject' in h and 'gn-in' in h and 'pl-save' in h and 'data-plus' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)

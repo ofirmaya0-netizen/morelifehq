@@ -514,6 +514,17 @@ async function adminRoutes(req, ctx, parts, url, s, me) {
       r.namesWa = await sendGuestNamesWa(s, live(e) || e, r); await s.set('rsvps/' + e.id + '/' + r.id, r);
       return r.namesWa.status === 'sent' ? json({ rsvp: r }) : fail(502, 'WhatsApp gönderilemedi: ' + (r.namesWa.error || ''), { rsvp: r });
     }
+    // The host changes how many people a guest brings (the form's own limit does not bind the host). For an approved
+    // guest the event's capacity is checked like at approval; places given back go to the waiting list.
+    if (parts[3] === 'guests' && m === 'PUT') {
+      const b = await body(req), plus = parseInt(b.plus, 10);
+      if (!(plus >= 0 && plus <= 50)) return fail(400, 'Misafir sayısı 0 ile 50 arasında olmalı.');
+      const was = r.guests || 1, now2 = plus + 1;
+      if (r.status === 'approved' && now2 > was && e.capacity && guestsOf(rs, 'approved') - was + now2 > e.capacity && !b.force) return fail(409, 'Kapasite aşılıyor (' + (guestsOf(rs, 'approved') - was + now2) + ' / ' + e.capacity + ').', { overCapacity: true });
+      r.guests = now2; r.guestsSetAt = now(); r.guestsWas = was; await s.set('rsvps/' + e.id + '/' + r.id, r);
+      if (r.status === 'approved' && now2 < was) await offerNext(s, e, url.origin);
+      return json({ rsvp: r, was });
+    }
     // The names the guest sent back, typed in by the team.
     if (parts[3] === 'guest-names' && m === 'PUT') {
       r.guestNames = str((await body(req)).names, 400); await s.set('rsvps/' + e.id + '/' + r.id, r);
