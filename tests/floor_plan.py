@@ -51,7 +51,7 @@ try:
     ok('the door role can neither read nor change the seating', d.req(P+'?event='+e1['id'])[0]==403 and d.req(P,'PUT',{'event':e1['id'],'table':'table-1','clear':True})[0]==403)
     log=[x['action'] for x in a.req('/api/hq/audit')[1].get('entries',a.req('/api/hq/audit')[1].get('items',[]))]
     ok('seating is in the record of actions', all(any(w in x for x in log) for w in ['Masaya oturttu','Masadan kaldırdı','Masayı boşalttı']), log[:10])
-    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the plan', 'fp-table' in h and 'venue-links/plan' in h and 'Masa planı · ' in h)
+    st,h,_=a.req('/hq',raw=True); ok('HQ bundle carries the plan', 'fp-table' in h and 'venue-links/plan' in h and 'Masa planı · ' in h and 'fp-chip' in h and 'fp-unseat' in h)
 finally:
     srv.terminate()
 print(sum(R),'/',len(R),'passed'); sys.exit(0 if all(R) else 1)
